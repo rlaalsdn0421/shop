@@ -24,6 +24,10 @@
 .DS_Store
 *.pem
 
+# env
+.env
+.env*.local
+
 # debug
 npm-debug.log*
 yarn-debug.log*
@@ -39,3 +43,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/src/generated/prisma
+
+# prisma CLI local skill cache (not project code)
+/.agents/
+/.windsurf/
+/.claude/skills/
+skills-lock.json
