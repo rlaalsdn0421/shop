@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useCart } from "@/lib/cart";
+import { useCart } from "@/frontend/cart/CartContext";
 
 type Props = {
   id: string;

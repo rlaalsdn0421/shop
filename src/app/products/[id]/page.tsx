@@ -1,7 +1,7 @@
 import Image from "next/image";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
-import { AddToCartForm } from "@/components/AddToCartForm";
+import { getProduct } from "@/backend/application/getProduct";
+import { AddToCartForm } from "@/frontend/components/AddToCartForm";
 
 export default async function ProductDetail({
   params,
@@ -9,7 +9,7 @@ export default async function ProductDetail({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const product = await prisma.product.findUnique({ where: { id } });
+  const product = await getProduct(id);
 
   if (!product) notFound();
 

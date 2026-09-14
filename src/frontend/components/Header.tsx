@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCart } from "@/lib/cart";
+import { useCart } from "@/frontend/cart/CartContext";
 
 export function Header() {
   const { totalCount } = useCart();

@@ -1,11 +1,8 @@
-import { prisma } from "@/lib/prisma";
-import { ProductCard } from "@/components/ProductCard";
+import { listProducts } from "@/backend/application/listProducts";
+import { ProductCard } from "@/frontend/components/ProductCard";
 
 export default async function Home() {
-  const products = await prisma.product.findMany({
-    orderBy: { createdAt: "desc" },
-    select: { id: true, name: true, price: true, imageUrl: true },
-  });
+  const products = await listProducts();
 
   return (
     <div className="flex flex-col gap-4">

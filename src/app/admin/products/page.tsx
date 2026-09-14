@@ -1,11 +1,8 @@
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
+import { listAdminProducts } from "@/backend/application/listAdminProducts";
 
 export default async function AdminProductsPage() {
-  const products = await prisma.product.findMany({
-    orderBy: { createdAt: "desc" },
-    select: { id: true, name: true, price: true, stock: true, createdAt: true },
-  });
+  const products = await listAdminProducts();
 
   return (
     <div className="flex flex-col gap-4">

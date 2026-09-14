@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { getOrder } from "@/backend/application/getOrder";
 
 export default async function OrderComplete({
   params,
@@ -7,10 +7,7 @@ export default async function OrderComplete({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const order = await prisma.order.findUnique({
-    where: { id },
-    include: { items: { include: { product: true } } },
-  });
+  const order = await getOrder(id);
 
   if (!order) notFound();
 
