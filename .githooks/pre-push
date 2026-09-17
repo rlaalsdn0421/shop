@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Fires on `git push`. Reads the standard pre-push stdin protocol
+# (local ref, local sha, remote ref, remote sha — one line per ref being
+# pushed) and kicks off the review loop in the background for each one,
+# so the push itself is never blocked or delayed.
+#
+# To enable: git config core.hooksPath .githooks
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "0000000000000000000000000000000000000000" ] && continue  # branch deletion
+
+  if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+    range="$local_sha"  # new branch on remote — nothing to diff against yet
+  else
+    range="$remote_sha..$local_sha"
+  fi
+
+  nohup "$REPO_ROOT/scripts/review-loop.sh" "$range" "$remote_ref" \
+    >> "$REPO_ROOT/.review-loop.log" 2>&1 &
+  disown
+done
+
+exit 0
