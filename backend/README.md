@@ -28,7 +28,8 @@ Defaults (all overridable via env vars) point at a local Postgres started with `
 | Username | `DB_USERNAME` | `postgres` |
 | Password | `DB_PASSWORD` | `postgres` |
 
-CORS is open to `http://localhost:3000` (the Next.js frontend) for all `/api/**` routes.
+CORS is open to `http://localhost:3000` (the Next.js frontend) for all `/api/**` routes;
+override with the `CORS_ALLOWED_ORIGINS` env var (comma-separated list of origins).
 
 ## API
 
