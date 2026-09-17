@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080";
+
 export function AdminProductForm() {
   const router = useRouter();
   const [form, setForm] = useState({
@@ -20,7 +22,7 @@ export function AdminProductForm() {
     setError("");
     setSubmitting(true);
     try {
-      const res = await fetch("/api/admin/products", {
+      const res = await fetch(`${BACKEND_URL}/api/admin/products`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

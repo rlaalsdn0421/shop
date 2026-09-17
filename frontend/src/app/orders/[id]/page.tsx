@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { getOrder } from "@/backend/application/getOrder";
+import { getOrder } from "@/lib/api";
 
 export default async function OrderComplete({
   params,
@@ -22,7 +22,7 @@ export default async function OrderComplete({
         {order.items.map((item) => (
           <div key={item.id} className="flex justify-between text-sm">
             <span>
-              {item.product.name} x {item.quantity}
+              {item.productName} x {item.quantity}
             </span>
             <span>{(item.price * item.quantity).toLocaleString()}원</span>
           </div>

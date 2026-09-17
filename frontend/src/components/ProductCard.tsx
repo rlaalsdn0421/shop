@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCart } from "@/frontend/cart/CartContext";
+import { useCart } from "@/cart/CartContext";
 
 type Props = {
   id: string;

@@ -1,5 +1,5 @@
-import { listProducts } from "@/backend/application/listProducts";
-import { ProductCard } from "@/frontend/components/ProductCard";
+import { listProducts } from "@/lib/api";
+import { ProductCard } from "@/components/ProductCard";
 
 export default async function Home() {
   const products = await listProducts();

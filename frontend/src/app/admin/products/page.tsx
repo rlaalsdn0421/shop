@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { listAdminProducts } from "@/backend/application/listAdminProducts";
+import { listAdminProducts } from "@/lib/api";
 
 export default async function AdminProductsPage() {
   const products = await listAdminProducts();
@@ -32,7 +32,7 @@ export default async function AdminProductsPage() {
               <td className="py-2">{p.price.toLocaleString()}원</td>
               <td className="py-2">{p.stock}</td>
               <td className="py-2 text-gray-500">
-                {p.createdAt.toLocaleDateString("ko-KR")}
+                {new Date(p.createdAt).toLocaleDateString("ko-KR")}
               </td>
             </tr>
           ))}

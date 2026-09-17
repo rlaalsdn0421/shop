@@ -3,7 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Image from "next/image";
-import { useCart } from "@/frontend/cart/CartContext";
+import { useCart } from "@/cart/CartContext";
+
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080";
 
 export function CartView() {
   const { items, setQuantity, remove, totalAmount, clear } = useCart();
@@ -23,7 +25,7 @@ export function CartView() {
 
     setSubmitting(true);
     try {
-      const res = await fetch("/api/orders", {
+      const res = await fetch(`${BACKEND_URL}/api/orders`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
