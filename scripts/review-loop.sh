@@ -9,7 +9,7 @@ cd "$REPO_ROOT"
 
 [ -f "$REPO_ROOT/.env.review-bot" ] && source "$REPO_ROOT/.env.review-bot"
 
-CLAUDE="${CLAUDE_BIN:-/c/Users/kim/AppData/Roaming/npm/claude}"
+CLAUDE="${CLAUDE_BIN:-claude}"
 MAX_ROUNDS=3
 LOG_FILE="$REPO_ROOT/.review-loop.log"
 
