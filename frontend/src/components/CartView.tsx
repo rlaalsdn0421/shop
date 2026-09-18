@@ -31,7 +31,10 @@ export function CartView() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/orders`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.token}`,
+        },
         body: JSON.stringify({
           customerName: form.name,
           customerPhone: form.phone,
