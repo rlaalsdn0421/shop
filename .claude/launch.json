@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
       "port": 3000
+    },
+    {
+      "name": "shop-app-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "frontend-app", "run", "dev"],
+      "port": 3001
     }
   ]
 }
