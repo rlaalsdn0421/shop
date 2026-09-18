@@ -37,7 +37,7 @@ public final class ProductDtos {
         }
     }
 
-    public record NewProductRequest(String name, String description, Integer price, String imageUrl, Integer stock) {
+    public record NewProductRequest(String name, String description, Integer price, String imageUrl, Integer stock, String category) {
     }
 
     public record IdResponse(String id) {

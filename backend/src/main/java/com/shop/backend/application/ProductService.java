@@ -19,9 +19,9 @@ public class ProductService {
     }
 
     @Transactional
-    public Product createProduct(String name, String description, Integer price, String imageUrl, Integer stock) {
+    public Product createProduct(String name, String description, Integer price, String imageUrl, Integer stock, String category) {
         ProductValidation.validateNewProduct(name, description, price, imageUrl, stock);
-        return productRepository.save(new Product(name, description, price, imageUrl, stock));
+        return productRepository.save(new Product(name, description, price, imageUrl, stock, category));
     }
 
     @Transactional(readOnly = true)
@@ -31,9 +31,10 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     public List<Product> listProducts(String category) {
-        return category == null || category.isBlank()
+        String trimmed = category == null ? null : category.trim();
+        return trimmed == null || trimmed.isBlank()
                 ? productRepository.findAllByOrderByCreatedAtDesc()
-                : productRepository.findAllByCategoryOrderByCreatedAtDesc(category);
+                : productRepository.findAllByCategoryOrderByCreatedAtDesc(trimmed);
     }
 
     @Transactional(readOnly = true)
