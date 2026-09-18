@@ -11,16 +11,18 @@ export function Header() {
   const router = useRouter();
 
   return (
-    <header className="border-b sticky top-0 bg-white z-10">
-      <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
-        <Link href="/" className="text-lg font-bold">
+    <header className="sticky top-0 z-10 bg-black text-white">
+      <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-6">
+        <Link href="/" className="text-lg font-extrabold tracking-tight">
           쇼핑몰
         </Link>
-        <div className="flex items-center gap-4 text-sm font-medium">
+        <div className="flex items-center gap-5 text-[13px] font-medium text-gray-300">
           {session ? (
             <>
               {(session.role === "ADMIN" || session.role === "SELLER") && (
-                <Link href="/admin/products">상품 관리</Link>
+                <Link href="/admin/products" className="hover:text-white">
+                  상품 관리
+                </Link>
               )}
               <span className="text-gray-500">{session.email}</span>
               <button
@@ -28,14 +30,19 @@ export function Header() {
                   logout();
                   router.push("/");
                 }}
+                className="hover:text-white"
               >
                 로그아웃
               </button>
             </>
           ) : (
-            <Link href="/login">로그인</Link>
+            <Link href="/login" className="hover:text-white">
+              로그인
+            </Link>
           )}
-          <Link href="/cart">장바구니 ({totalCount})</Link>
+          <Link href="/cart" className="hover:text-white">
+            장바구니 ({totalCount})
+          </Link>
         </div>
       </div>
     </header>
