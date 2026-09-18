@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useCart } from "@/cart/CartContext";
+import { useAuth } from "@/auth/AuthContext";
 
 type Props = {
   id: string;
@@ -13,6 +15,8 @@ type Props = {
 
 export function AddToCartForm({ id, name, price, imageUrl, stock }: Props) {
   const { add } = useCart();
+  const { session } = useAuth();
+  const router = useRouter();
   const [quantity, setQuantity] = useState(1);
   const [added, setAdded] = useState(false);
 
@@ -41,6 +45,10 @@ export function AddToCartForm({ id, name, price, imageUrl, stock }: Props) {
       </div>
       <button
         onClick={() => {
+          if (!session) {
+            router.push("/login");
+            return;
+          }
           add({ productId: id, name, price, imageUrl }, quantity);
           setAdded(true);
         }}

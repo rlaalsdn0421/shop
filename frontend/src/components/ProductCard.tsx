@@ -2,7 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCart } from "@/cart/CartContext";
+import { useAuth } from "@/auth/AuthContext";
 
 type Props = {
   id: string;
@@ -14,6 +16,8 @@ type Props = {
 
 export function ProductCard({ id, name, price, imageUrl, rank }: Props) {
   const { add } = useCart();
+  const { session } = useAuth();
+  const router = useRouter();
 
   return (
     <div className="group flex flex-col">
@@ -33,6 +37,10 @@ export function ProductCard({ id, name, price, imageUrl, rank }: Props) {
         <button
           onClick={(e) => {
             e.preventDefault();
+            if (!session) {
+              router.push("/login");
+              return;
+            }
             add({ productId: id, name, price, imageUrl });
           }}
           className="absolute inset-x-2 bottom-2 rounded bg-black py-2 text-xs font-semibold text-white opacity-0 transition-opacity hover:opacity-90 group-hover:opacity-100"
