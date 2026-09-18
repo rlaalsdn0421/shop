@@ -1,6 +1,6 @@
 # 쇼핑몰 (shop)
 
-Spring Boot 백엔드 + Next.js 프론트엔드(웹/앱 각각 별도 프로젝트)로 만든 미니 쇼핑몰. 상품 목록/상세, 장바구니, 주문, 리뷰/평점, JWT 로그인/회원가입까지 핵심 기능을 구현했고, push할 때마다 자동으로 도는 AI 코드 리뷰 봇이 붙어 있습니다.
+Spring Boot 백엔드 + Next.js 프론트엔드(웹/앱 각각 별도 프로젝트)로 만든 미니 쇼핑몰. 상품 목록/상세, 장바구니, 주문, 리뷰/평점 핵심 기능을 구현했고, push할 때마다 자동으로 도는 AI 코드 리뷰 봇이 붙어 있습니다.
 
 - 웹 프론트엔드 상세: [frontend/README.md](frontend/README.md) (없으면 `npm --prefix frontend run dev`, :3000)
 - 앱(모바일) 프론트엔드: `npm --prefix frontend-app run dev` (:3001) — 웹과 코드 공유 없는 완전 별도 Next.js 프로젝트, 같은 백엔드를 봅니다
@@ -42,7 +42,7 @@ graph LR
 
 프론트엔드와 백엔드는 완전히 분리된 앱입니다 — `frontend/`(웹), `frontend-app/`(모바일 앱 UX), `backend/`가 한 저장소 안에 폴더로만 나뉘어 있고, 두 프론트엔드 모두 백엔드와 HTTP REST API로만 통신합니다(DB에 직접 접근하지 않음). 두 프론트엔드는 서로 코드를 공유하지 않는 독립 프로젝트입니다(같은 브라우저에서 동시에 열어도 충돌하지 않도록 localStorage 키도 분리: `shop-auth`/`shop-cart` vs `shop-app-auth`/`shop-app-cart`).
 
-상품 조회·주문·리뷰는 인증 없이 공개 API이고, 상품 등록(관리자 기능)만 JWT로 보호됩니다 — 아래 인증 섹션 참고.
+현재 모든 API가 인증 없이 공개되어 있습니다 — 상품 등록(`/api/admin/products`)을 포함한 관리자 기능도 아직 보호되지 않습니다. JWT 기반 인증/역할 분리는 설계만 되어 있고 미구현 상태입니다 — 아래 인증 섹션 참고.
 
 ## 백엔드 아키텍처 — 4계층 DDD
 
@@ -53,20 +53,17 @@ graph TD
     OC["OrderController"]
     RC["ReviewController"]
     AC["AdminProductController"]
-    AuthC["AuthController"]
     GEH["GlobalExceptionHandler"]
   end
   subgraph application["application"]
     PS["ProductService"]
     OS["OrderService"]
     RS["ReviewService"]
-    AuthS["AuthService"]
   end
   subgraph domain["domain (프레임워크 의존성 없음)"]
     Pd["Product"]
     Od["Order / OrderItem"]
     Rd["Review"]
-    Ud["User / Role"]
     Val["*Validation"]
     Exc["*Exception"]
   end
@@ -74,80 +71,37 @@ graph TD
     PR["ProductRepository"]
     OR["OrderRepository"]
     RR["ReviewRepository"]
-    UR["UserRepository"]
-    Sec["SecurityConfig<br/>(CORS 포함)"]
-    Jwt["JwtService / JwtAuthFilter"]
-    Seed["UserSeeder<br/>(ADMIN/SELLER 고정 시드)"]
+    Web["WebConfig<br/>(CORS)"]
   end
 
   PC --> PS
   OC --> OS
   RC --> RS
   AC --> PS
-  AuthC --> AuthS
   PS --> Pd
   OS --> Od
   RS --> Rd
-  AuthS --> Ud
   Pd -.-> Val
   Od -.-> Val
   Rd -.-> Val
-  Ud -.-> Val
   PS --> PR
   OS --> OR
   OS --> PR
   RS --> RR
   RS --> PR
-  AuthS --> UR
-  Jwt -.->|"요청마다 토큰 검증"| AC
   PR --> DB[("PostgreSQL<br/>(Flyway 마이그레이션)")]
   OR --> DB
   RR --> DB
-  UR --> DB
 ```
 
-- **domain**: 검증 규칙(`ProductValidation`, `OrderValidation`, `ReviewValidation`, `UserValidation`)과 커스텀 예외만 있고, Spring/JPA에 대한 의존이 없습니다.
-- **application**: 유스케이스 하나당 서비스 하나(`ProductService`/`OrderService`/`ReviewService`/`AuthService`) — 하나의 거대한 서비스로 뭉치지 않도록 분리.
-- **infrastructure**: Spring Data JPA 리포지토리, Flyway로 관리되는 스키마, `SecurityConfig`(Stateless JWT + CORS), `JwtAuthFilter`(요청마다 토큰 검증), `UserSeeder`(앱 시작 시 ADMIN/SELLER 고정 계정 없으면 생성).
-- **presentation**: REST 컨트롤러 + `GlobalExceptionHandler`가 도메인 예외를 HTTP 상태 코드로 매핑(`ValidationException`→400, `ProductNotFoundException`→404, `DuplicateEmailException`→400, `InvalidCredentialsException`→401).
+- **domain**: 검증 규칙(`ProductValidation`, `OrderValidation`, `ReviewValidation`)과 커스텀 예외만 있고, Spring/JPA에 대한 의존이 없습니다.
+- **application**: 유스케이스 하나당 서비스 하나(`ProductService`/`OrderService`/`ReviewService`) — 하나의 거대한 서비스로 뭉치지 않도록 분리.
+- **infrastructure**: Spring Data JPA 리포지토리, Flyway로 관리되는 스키마, `WebConfig`(CORS).
+- **presentation**: REST 컨트롤러 + `GlobalExceptionHandler`가 도메인 예외를 HTTP 상태 코드로 매핑(`ValidationException`→400, `ProductNotFoundException`→404).
 
-## 인증 — JWT (2시간 만료, 3개 역할)
+## 인증 (미구현, 설계만 존재)
 
-역할은 `ADMIN`/`SELLER`(둘 다 고정 시드 — 판매자가 한 명인 쇼핑몰이라 셀프 가입 대상이 아님)와 `USER`(셀프 회원가입) 세 가지입니다. 상품 조회·주문·리뷰는 로그인 없이 공개이고, 상품 등록(`/api/admin/products`)만 `ADMIN`/`SELLER`로 제한됩니다.
-
-```mermaid
-sequenceDiagram
-  participant FE as 프론트엔드(웹/앱)
-  participant AuthC as AuthController
-  participant AuthS as AuthService
-  participant UR as UserRepository
-  participant Jwt as JwtService
-
-  FE->>AuthC: POST /api/auth/login {email, password}
-  AuthC->>AuthS: login(...)
-  AuthS->>UR: findByEmail(email)
-  alt 이메일 없음 또는 비밀번호 불일치
-    AuthS-->>AuthC: InvalidCredentialsException
-    AuthC-->>FE: 401 (이메일/비밀번호 중 무엇이 틀렸는지는 메시지로 구분 안 함)
-  else 일치
-    AuthS->>Jwt: issue(userId, email, role)
-    Jwt-->>AuthS: JWT (exp = 발급 + 2h)
-    AuthS-->>AuthC: {token, role, email}
-    AuthC-->>FE: 200
-  end
-
-  FE->>AuthC: GET /api/admin/products<br/>Authorization: Bearer {token}
-  AuthC->>Jwt: 토큰 검증 (JwtAuthFilter)
-  alt 토큰 없음/무효/만료
-    Jwt-->>FE: 401 인증이 필요합니다
-  else role이 ADMIN/SELLER 아님
-    Jwt-->>FE: 403 접근 권한이 없습니다
-  else 통과
-    Jwt-->>FE: 200 상품 목록
-  end
-```
-
-프론트엔드는 로그인 응답의 토큰을 `localStorage`에 만료 시각과 함께 저장하고(`AuthContext`), 만료됐거나 없으면 보호된 페이지 진입 시 `/login`으로 돌려보냅니다(`useRequireRole`).
+현재 모든 엔드포인트가 인증 없이 공개되어 있으며, `/api/admin/products`도 예외가 아닙니다. 아래는 앞으로 붙일 계획인 JWT 기반 인증(2시간 만료, `ADMIN`/`SELLER`/`USER` 3개 역할)의 설계이고, `AuthController`/`AuthService`/`JwtService`/`JwtAuthFilter`/`SecurityConfig`/`UserRepository`/`UserSeeder` 등은 아직 코드베이스에 없습니다.
 
 ## 핵심 로직 1 — 주문 생성 (재고 조작 방어 포함)
 
@@ -212,7 +166,7 @@ sequenceDiagram
 
 ## 프론트엔드 테스트
 
-`frontend/`는 Vitest + React Testing Library로 API 클라이언트(`lib/api.ts`)와 로그인 폼(`LoginForm.tsx`)을 성공/실패 케이스 쌍으로 테스트합니다(`npm --prefix frontend test`). 백엔드는 컨트롤러 단위 성공/실패 테스트를 추가 예정 — [PORTFOLIO.md](PORTFOLIO.md) 참고.
+아직 없습니다 — 프론트엔드 Vitest 테스트와 백엔드 컨트롤러 단위 테스트 모두 추가 예정 — [PORTFOLIO.md](PORTFOLIO.md) 참고.
 
 ## 자동화 — push하면 자동으로 도는 코드 리뷰 봇
 
