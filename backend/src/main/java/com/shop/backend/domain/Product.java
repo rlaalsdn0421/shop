@@ -32,6 +32,9 @@ public class Product {
     @Column(nullable = false)
     private Integer stock;
 
+    @Column(length = 50)
+    private String category;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -40,11 +43,16 @@ public class Product {
     }
 
     public Product(String name, String description, Integer price, String imageUrl, Integer stock) {
+        this(name, description, price, imageUrl, stock, null);
+    }
+
+    public Product(String name, String description, Integer price, String imageUrl, Integer stock, String category) {
         this.name = name;
         this.description = description;
         this.price = price;
         this.imageUrl = imageUrl;
         this.stock = stock;
+        this.category = category;
     }
 
     @PrePersist
@@ -92,6 +100,10 @@ public class Product {
 
     public Integer getStock() {
         return stock;
+    }
+
+    public String getCategory() {
+        return category;
     }
 
     public Instant getCreatedAt() {

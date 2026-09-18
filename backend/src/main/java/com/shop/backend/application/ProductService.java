@@ -30,8 +30,10 @@ public class ProductService {
     }
 
     @Transactional(readOnly = true)
-    public List<Product> listProducts() {
-        return productRepository.findAllByOrderByCreatedAtDesc();
+    public List<Product> listProducts(String category) {
+        return category == null || category.isBlank()
+                ? productRepository.findAllByOrderByCreatedAtDesc()
+                : productRepository.findAllByCategoryOrderByCreatedAtDesc(category);
     }
 
     @Transactional(readOnly = true)
