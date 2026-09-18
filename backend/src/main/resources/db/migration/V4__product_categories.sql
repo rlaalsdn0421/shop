@@ -25,4 +25,5 @@ FROM (VALUES
     ('브라렛 세트', '편안한 착용감의 브라렛 세트.', 26000, 'https://picsum.photos/seed/home-bralette/600/600', 30, '속옷/홈웨어'),
     ('요가매트', '미끄럼 방지 처리된 요가매트.', 29000, 'https://picsum.photos/seed/sports-yoga/600/600', 38, '스포츠/레저'),
     ('트레이닝 반바지', '통기성 좋은 트레이닝 반바지.', 25000, 'https://picsum.photos/seed/sports-shorts/600/600', 42, '스포츠/레저')
-) AS v(name, description, price, image_url, stock, category);
+) AS v(name, description, price, image_url, stock, category)
+WHERE NOT EXISTS (SELECT 1 FROM products WHERE category IS NOT NULL);

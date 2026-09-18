@@ -6,9 +6,10 @@ import { PromoBanner } from "@/components/PromoBanner";
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ category?: string }>;
+  searchParams: Promise<{ category?: string | string[] }>;
 }) {
-  const { category } = await searchParams;
+  const { category: rawCategory } = await searchParams;
+  const category = Array.isArray(rawCategory) ? rawCategory[0] : rawCategory;
   const products = await listProducts(category);
 
   return (

@@ -32,6 +32,17 @@ export function MobileTabBar() {
           <span className="text-base">🛒</span>
           장바구니{totalCount > 0 ? ` (${totalCount})` : ""}
         </Link>
+        {session && (session.role === "ADMIN" || session.role === "SELLER") && (
+          <Link
+            href="/admin/products"
+            className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[11px] ${
+              pathname === "/admin/products" ? "text-white" : ""
+            }`}
+          >
+            <span className="text-base">📦</span>
+            상품 관리
+          </Link>
+        )}
         {session ? (
           <button
             onClick={() => {
