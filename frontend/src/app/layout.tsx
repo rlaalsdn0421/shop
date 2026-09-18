@@ -31,7 +31,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <AuthProvider>
           <CartProvider>
             <Header />
-            <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-8">
+            <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6">
               {children}
             </main>
           </CartProvider>
