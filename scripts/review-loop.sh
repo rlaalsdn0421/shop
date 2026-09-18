@@ -44,12 +44,13 @@ log "=== review loop started for $RANGE on $BRANCH ==="
 slack_post "🔍 *리뷰어* — \`$BRANCH\`에 새 커밋이 푸시됐습니다 (\`$RANGE\`). 리뷰를 시작합니다."
 
 BASE_SHA="${RANGE%%..*}"
+NEW_SHA="${RANGE##*..}"  # pinned tip that was actually pushed, not a moving "HEAD"
 
 round=1
 while [ "$round" -le "$MAX_ROUNDS" ]; do
   log "--- round $round: review ---"
 
-  current_range="$BASE_SHA..HEAD"
+  current_range="$BASE_SHA..$NEW_SHA"
   review_prompt="다음 범위의 커밋을 리뷰해줘: git diff $current_range (필요하면 git log, git show로 맥락을 더 봐도 됨).
 버그, 보안 문제, 명백한 실수만 지적해. 사소한 스타일 지적은 하지 마.
 마지막 줄에 정확히 다음 중 하나만 출력해: \"REVIEW_RESULT: APPROVED\" 또는 \"REVIEW_RESULT: CHANGES_NEEDED\".
@@ -99,6 +100,8 @@ $review_output
 
   slack_post "🛠️ *수정 담당* (${round}/${MAX_ROUNDS}차):
 $fix_output"
+
+  NEW_SHA="$(git rev-parse HEAD)"  # pick up the fix commit for the next round's diff
 
   round=$((round + 1))
 done
