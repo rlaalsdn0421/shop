@@ -13,3 +13,7 @@ spring:
 
 server:
   port: ${PORT:8080}
+
+jwt:
+  # Local-dev fallback only — MUST be overridden via the JWT_SECRET env var for any real deployment.
+  secret: ${JWT_SECRET:dev-only-insecure-jwt-signing-secret-change-me-32chars}

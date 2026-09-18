@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { CartProvider } from "@/cart/CartContext";
+import { AuthProvider } from "@/auth/AuthContext";
 import { Header } from "@/components/Header";
 
 const geistSans = Geist({
@@ -27,12 +28,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <CartProvider>
-          <Header />
-          <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-8">
-            {children}
-          </main>
-        </CartProvider>
+        <AuthProvider>
+          <CartProvider>
+            <Header />
+            <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-8">
+              {children}
+            </main>
+          </CartProvider>
+        </AuthProvider>
       </body>
     </html>
   );

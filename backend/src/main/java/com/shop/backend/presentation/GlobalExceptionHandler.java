@@ -1,6 +1,8 @@
 package com.shop.backend.presentation;
 
 import com.shop.backend.domain.DomainException;
+import com.shop.backend.domain.DuplicateEmailException;
+import com.shop.backend.domain.InvalidCredentialsException;
 import com.shop.backend.domain.ProductNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -23,6 +25,16 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ProductNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleProductNotFound(ProductNotFoundException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(ex.getMessage()));
+    }
+
+    @ExceptionHandler(DuplicateEmailException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicateEmail(DuplicateEmailException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse(ex.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidCredentials(InvalidCredentialsException ex) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ErrorResponse(ex.getMessage()));
     }
 
     @ExceptionHandler(DomainException.class)
