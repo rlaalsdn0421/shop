@@ -15,6 +15,7 @@ export function AdminProductForm() {
     price: "",
     imageUrl: "",
     stock: "",
+    category: "",
   });
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -36,6 +37,7 @@ export function AdminProductForm() {
           price: Number(form.price),
           imageUrl: form.imageUrl,
           stock: Number(form.stock),
+          category: form.category,
         }),
       });
       const data = await res.json();
@@ -111,6 +113,15 @@ export function AdminProductForm() {
           value={form.stock}
           onChange={(e) => setForm({ ...form, stock: e.target.value })}
           required
+        />
+        <label htmlFor="product-category" className="sr-only">카테고리</label>
+        <input
+          id="product-category"
+          className="border rounded px-3 py-2 text-sm"
+          placeholder="카테고리"
+          value={form.category}
+          onChange={(e) => setForm({ ...form, category: e.target.value })}
+          maxLength={50}
         />
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
         <button

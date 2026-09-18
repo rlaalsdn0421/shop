@@ -20,7 +20,7 @@ public class ProductService {
 
     @Transactional
     public Product createProduct(String name, String description, Integer price, String imageUrl, Integer stock, String category) {
-        ProductValidation.validateNewProduct(name, description, price, imageUrl, stock);
+        ProductValidation.validateNewProduct(name, description, price, imageUrl, stock, category);
         return productRepository.save(new Product(name, description, price, imageUrl, stock, category));
     }
 
