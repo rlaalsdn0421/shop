@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useRequireRole } from "@/auth/AuthContext";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080";
 
 export function AdminProductForm() {
   const router = useRouter();
+  const { session, ready } = useRequireRole(["ADMIN", "SELLER"]);
   const [form, setForm] = useState({
     name: "",
     description: "",
@@ -24,7 +26,10 @@ export function AdminProductForm() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/admin/products`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(session ? { Authorization: `Bearer ${session.token}` } : {}),
+        },
         body: JSON.stringify({
           name: form.name,
           description: form.description,
@@ -46,6 +51,8 @@ export function AdminProductForm() {
       setSubmitting(false);
     }
   }
+
+  if (!ready || !session) return null;
 
   return (
     <div className="max-w-md mx-auto flex flex-col gap-4">
