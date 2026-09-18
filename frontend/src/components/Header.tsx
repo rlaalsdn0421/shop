@@ -16,7 +16,7 @@ export function Header() {
         <Link href="/" className="text-lg font-extrabold tracking-tight">
           쇼핑몰
         </Link>
-        <div className="flex items-center gap-5 text-[13px] font-medium text-gray-300">
+        <div className="hidden md:flex items-center gap-5 text-[13px] font-medium text-gray-300">
           {session ? (
             <>
               {(session.role === "ADMIN" || session.role === "SELLER") && (
