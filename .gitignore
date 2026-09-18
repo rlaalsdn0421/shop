@@ -12,6 +12,8 @@ node_modules/
 .next/
 frontend/out/
 frontend/next-env.d.ts
+frontend-app/out/
+frontend-app/next-env.d.ts
 
 # maven (backend)
 backend/target/
@@ -38,6 +40,9 @@ yarn-error.log*
 .review-loop.log
 .env.review-bot
 .slack-payload-*.json
+
+# graphify knowledge graph output (regenerate with /graphify .)
+graphify-out/
 
 # prisma CLI local skill cache (legacy, no longer used)
 .agents/
