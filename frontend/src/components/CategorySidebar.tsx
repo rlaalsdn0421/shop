@@ -1,18 +1,5 @@
 import Link from "next/link";
-
-const CATEGORIES = [
-  "뷰티",
-  "신발",
-  "상의",
-  "아우터",
-  "바지",
-  "원피스/스커트",
-  "가방",
-  "모자",
-  "소품",
-  "속옷/홈웨어",
-  "스포츠/레저",
-];
+import { CATEGORIES } from "@/lib/categories";
 
 export function CategorySidebar({ active }: { active?: string }) {
   return (

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useRequireRole } from "@/auth/AuthContext";
+import { CATEGORIES } from "@/lib/categories";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080";
 
@@ -115,14 +116,19 @@ export function AdminProductForm() {
           required
         />
         <label htmlFor="product-category" className="sr-only">카테고리</label>
-        <input
+        <select
           id="product-category"
           className="border rounded px-3 py-2 text-sm"
-          placeholder="카테고리"
           value={form.category}
           onChange={(e) => setForm({ ...form, category: e.target.value })}
-          maxLength={50}
-        />
+        >
+          <option value="">카테고리 선택 안 함</option>
+          {CATEGORIES.map((category) => (
+            <option key={category} value={category}>
+              {category}
+            </option>
+          ))}
+        </select>
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
         <button
           type="submit"
