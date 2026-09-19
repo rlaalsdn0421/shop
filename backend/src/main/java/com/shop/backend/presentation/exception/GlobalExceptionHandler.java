@@ -1,0 +1,60 @@
+package com.shop.backend.presentation.exception;
+
+import com.shop.backend.domain.error.DomainException;
+import com.shop.backend.domain.error.DuplicateEmailException;
+import com.shop.backend.domain.error.InvalidCredentialsException;
+import com.shop.backend.domain.error.ProductNotFoundException;
+import com.shop.backend.presentation.dto.ErrorResponse;
+import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+/**
+ * Business-rule violations map to 400, except a missing product which maps to 404 (Spring
+ * picks the most specific handler, so this takes precedence over the DomainException one below).
+ * Anything unexpected maps to 500 with a per-area message, matching the original API contract.
+ */
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    @ExceptionHandler(ProductNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleProductNotFound(ProductNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(ex.getMessage()));
+    }
+
+    @ExceptionHandler(DuplicateEmailException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicateEmail(DuplicateEmailException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse(ex.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidCredentials(InvalidCredentialsException ex) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ErrorResponse(ex.getMessage()));
+    }
+
+    @ExceptionHandler(DomainException.class)
+    public ResponseEntity<ErrorResponse> handleDomainException(DomainException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse(ex.getMessage()));
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponse> handleUnexpected(HttpServletRequest request, Exception ex) {
+        logger.error("Unhandled exception while processing {}", request.getRequestURI(), ex);
+        String uri = request.getRequestURI();
+        String message;
+        if (uri.startsWith("/api/orders")) {
+            message = "주문 처리 중 오류가 발생했습니다.";
+        } else if (uri.startsWith("/api/admin/products")) {
+            message = "상품 등록 중 오류가 발생했습니다.";
+        } else {
+            message = "요청 처리 중 오류가 발생했습니다.";
+        }
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new ErrorResponse(message));
+    }
+}
