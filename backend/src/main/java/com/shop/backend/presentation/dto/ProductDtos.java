@@ -1,6 +1,7 @@
 package com.shop.backend.presentation.dto;
 
 import com.shop.backend.domain.entity.Product;
+import org.springframework.data.domain.Page;
 
 import java.time.Instant;
 import java.util.List;
@@ -18,6 +19,12 @@ public final class ProductDtos {
 
         public static List<ProductListItem> from(List<Product> products) {
             return products.stream().map(ProductListItem::from).toList();
+        }
+    }
+
+    public record ProductPage(List<ProductListItem> items, boolean hasMore) {
+        public static ProductPage from(Page<Product> page) {
+            return new ProductPage(ProductListItem.from(page.getContent()), page.hasNext());
         }
     }
 

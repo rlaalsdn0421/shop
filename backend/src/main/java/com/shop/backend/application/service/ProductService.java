@@ -3,6 +3,8 @@ package com.shop.backend.application.service;
 import com.shop.backend.domain.entity.Product;
 import com.shop.backend.domain.entity.ProductValidation;
 import com.shop.backend.infrastructure.repository.ProductRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,11 +33,12 @@ public class ProductService {
     }
 
     @Transactional(readOnly = true)
-    public List<Product> listProducts(String category) {
+    public Page<Product> listProducts(String category, int page, int size) {
         String trimmed = category == null ? null : category.trim();
+        PageRequest pageRequest = PageRequest.of(page, size);
         return trimmed == null || trimmed.isBlank()
-                ? productRepository.findAllByOrderByCreatedAtDesc()
-                : productRepository.findAllByCategoryOrderByCreatedAtDesc(trimmed);
+                ? productRepository.findAllByOrderByCreatedAtDescIdDesc(pageRequest)
+                : productRepository.findAllByCategoryOrderByCreatedAtDescIdDesc(trimmed, pageRequest);
     }
 
     @Transactional(readOnly = true)

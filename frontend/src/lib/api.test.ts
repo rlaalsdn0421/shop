@@ -24,11 +24,15 @@ beforeEach(() => {
 });
 
 describe("listProducts", () => {
-  it("성공: 상품 배열을 반환한다", async () => {
-    mockFetchOnce(200, [{ id: "1", name: "티셔츠", price: 1000, imageUrl: "x" }]);
-    const products = await listProducts();
-    expect(products).toHaveLength(1);
-    expect(products[0].name).toBe("티셔츠");
+  it("성공: 상품 목록과 hasMore를 반환한다", async () => {
+    mockFetchOnce(200, {
+      items: [{ id: "1", name: "티셔츠", price: 1000, imageUrl: "x" }],
+      hasMore: true,
+    });
+    const page = await listProducts();
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0].name).toBe("티셔츠");
+    expect(page.hasMore).toBe(true);
   });
 
   it("실패: 서버 오류면 예외를 던진다", async () => {
