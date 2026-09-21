@@ -4,15 +4,19 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Image from "next/image";
 import { useCart } from "@/cart/CartContext";
+import { useRequireRole } from "@/auth/AuthContext";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080";
 
 export function CartView() {
   const { items, setQuantity, remove, totalAmount, clear } = useCart();
+  const { session, ready } = useRequireRole(["ADMIN", "SELLER", "USER"]);
   const router = useRouter();
   const [form, setForm] = useState({ name: "", phone: "", address: "" });
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  if (!ready || !session) return null;
 
   async function handleCheckout(e: React.FormEvent) {
     e.preventDefault();
@@ -27,7 +31,10 @@ export function CartView() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/orders`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.token}`,
+        },
         body: JSON.stringify({
           customerName: form.name,
           customerPhone: form.phone,

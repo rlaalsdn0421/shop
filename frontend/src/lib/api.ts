@@ -70,8 +70,9 @@ async function apiFetch(path: string, init?: RequestInit) {
   });
 }
 
-export async function listProducts(): Promise<Product[]> {
-  const res = await apiFetch("/api/products");
+export async function listProducts(category?: string): Promise<Product[]> {
+  const query = category ? `?category=${encodeURIComponent(category)}` : "";
+  const res = await apiFetch(`/api/products${query}`);
   if (!res.ok) throw new Error("상품 목록을 불러오지 못했습니다.");
   return res.json();
 }

@@ -40,9 +40,7 @@ graph LR
   Loop --> Slack["Slack #code-review-loop"]
 ```
 
-프론트엔드와 백엔드는 완전히 분리된 앱입니다 — `frontend/`(웹), `frontend-app/`(모바일 앱 UX), `backend/`가 한 저장소 안에 폴더로만 나뉘어 있고, 두 프론트엔드 모두 백엔드와 HTTP REST API로만 통신합니다(DB에 직접 접근하지 않음). 두 프론트엔드는 서로 코드를 공유하지 않는 독립 프로젝트입니다(같은 브라우저에서 동시에 열어도 충돌하지 않도록 localStorage 키도 분리: `shop-auth`/`shop-cart` vs `shop-app-auth`/`shop-app-cart`).
-
-현재 모든 API가 인증 없이 공개되어 있습니다 — 상품 등록(`/api/admin/products`)을 포함한 관리자 기능도 아직 보호되지 않습니다. JWT 기반 인증/역할 분리는 설계만 되어 있고 미구현 상태입니다 — 아래 인증 섹션 참고.
+프론트엔드와 백엔드는 완전히 분리된 두 개의 앱입니다 — 같은 저장소 안에서 `frontend/`와 `backend/` 폴더로만 나뉘어 있고, 서로 HTTP REST API로만 통신합니다(프론트가 백엔드 DB에 직접 접근하지 않음). 회원가입/로그인은 JWT 기반 인증이며, 관리자 API와 주문 생성(`POST /api/orders`)은 인증(및 역할)을 요구합니다.
 
 ## 백엔드 아키텍처 — 4계층 DDD
 

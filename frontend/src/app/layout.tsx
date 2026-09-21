@@ -5,6 +5,7 @@ import "./globals.css";
 import { CartProvider } from "@/cart/CartContext";
 import { AuthProvider } from "@/auth/AuthContext";
 import { Header } from "@/components/Header";
+import { MobileTabBar } from "@/components/MobileTabBar";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -31,9 +32,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <AuthProvider>
           <CartProvider>
             <Header />
-            <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-8">
+            <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6 pb-20 md:pb-6">
               {children}
             </main>
+            <MobileTabBar />
           </CartProvider>
         </AuthProvider>
       </body>
