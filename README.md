@@ -1,8 +1,9 @@
 # 쇼핑몰 (shop)
 
-Next.js 프론트엔드 + Spring Boot 백엔드로 만든 미니 쇼핑몰. 상품 목록/상세, 장바구니, 주문, 리뷰/평점까지 핵심 기능을 구현했고, push할 때마다 자동으로 도는 AI 코드 리뷰 봇이 붙어 있습니다.
+Spring Boot 백엔드 + Next.js 프론트엔드(웹/앱 각각 별도 프로젝트)로 만든 미니 쇼핑몰. 상품 목록/상세, 장바구니, 주문, 리뷰/평점 핵심 기능을 구현했고, push할 때마다 자동으로 도는 AI 코드 리뷰 봇이 붙어 있습니다.
 
-- 프론트엔드 상세: [frontend/README.md](frontend/README.md) (없으면 `npm --prefix frontend run dev`)
+- 웹 프론트엔드 상세: [frontend/README.md](frontend/README.md) (없으면 `npm --prefix frontend run dev`, :3000)
+- 앱(모바일) 프론트엔드: `npm --prefix frontend-app run dev` (:3001) — 웹과 코드 공유 없는 완전 별도 Next.js 프로젝트, 같은 백엔드를 봅니다
 - 백엔드 상세: [backend/README.md](backend/README.md)
 - 리뷰 봇 상세: [scripts/README.md](scripts/README.md)
 - 개발 과정/트러블슈팅 기록: [PORTFOLIO.md](PORTFOLIO.md)
@@ -16,16 +17,21 @@ npx prisma dev --db-port 51214
 # 2) 백엔드 (:8080)
 cd backend && ./gradlew bootRun   # Windows: gradlew.bat bootRun
 
-# 3) 프론트엔드 (:3000)
+# 3) 웹 프론트엔드 (:3000)
 npm --prefix frontend run dev
+
+# 4) 앱(모바일) 프론트엔드 (:3001, 선택)
+npm --prefix frontend-app run dev
 ```
 
 ## 시스템 아키텍처
 
 ```mermaid
 graph LR
-  User(["브라우저"]) --> FE["Next.js Frontend :3000"]
+  UserWeb(["브라우저 (웹)"]) --> FE["Next.js Frontend :3000<br/>(무신사 스타일 랭킹 UI)"]
+  UserApp(["브라우저 (앱)"]) --> APP["Next.js Frontend-App :3001<br/>(모바일 앱 셸, 하단 탭바)"]
   FE -- "REST JSON" --> BE["Spring Boot Backend :8080"]
+  APP -- "REST JSON" --> BE
   BE --> DB[("PostgreSQL")]
 
   Dev(["개발자"]) -- "git push" --> Hook["pre-push hook"]
@@ -63,7 +69,7 @@ graph TD
     PR["ProductRepository"]
     OR["OrderRepository"]
     RR["ReviewRepository"]
-    WC["WebConfig (CORS)"]
+    Web["WebConfig<br/>(CORS)"]
   end
 
   PC --> PS
@@ -88,8 +94,12 @@ graph TD
 
 - **domain**: 검증 규칙(`ProductValidation`, `OrderValidation`, `ReviewValidation`)과 커스텀 예외만 있고, Spring/JPA에 대한 의존이 없습니다.
 - **application**: 유스케이스 하나당 서비스 하나(`ProductService`/`OrderService`/`ReviewService`) — 하나의 거대한 서비스로 뭉치지 않도록 분리.
-- **infrastructure**: Spring Data JPA 리포지토리, Flyway로 관리되는 스키마.
+- **infrastructure**: Spring Data JPA 리포지토리, Flyway로 관리되는 스키마, `WebConfig`(CORS).
 - **presentation**: REST 컨트롤러 + `GlobalExceptionHandler`가 도메인 예외를 HTTP 상태 코드로 매핑(`ValidationException`→400, `ProductNotFoundException`→404).
+
+## 인증 (미구현, 설계만 존재)
+
+현재 모든 엔드포인트가 인증 없이 공개되어 있으며, `/api/admin/products`도 예외가 아닙니다. 아래는 앞으로 붙일 계획인 JWT 기반 인증(2시간 만료, `ADMIN`/`SELLER`/`USER` 3개 역할)의 설계이고, `AuthController`/`AuthService`/`JwtService`/`JwtAuthFilter`/`SecurityConfig`/`UserRepository`/`UserSeeder` 등은 아직 코드베이스에 없습니다.
 
 ## 핵심 로직 1 — 주문 생성 (재고 조작 방어 포함)
 
@@ -151,6 +161,10 @@ sequenceDiagram
   RS->>RR: 리뷰 목록 + AVG(rating)
   RS-->>RC: {averageRating, reviewCount, reviews[]}
 ```
+
+## 프론트엔드 테스트
+
+아직 없습니다 — 프론트엔드 Vitest 테스트와 백엔드 컨트롤러 단위 테스트 모두 추가 예정 — [PORTFOLIO.md](PORTFOLIO.md) 참고.
 
 ## 자동화 — push하면 자동으로 도는 코드 리뷰 봇
 
