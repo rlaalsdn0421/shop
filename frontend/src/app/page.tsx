@@ -10,11 +10,14 @@ export default async function Home({
 }) {
   const { category: rawCategory } = await searchParams;
   const category = Array.isArray(rawCategory) ? rawCategory[0] : rawCategory;
-  const { items, hasMore } = await listProducts(category);
+  const [{ items, hasMore }, featured] = await Promise.all([
+    listProducts(category),
+    listProducts(undefined, 0, 1),
+  ]);
 
   return (
     <div className="flex flex-col gap-6">
-      <PromoBanner />
+      {featured.items[0] && <PromoBanner product={featured.items[0]} />}
       <div className="flex gap-6 items-start">
         <CategorySidebar active={category} />
         <div className="flex-1 flex flex-col gap-4 min-w-0">
