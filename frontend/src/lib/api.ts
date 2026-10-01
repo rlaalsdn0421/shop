@@ -13,6 +13,11 @@ export type Product = {
   imageUrl: string;
 };
 
+export type ProductPage = {
+  items: Product[];
+  hasMore: boolean;
+};
+
 export type ProductDetail = Product & {
   description: string;
   stock: number;
@@ -70,9 +75,10 @@ async function apiFetch(path: string, init?: RequestInit) {
   });
 }
 
-export async function listProducts(category?: string): Promise<Product[]> {
-  const query = category ? `?category=${encodeURIComponent(category)}` : "";
-  const res = await apiFetch(`/api/products${query}`);
+export async function listProducts(category?: string, page = 0, size = 8): Promise<ProductPage> {
+  const params = new URLSearchParams({ page: String(page), size: String(size) });
+  if (category) params.set("category", category);
+  const res = await apiFetch(`/api/products?${params}`);
   if (!res.ok) throw new Error("상품 목록을 불러오지 못했습니다.");
   return res.json();
 }

@@ -30,7 +30,13 @@ export function ProductCard({ id, name, price, imageUrl, rank }: Props) {
           unoptimized
         />
         {rank !== undefined && (
-          <span className="absolute top-2 left-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-black/80 px-1.5 text-xs font-bold text-white">
+          <span
+            className={`absolute top-2 left-2 flex items-center justify-center rounded-full font-bold text-white ${
+              rank === 1
+                ? "h-7 min-w-7 bg-black text-sm ring-2 ring-white/70"
+                : "h-6 min-w-6 bg-black/80 px-1.5 text-xs"
+            }`}
+          >
             {rank}
           </span>
         )}
