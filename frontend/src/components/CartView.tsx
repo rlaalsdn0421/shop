@@ -22,6 +22,7 @@ export function CartView() {
     e.preventDefault();
     setError("");
 
+    if (!session) return;
     if (!form.name.trim() || !form.phone.trim() || !form.address.trim()) {
       setError("이름, 연락처, 주소를 모두 입력해주세요.");
       return;
