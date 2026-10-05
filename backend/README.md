@@ -49,14 +49,20 @@ CORS는 모든 `/api/**` 경로에 대해 `http://localhost:3000`(Next.js 프론
 - `POST /api/auth/register` — 바디 `{ email, password }` (비밀번호 8자 이상). `USER` 역할 계정을 등록. 성공 시 `{ id }` 반환, 검증 실패나 이미 등록된 이메일이면 400.
 - `POST /api/auth/login` — 바디 `{ email, password }`. 성공 시 `{ token, role, email }` 반환, 이메일/비밀번호가 틀리면 401(어느 쪽이 틀렸는지 노출하지 않도록 메시지는 동일).
 
-역할은 3가지 — `ADMIN`, `SELLER`, `USER`. `USER`만 셀프 가입이 가능하고, `ADMIN`/`SELLER`는 기동 시 한 번 시드되는 고정 계정입니다(이미 있으면 건너뜀):
+역할은 3가지 — `ADMIN`, `SELLER`, `USER`. `USER`만 셀프 가입이 가능하고, `ADMIN`/`SELLER`는 기동 시 한 번 시드되는 고정 계정입니다(이미 있으면 건너뜀). 저장소에는 계정 정보를 두지 않고, 이메일과 비밀번호를 **모두 환경변수로** 받습니다. 둘 중 하나라도 비어 있으면 그 계정은 만들지 않습니다.
 
-| 역할 | 이메일 | 비밀번호 |
-|---|---|---|
-| ADMIN | `admin@shop.local` | `admin1234!` |
-| SELLER | `seller@shop.local` | `seller1234!` |
+| 역할 | 환경변수 |
+|---|---|
+| ADMIN | `ADMIN_EMAIL`, `ADMIN_PASSWORD` |
+| SELLER | `SELLER_EMAIL`, `SELLER_PASSWORD` |
 
-데모용 기본값이니 실제 배포 전에는 반드시 변경하세요.
+로컬에서 관리자 화면을 쓰려면 직접 값을 정해서 실행하세요(예시 값이며 아무 값이나 됩니다).
+
+```bash
+ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD='원하는-비밀번호' ./gradlew bootRun
+```
+
+운영에서는 Secret Manager 값이 환경변수로 주입됩니다.
 
 토큰은 JWT(HS256), 유효기간 2시간, `JWT_SECRET` 환경변수로 서명합니다. `application.yml`의 기본값은 로컬 개발 전용 폴백이고, 실제 배포 시에는 **반드시** `JWT_SECRET`으로 덮어써야 합니다.
 

@@ -47,11 +47,11 @@ describe("LoginForm", () => {
   });
 
   it("성공: ADMIN/SELLER는 상품 관리 페이지로 이동한다", async () => {
-    mockFetchOnce(200, { token: "jwt-token", role: "ADMIN", email: "admin@shop.local" });
+    mockFetchOnce(200, { token: "jwt-token", role: "ADMIN", email: "owner@example.com" });
     renderLoginForm();
 
-    await userEvent.type(screen.getByPlaceholderText("이메일"), "admin@shop.local");
-    await userEvent.type(screen.getByPlaceholderText("비밀번호"), "admin1234!");
+    await userEvent.type(screen.getByPlaceholderText("이메일"), "owner@example.com");
+    await userEvent.type(screen.getByPlaceholderText("비밀번호"), "test-password");
     await userEvent.click(screen.getByRole("button", { name: "로그인" }));
 
     await waitFor(() => expect(push).toHaveBeenCalledWith("/admin/products"));
