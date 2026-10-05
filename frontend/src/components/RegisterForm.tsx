@@ -8,6 +8,7 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:808
 
 export function RegisterForm() {
   const router = useRouter();
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -21,7 +22,7 @@ export function RegisterForm() {
       const res = await fetch(`${BACKEND_URL}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ username, email, password }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -40,6 +41,23 @@ export function RegisterForm() {
     <div className="max-w-sm mx-auto flex flex-col gap-4">
       <h1 className="text-xl font-bold">회원가입</h1>
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        <label htmlFor="register-username" className="sr-only">아이디</label>
+        <input
+          id="register-username"
+          type="text"
+          autoComplete="username"
+          className="border rounded px-3 py-2 text-sm"
+          placeholder="아이디 (영문 소문자·숫자·_ 4~20자)"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          pattern="[a-z0-9_]{4,20}"
+          title="영문 소문자, 숫자, 밑줄(_)로 4~20자"
+          aria-describedby="register-username-help"
+          required
+        />
+        <p id="register-username-help" className="text-xs text-gray-500">
+          영문 소문자, 숫자, 밑줄(_)로 4~20자
+        </p>
         <label htmlFor="register-email" className="sr-only">이메일</label>
         <input
           id="register-email"
@@ -55,12 +73,16 @@ export function RegisterForm() {
           id="register-password"
           type="password"
           className="border rounded px-3 py-2 text-sm"
-          placeholder="비밀번호 (8자 이상)"
+          placeholder="비밀번호 (8자 이상, 영문·숫자·특수문자 포함)"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           minLength={8}
+          aria-describedby="register-password-help"
           required
         />
+        <p id="register-password-help" className="text-xs text-gray-500">
+          8자 이상, 영문·숫자·특수문자를 각각 1자 이상 포함해 주세요. 대문자·소문자는 구분하지 않아요.
+        </p>
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
         <button
           type="submit"

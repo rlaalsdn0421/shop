@@ -46,20 +46,20 @@ CORS는 모든 `/api/**` 경로에 대해 `http://localhost:3000`(Next.js 프론
 
 ### 인증
 
-- `POST /api/auth/register` — 바디 `{ email, password }` (비밀번호 8자 이상). `USER` 역할 계정을 등록. 성공 시 `{ id }` 반환, 검증 실패나 이미 등록된 이메일이면 400.
-- `POST /api/auth/login` — 바디 `{ email, password }`. 성공 시 `{ token, role, email }` 반환, 이메일/비밀번호가 틀리면 401(어느 쪽이 틀렸는지 노출하지 않도록 메시지는 동일).
+- `POST /api/auth/register` — 바디 `{ username, email, password }`. `username`(로그인 아이디)은 영문 소문자·숫자·밑줄 4~20자, 비밀번호는 8~100자이며 영문·숫자·특수문자(ASCII)를 각각 1자 이상 포함(대소문자 구분 없음). `USER` 역할 계정을 등록하고, 이메일은 연락용으로 저장만 합니다(이메일 인증은 아직 없음). 성공 시 `{ id }` 반환, 검증 실패나 이미 사용 중인 아이디/이메일이면 400.
+- `POST /api/auth/login` — 바디 `{ username, password }`. 성공 시 `{ token, role, username }` 반환, 아이디/비밀번호가 틀리면 401(어느 쪽이 틀렸는지 노출하지 않도록 메시지는 동일).
 
-역할은 3가지 — `ADMIN`, `SELLER`, `USER`. `USER`만 셀프 가입이 가능하고, `ADMIN`/`SELLER`는 기동 시 한 번 시드되는 고정 계정입니다(이미 있으면 건너뜀). 저장소에는 계정 정보를 두지 않고, 이메일과 비밀번호를 **모두 환경변수로** 받습니다. 둘 중 하나라도 비어 있으면 그 계정은 만들지 않습니다.
+로그인은 **아이디**로 하고, 이메일은 별개의 값입니다(`users.username`과 `users.email`이 각각 유니크). 역할은 3가지 — `ADMIN`, `SELLER`, `USER`. `USER`만 셀프 가입이 가능하고, `ADMIN`/`SELLER`는 이메일 없이 아이디만 가지는 고정 계정으로 기동 시 한 번 시드됩니다(이미 있으면 건너뜀). 저장소에는 계정 정보를 두지 않고, 아이디와 비밀번호를 **모두 환경변수로** 받습니다. 둘 중 하나라도 비어 있으면 그 계정은 만들지 않습니다.
 
 | 역할 | 환경변수 |
 |---|---|
-| ADMIN | `ADMIN_EMAIL`, `ADMIN_PASSWORD` |
-| SELLER | `SELLER_EMAIL`, `SELLER_PASSWORD` |
+| ADMIN | `ADMIN_USERNAME`, `ADMIN_PASSWORD` |
+| SELLER | `SELLER_USERNAME`, `SELLER_PASSWORD` |
 
 로컬에서 관리자 화면을 쓰려면 직접 값을 정해서 실행하세요(예시 값이며 아무 값이나 됩니다).
 
 ```bash
-ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD='원하는-비밀번호' ./gradlew bootRun
+ADMIN_USERNAME='원하는-아이디' ADMIN_PASSWORD='원하는-비밀번호' ./gradlew bootRun
 ```
 
 운영에서는 Secret Manager 값이 환경변수로 주입됩니다.

@@ -11,7 +11,7 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:808
 export function LoginForm() {
   const router = useRouter();
   const { login } = useAuth();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -24,15 +24,15 @@ export function LoginForm() {
       const res = await fetch(`${BACKEND_URL}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ username, password }),
       });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? "로그인에 실패했습니다.");
         return;
       }
-      const { token, role, email: loggedInEmail } = data as LoginResponse;
-      login(token, loggedInEmail, role);
+      const { token, role, username: loggedInUsername } = data as LoginResponse;
+      login(token, loggedInUsername, role);
       router.push(role === "ADMIN" || role === "SELLER" ? "/admin/products" : "/");
     } catch {
       setError("네트워크 오류로 로그인에 실패했습니다.");
@@ -45,15 +45,15 @@ export function LoginForm() {
     <div className="max-w-sm mx-auto flex flex-col gap-4">
       <h1 className="text-xl font-bold">로그인</h1>
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        <label htmlFor="login-email" className="sr-only">아이디 또는 이메일</label>
+        <label htmlFor="login-username" className="sr-only">아이디</label>
         <input
-          id="login-email"
+          id="login-username"
           type="text"
           autoComplete="username"
           className="border rounded px-3 py-2 text-sm"
-          placeholder="아이디 또는 이메일"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          placeholder="아이디"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
           required
         />
         <label htmlFor="login-password" className="sr-only">비밀번호</label>

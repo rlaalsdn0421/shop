@@ -20,6 +20,10 @@ public class User {
     private String id;
 
     @Column(nullable = false, length = 200, unique = true)
+    private String username;
+
+    /** Contact address for regular members; ADMIN/SELLER accounts have none. */
+    @Column(length = 200, unique = true)
     private String email;
 
     @Column(name = "password_hash", nullable = false, length = 200)
@@ -36,7 +40,8 @@ public class User {
         // JPA
     }
 
-    public User(String email, String passwordHash, Role role) {
+    public User(String username, String email, String passwordHash, Role role) {
+        this.username = username;
         this.email = email;
         this.passwordHash = passwordHash;
         this.role = role;
@@ -54,6 +59,10 @@ public class User {
 
     public String getId() {
         return id;
+    }
+
+    public String getUsername() {
+        return username;
     }
 
     public String getEmail() {

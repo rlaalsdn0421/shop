@@ -29,7 +29,7 @@ public class JwtService {
         Instant now = Instant.now();
         return Jwts.builder()
                 .subject(user.getId())
-                .claim("email", user.getEmail())
+                .claim("username", user.getUsername())
                 .claim("role", user.getRole().name())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusSeconds(EXPIRY_SECONDS)))
@@ -48,10 +48,6 @@ public class JwtService {
 
     public String extractUserId(Claims claims) {
         return claims.getSubject();
-    }
-
-    public String extractEmail(Claims claims) {
-        return claims.get("email", String.class);
     }
 
     public Role extractRole(Claims claims) {

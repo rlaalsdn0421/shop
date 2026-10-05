@@ -19,9 +19,9 @@ jwt:
   secret: ${JWT_SECRET:dev-only-insecure-jwt-signing-secret-change-me-32chars}
 
 seed:
-  # Intentionally no defaults: an ADMIN/SELLER account is only created when both its email and
-  # password env vars are set (ADMIN_EMAIL/ADMIN_PASSWORD, SELLER_EMAIL/SELLER_PASSWORD).
-  admin-email: ${ADMIN_EMAIL:}
+  # Intentionally no defaults: an ADMIN/SELLER account is only created when both its username and
+  # password env vars are set (ADMIN_USERNAME/ADMIN_PASSWORD, SELLER_USERNAME/SELLER_PASSWORD).
+  admin-username: ${ADMIN_USERNAME:}
   admin-password: ${ADMIN_PASSWORD:}
-  seller-email: ${SELLER_EMAIL:}
+  seller-username: ${SELLER_USERNAME:}
   seller-password: ${SELLER_PASSWORD:}
