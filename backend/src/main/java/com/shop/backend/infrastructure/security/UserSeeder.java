@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
@@ -57,10 +58,18 @@ public class UserSeeder implements ApplicationRunner {
             logger.info("Skipping {} seed: username/password not configured", role);
             return;
         }
-        if (userRepository.existsByUsername(username)) {
+        var existing = userRepository.findByUsername(username);
+        if (existing.isPresent()) {
+            if (existing.get().getRole() != role) {
+                throw new IllegalStateException("Seed username is already used by an account with a different role");
+            }
             return;
         }
-        userRepository.save(new User(username, null, passwordEncoder.encode(password), role));
-        logger.info("Seeded {} account", role);
+        try {
+            userRepository.save(new User(username, null, passwordEncoder.encode(password), role));
+            logger.info("Seeded {} account", role);
+        } catch (DataIntegrityViolationException ex) {
+            logger.info("{} account was already created by another instance", role);
+        }
     }
 }
