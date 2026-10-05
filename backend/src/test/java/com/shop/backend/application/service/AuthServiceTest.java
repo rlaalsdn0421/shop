@@ -54,14 +54,14 @@ class AuthServiceTest {
     void 성공_가입하면_아이디_이메일_해시된_비밀번호_USER_역할로_저장하고_저장된_엔티티를_돌려준다() {
         when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        User result = authService.register("user_01", "user01@example.com", "password-1");
+        User result = authService.register("user_01", "user01@example.com", "pass1234!");
 
         ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
         verify(userRepository).saveAndFlush(saved.capture());
         User user = saved.getValue();
         assertThat(user.getUsername()).isEqualTo("user_01");
         assertThat(user.getEmail()).isEqualTo("user01@example.com");
-        assertThat(user.getPasswordHash()).isEqualTo("hash:password-1");
+        assertThat(user.getPasswordHash()).isEqualTo("hash:pass1234!");
         assertThat(user.getRole()).isEqualTo(Role.USER);
         assertThat(result).isSameAs(user);
     }
@@ -70,7 +70,7 @@ class AuthServiceTest {
     void 실패_이미_있는_아이디면_이메일_검사와_저장_없이_중복_아이디_예외() {
         when(userRepository.existsByUsername("user_01")).thenReturn(true);
 
-        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "password-1"))
+        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!"))
                 .isInstanceOf(DuplicateUsernameException.class)
                 .hasMessage("이미 사용 중인 아이디입니다.");
 
@@ -83,7 +83,7 @@ class AuthServiceTest {
     void 실패_이미_있는_이메일이면_저장_없이_중복_이메일_예외() {
         when(userRepository.existsByEmail("user01@example.com")).thenReturn(true);
 
-        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "password-1"))
+        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!"))
                 .isInstanceOf(DuplicateEmailException.class)
                 .hasMessage("이미 사용 중인 이메일입니다.");
 
@@ -93,7 +93,7 @@ class AuthServiceTest {
 
     @Test
     void 실패_아이디_형식이_잘못되면_저장소를_전혀_호출하지_않고_검증_예외() {
-        assertThatThrownBy(() -> authService.register("Bob", "bob@example.com", "password-1"))
+        assertThatThrownBy(() -> authService.register("Bob", "bob@example.com", "pass1234!"))
                 .isInstanceOf(ValidationException.class);
 
         verifyNoInteractions(userRepository);
@@ -104,7 +104,7 @@ class AuthServiceTest {
         when(userRepository.saveAndFlush(any(User.class)))
                 .thenThrow(integrityViolation("duplicate key value violates unique constraint \"uq_users_username\""));
 
-        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "password-1"))
+        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!"))
                 .isInstanceOf(DuplicateUsernameException.class);
     }
 
@@ -113,7 +113,7 @@ class AuthServiceTest {
         when(userRepository.saveAndFlush(any(User.class)))
                 .thenThrow(integrityViolation("duplicate key value violates unique constraint \"uq_users_email\""));
 
-        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "password-1"))
+        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!"))
                 .isInstanceOf(DuplicateEmailException.class);
     }
 
@@ -122,7 +122,7 @@ class AuthServiceTest {
         DataIntegrityViolationException original = integrityViolation("null value in column \"role\"");
         when(userRepository.saveAndFlush(any(User.class))).thenThrow(original);
 
-        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "password-1"))
+        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!"))
                 .isSameAs(original);
     }
 

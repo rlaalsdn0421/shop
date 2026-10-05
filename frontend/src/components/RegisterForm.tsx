@@ -52,8 +52,12 @@ export function RegisterForm() {
           onChange={(e) => setUsername(e.target.value)}
           pattern="[a-z0-9_]{4,20}"
           title="영문 소문자, 숫자, 밑줄(_)로 4~20자"
+          aria-describedby="register-username-help"
           required
         />
+        <p id="register-username-help" className="text-xs text-gray-500">
+          영문 소문자, 숫자, 밑줄(_)로 4~20자
+        </p>
         <label htmlFor="register-email" className="sr-only">이메일</label>
         <input
           id="register-email"
@@ -69,12 +73,16 @@ export function RegisterForm() {
           id="register-password"
           type="password"
           className="border rounded px-3 py-2 text-sm"
-          placeholder="비밀번호 (8자 이상)"
+          placeholder="비밀번호 (8자 이상, 영문·숫자·특수문자 포함)"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           minLength={8}
+          aria-describedby="register-password-help"
           required
         />
+        <p id="register-password-help" className="text-xs text-gray-500">
+          8자 이상, 영문·숫자·특수문자를 각각 1자 이상 포함해 주세요. 대문자·소문자는 구분하지 않아요.
+        </p>
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
         <button
           type="submit"

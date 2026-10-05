@@ -16,10 +16,11 @@ class UserValidationTest {
     private static final String PW_SHORT_MSG = "비밀번호는 8자 이상이어야 합니다.";
     private static final String PW_LONG_MSG = "비밀번호는 100자를 초과할 수 없습니다.";
     private static final String PW_BLANK_MSG = "비밀번호는 공백만으로 만들 수 없습니다.";
+    private static final String PW_COMPOSITION_MSG = "비밀번호는 영문, 숫자, 특수문자를 각각 1자 이상 포함해야 합니다.";
 
     private static final String OK_USER = "user_01";
     private static final String OK_EMAIL = "user01@example.com";
-    private static final String OK_PW = "password-1";
+    private static final String OK_PW = "pass1234!";
 
     @ParameterizedTest
     @ValueSource(strings = {"abcd", "abcdefghij0123456789", "a_1_", "user_01"})
@@ -62,18 +63,64 @@ class UserValidationTest {
     }
 
     @Test
-    void 성공_비밀번호가_8자와_100자면_통과한다() {
-        assertThatCode(() -> UserValidation.validateRegistration(OK_USER, OK_EMAIL, "a".repeat(8)))
+    void 성공_비밀번호가_정확히_8자면_통과한다() {
+        assertThatCode(() -> UserValidation.validateRegistration(OK_USER, OK_EMAIL, "abcd123!"))
                 .doesNotThrowAnyException();
-        assertThatCode(() -> UserValidation.validateRegistration(OK_USER, OK_EMAIL, "a".repeat(100)))
+    }
+
+    @Test
+    void 성공_비밀번호가_정확히_100자면_통과한다() {
+        String pw = "a".repeat(97) + "1!b";
+        assertThatCode(() -> UserValidation.validateRegistration(OK_USER, OK_EMAIL, pw))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    void 성공_영문_대소문자는_구분하지_않는다() {
+        assertThatCode(() -> UserValidation.validateRegistration(OK_USER, OK_EMAIL, "abcdef1!"))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> UserValidation.validateRegistration(OK_USER, OK_EMAIL, "ABCDEF1!"))
+                .doesNotThrowAnyException();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"!", "\"", "#", "$", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/",
+            ":", ";", "<", "=", ">", "?", "@", "[", "\\", "]", "^", "_", "`", "{", "|", "}", "~"})
+    void 성공_ASCII_특수문자는_모두_특수문자로_인정한다(String special) {
+        String pw = "abcdef1" + special;
+        assertThatCode(() -> UserValidation.validateRegistration(OK_USER, OK_EMAIL, pw))
+                .doesNotThrowAnyException();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "abcdefgh",      // 영문만
+            "12345678",      // 숫자만
+            "!@#$%^&*",      // 특수문자만
+            "abcd1234",      // 영문+숫자 (특수문자 없음)
+            "abcdef!@",      // 영문+특수문자 (숫자 없음)
+            "1234!@#$",      // 숫자+특수문자 (영문 없음)
+            "비밀번호1234!",  // 한글은 영문으로 치지 않음
+            "abcd 1234",     // 공백은 특수문자가 아님
+            "abcd1234\t",    // 탭도 특수문자가 아님
+            "abcd1234한"     // 비ASCII 문자는 특수문자가 아님
+    })
+    void 실패_영문_숫자_특수문자_중_하나라도_없으면_구성_메시지로_거절한다(String password) {
+        assertThatThrownBy(() -> UserValidation.validateRegistration(OK_USER, OK_EMAIL, password))
+                .isInstanceOf(ValidationException.class).hasMessage(PW_COMPOSITION_MSG);
     }
 
     @Test
     void 실패_비밀번호가_null이거나_7자면_짧다는_메시지로_거절한다() {
         assertThatThrownBy(() -> UserValidation.validateRegistration(OK_USER, OK_EMAIL, null))
                 .isInstanceOf(ValidationException.class).hasMessage(PW_SHORT_MSG);
-        assertThatThrownBy(() -> UserValidation.validateRegistration(OK_USER, OK_EMAIL, "a".repeat(7)))
+        assertThatThrownBy(() -> UserValidation.validateRegistration(OK_USER, OK_EMAIL, "abc123!"))
+                .isInstanceOf(ValidationException.class).hasMessage(PW_SHORT_MSG);
+    }
+
+    @Test
+    void 실패_7자이면서_구성도_틀리면_짧다는_메시지가_먼저다() {
+        assertThatThrownBy(() -> UserValidation.validateRegistration(OK_USER, OK_EMAIL, "abcdefg"))
                 .isInstanceOf(ValidationException.class).hasMessage(PW_SHORT_MSG);
     }
 
@@ -96,10 +143,8 @@ class UserValidationTest {
     }
 
     @Test
-    void 성공_공백이_섞여_있어도_다른_문자가_있으면_통과한다() {
-        assertThatCode(() -> UserValidation.validateRegistration(OK_USER, OK_EMAIL, "pass word 1"))
-                .doesNotThrowAnyException();
-        assertThatCode(() -> UserValidation.validateRegistration(OK_USER, OK_EMAIL, "       a"))
+    void 성공_공백이_섞여_있어도_세_종류를_모두_포함하면_통과한다() {
+        assertThatCode(() -> UserValidation.validateRegistration(OK_USER, OK_EMAIL, "pass word 1!"))
                 .doesNotThrowAnyException();
     }
 
