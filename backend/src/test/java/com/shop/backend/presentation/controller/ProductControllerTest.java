@@ -9,12 +9,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
 import java.util.Optional;
 
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -35,24 +39,39 @@ class ProductControllerTest {
     void 성공_상품목록을_반환한다() throws Exception {
         Product p1 = new Product("티셔츠", "설명1", 10000, "http://img/1", 5);
         Product p2 = new Product("바지", "설명2", 20000, "http://img/2", 3);
-        when(productService.listProducts(null)).thenReturn(List.of(p1, p2));
+        when(productService.listProducts(isNull(), anyInt(), anyInt()))
+                .thenReturn(new PageImpl<>(List.of(p1, p2), PageRequest.of(0, 8), 2));
 
         mockMvc.perform(get("/api/products"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].name").value("티셔츠"))
-                .andExpect(jsonPath("$[0].price").value(10000))
-                .andExpect(jsonPath("$[0].imageUrl").value("http://img/1"));
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[0].name").value("티셔츠"))
+                .andExpect(jsonPath("$.items[0].price").value(10000))
+                .andExpect(jsonPath("$.items[0].imageUrl").value("http://img/1"))
+                .andExpect(jsonPath("$.hasMore").value(false));
     }
 
     @Test
     void 성공_카테고리로_필터링한_상품목록을_반환한다() throws Exception {
         Product p1 = new Product("축구화", "설명", 30000, "http://img/3", 2, "스포츠/레저");
-        when(productService.listProducts(eq("스포츠/레저"))).thenReturn(List.of(p1));
+        when(productService.listProducts(eq("스포츠/레저"), anyInt(), anyInt()))
+                .thenReturn(new PageImpl<>(List.of(p1), PageRequest.of(0, 8), 1));
 
         mockMvc.perform(get("/api/products").param("category", "스포츠/레저"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1));
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.hasMore").value(false));
+    }
+
+    @Test
+    void 성공_다음_페이지가_있으면_hasMore가_true다() throws Exception {
+        Product p1 = new Product("티셔츠", "설명1", 10000, "http://img/1", 5);
+        when(productService.listProducts(isNull(), eq(0), eq(1)))
+                .thenReturn(new PageImpl<>(List.of(p1), PageRequest.of(0, 1), 2));
+
+        mockMvc.perform(get("/api/products").param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hasMore").value(true));
     }
 
     @Test

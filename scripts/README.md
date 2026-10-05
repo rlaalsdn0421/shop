@@ -18,3 +18,15 @@
 ## 로그
 
 `.review-loop.log`에 각 라운드의 리뷰/수정 출력이 쌓입니다.
+
+---
+
+# Claude Code 훅 — 수정 시 자동 테스트
+
+`.claude/settings.json`에 등록된 `PostToolUse` 훅. `scripts/hooks/auto-test.js`가
+Edit/Write로 수정된 파일 경로를 보고 `backend/`면 `./gradlew test`를,
+`frontend/`면 `npm test`를 자동으로 돌리고 결과를 요약해줍니다. 관련 없는
+파일(README 등)은 조용히 통과합니다.
+
+느린 멀티 파일 수정 구간에서 매번 전체 테스트가 도는 게 번거로우면 세션에
+`SKIP_AUTOTEST=1` 환경변수를 설정해 끌 수 있습니다.

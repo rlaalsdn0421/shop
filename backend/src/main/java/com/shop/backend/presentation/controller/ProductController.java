@@ -9,11 +9,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
-
 @RestController
 @RequestMapping("/api/products")
 public class ProductController {
+
+    private static final int DEFAULT_PAGE_SIZE = 8;
 
     private final ProductService productService;
 
@@ -22,8 +22,11 @@ public class ProductController {
     }
 
     @GetMapping
-    public List<ProductDtos.ProductListItem> listProducts(@RequestParam(required = false) String category) {
-        return ProductDtos.ProductListItem.from(productService.listProducts(category));
+    public ProductDtos.ProductPage listProducts(
+            @RequestParam(required = false) String category,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "" + DEFAULT_PAGE_SIZE) int size) {
+        return ProductDtos.ProductPage.from(productService.listProducts(category, page, size));
     }
 
     @GetMapping("/{id}")
