@@ -45,12 +45,13 @@ export function LoginForm() {
     <div className="max-w-sm mx-auto flex flex-col gap-4">
       <h1 className="text-xl font-bold">로그인</h1>
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        <label htmlFor="login-email" className="sr-only">이메일</label>
+        <label htmlFor="login-email" className="sr-only">아이디 또는 이메일</label>
         <input
           id="login-email"
-          type="email"
+          type="text"
+          autoComplete="username"
           className="border rounded px-3 py-2 text-sm"
-          placeholder="이메일"
+          placeholder="아이디 또는 이메일"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
