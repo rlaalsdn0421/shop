@@ -15,6 +15,7 @@ class UserValidationTest {
     private static final String EMAIL_MSG = "이메일 형식이 올바르지 않습니다.";
     private static final String PW_SHORT_MSG = "비밀번호는 8자 이상이어야 합니다.";
     private static final String PW_LONG_MSG = "비밀번호는 100자를 초과할 수 없습니다.";
+    private static final String PW_BLANK_MSG = "비밀번호는 공백만으로 만들 수 없습니다.";
 
     private static final String OK_USER = "user_01";
     private static final String OK_EMAIL = "user01@example.com";
@@ -80,6 +81,26 @@ class UserValidationTest {
     void 실패_비밀번호가_101자면_길다는_메시지로_거절한다() {
         assertThatThrownBy(() -> UserValidation.validateRegistration(OK_USER, OK_EMAIL, "a".repeat(101)))
                 .isInstanceOf(ValidationException.class).hasMessage(PW_LONG_MSG);
+    }
+
+    @Test
+    void 실패_공백만으로_된_8자_비밀번호는_공백_메시지로_거절한다() {
+        assertThatThrownBy(() -> UserValidation.validateRegistration(OK_USER, OK_EMAIL, " ".repeat(8)))
+                .isInstanceOf(ValidationException.class).hasMessage(PW_BLANK_MSG);
+    }
+
+    @Test
+    void 실패_공백만으로_된_7자_비밀번호는_짧다는_메시지가_먼저다() {
+        assertThatThrownBy(() -> UserValidation.validateRegistration(OK_USER, OK_EMAIL, " ".repeat(7)))
+                .isInstanceOf(ValidationException.class).hasMessage(PW_SHORT_MSG);
+    }
+
+    @Test
+    void 성공_공백이_섞여_있어도_다른_문자가_있으면_통과한다() {
+        assertThatCode(() -> UserValidation.validateRegistration(OK_USER, OK_EMAIL, "pass word 1"))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> UserValidation.validateRegistration(OK_USER, OK_EMAIL, "       a"))
+                .doesNotThrowAnyException();
     }
 
     @Test

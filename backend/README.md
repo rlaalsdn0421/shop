@@ -59,7 +59,7 @@ CORS는 모든 `/api/**` 경로에 대해 `http://localhost:3000`(Next.js 프론
 로컬에서 관리자 화면을 쓰려면 직접 값을 정해서 실행하세요(예시 값이며 아무 값이나 됩니다).
 
 ```bash
-ADMIN_USERNAME=admin01 ADMIN_PASSWORD='원하는-비밀번호' ./gradlew bootRun
+ADMIN_USERNAME='원하는-아이디' ADMIN_PASSWORD='원하는-비밀번호' ./gradlew bootRun
 ```
 
 운영에서는 Secret Manager 값이 환경변수로 주입됩니다.

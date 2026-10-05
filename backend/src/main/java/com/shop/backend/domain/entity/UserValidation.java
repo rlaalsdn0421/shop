@@ -27,5 +27,8 @@ public final class UserValidation {
         if (password.length() > 100) {
             throw new ValidationException("비밀번호는 100자를 초과할 수 없습니다.");
         }
+        if (password.isBlank()) {
+            throw new ValidationException("비밀번호는 공백만으로 만들 수 없습니다.");
+        }
     }
 }

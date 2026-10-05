@@ -69,6 +69,14 @@ public class UserSeeder implements ApplicationRunner {
             userRepository.save(new User(username, null, passwordEncoder.encode(password), role));
             logger.info("Seeded {} account", role);
         } catch (DataIntegrityViolationException ex) {
+            // Only a lost race is benign: re-check that the account now exists with the expected role.
+            var winner = userRepository.findByUsername(username);
+            if (winner.isEmpty()) {
+                throw ex;
+            }
+            if (winner.get().getRole() != role) {
+                throw new IllegalStateException("Seed username is already used by an account with a different role");
+            }
             logger.info("{} account was already created by another instance", role);
         }
     }

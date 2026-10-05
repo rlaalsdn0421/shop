@@ -80,6 +80,9 @@ class UserSeederTest {
 
     @Test
     void 성공_다른_인스턴스가_먼저_만들어_저장이_충돌해도_예외_없이_판매자_시드를_이어간다() {
+        when(userRepository.findByUsername("boss01"))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(new User("boss01", null, "h", Role.ADMIN)));
         when(userRepository.save(any(User.class)))
                 .thenThrow(new DataIntegrityViolationException("duplicate"))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -89,5 +92,26 @@ class UserSeederTest {
         ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
         verify(userRepository, times(2)).save(saved.capture());
         assertThat(saved.getAllValues()).extracting(User::getRole).containsExactly(Role.ADMIN, Role.SELLER);
+    }
+
+    @Test
+    void 실패_저장이_충돌했는데_계정이_여전히_없으면_원래_예외를_그대로_던진다() {
+        DataIntegrityViolationException violation = new DataIntegrityViolationException("too long");
+        when(userRepository.save(any(User.class))).thenThrow(violation);
+
+        assertThatThrownBy(() -> seeder("boss01", "pw-1", "shop01", "pw-2").run(null))
+                .isSameAs(violation);
+    }
+
+    @Test
+    void 실패_저장이_충돌했는데_다른_역할의_계정이_생겼으면_기동을_막는다() {
+        when(userRepository.findByUsername("boss01"))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(new User("boss01", "u@example.com", "h", Role.USER)));
+        when(userRepository.save(any(User.class))).thenThrow(new DataIntegrityViolationException("duplicate"));
+
+        assertThatThrownBy(() -> seeder("boss01", "pw-1", "shop01", "pw-2").run(null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Seed username is already used by an account with a different role");
     }
 }
