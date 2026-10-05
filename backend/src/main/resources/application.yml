@@ -17,3 +17,8 @@ server:
 jwt:
   # Local-dev fallback only — MUST be overridden via the JWT_SECRET env var for any real deployment.
   secret: ${JWT_SECRET:dev-only-insecure-jwt-signing-secret-change-me-32chars}
+
+seed:
+  # Local-dev fallback only — MUST be overridden via ADMIN_PASSWORD / SELLER_PASSWORD env vars for any real deployment.
+  admin-password: ${ADMIN_PASSWORD:admin1234!}
+  seller-password: ${SELLER_PASSWORD:seller1234!}
