@@ -97,9 +97,13 @@ graph TD
 - **infrastructure**: Spring Data JPA 리포지토리, Flyway로 관리되는 스키마, `WebConfig`(CORS).
 - **presentation**: REST 컨트롤러 + `GlobalExceptionHandler`가 도메인 예외를 HTTP 상태 코드로 매핑(`ValidationException`→400, `ProductNotFoundException`→404).
 
-## 인증 (미구현, 설계만 존재)
+## 인증 (JWT)
 
-현재 모든 엔드포인트가 인증 없이 공개되어 있으며, `/api/admin/products`도 예외가 아닙니다. 아래는 앞으로 붙일 계획인 JWT 기반 인증(2시간 만료, `ADMIN`/`SELLER`/`USER` 3개 역할)의 설계이고, `AuthController`/`AuthService`/`JwtService`/`JwtAuthFilter`/`SecurityConfig`/`UserRepository`/`UserSeeder` 등은 아직 코드베이스에 없습니다.
+회원가입(`POST /api/auth/register`)과 로그인(`POST /api/auth/login`)은 JWT(2시간 만료) 기반입니다. 역할은 `ADMIN`/`SELLER`(고정 시드 계정, 셀프 가입 불가)와 `USER`(셀프 가입) 세 가지예요.
+
+- `/api/admin/products/**`는 `ADMIN`/`SELLER`만, 주문 생성(`POST /api/orders`)은 로그인한 사용자만 호출할 수 있습니다. 나머지 조회 API는 공개입니다.
+- 토큰이 없거나 무효면 401, 역할이 부족하면 403을 반환합니다(프론트가 "로그인 필요"와 "권한 없음"을 구분할 수 있도록 Spring 기본 동작을 커스터마이징).
+- 시드 계정(`admin@shop.local`, `seller@shop.local`)의 비밀번호는 `ADMIN_PASSWORD`/`SELLER_PASSWORD` 환경변수로 주입합니다. 코드에는 로컬 개발용 기본값만 있고, 운영 값은 Secret Manager에 있습니다.
 
 ## 핵심 로직 1 — 주문 생성 (재고 조작 방어 포함)
 
@@ -162,9 +166,47 @@ sequenceDiagram
   RS-->>RC: {averageRating, reviewCount, reviews[]}
 ```
 
-## 프론트엔드 테스트
+## 테스트
 
-아직 없습니다 — 프론트엔드 Vitest 테스트와 백엔드 컨트롤러 단위 테스트 모두 추가 예정 — [PORTFOLIO.md](PORTFOLIO.md) 참고.
+- **백엔드**: 컨트롤러별 성공/실패 테스트(`@WebMvcTest` + 서비스 계층 `@MockBean`). 웹 계층만 띄우므로 **실제 DB를 건드리지 않아** CI에서 빠르고 안정적으로 돌아갑니다. 인증이 걸린 API는 실제 `SecurityConfig`를 불러와 401/403/200을 검증합니다. 실제 DB를 쓰는 통합 테스트(Testcontainers)는 아직 없습니다.
+- **프론트엔드**: Vitest + React Testing Library(API 클라이언트, 로그인 폼).
+
+```bash
+cd backend && ./gradlew test        # Windows: gradlew.bat test
+npm --prefix frontend test
+```
+
+## CI/CD와 배포
+
+**데모**: https://shop-wheat-two.vercel.app
+
+```mermaid
+graph LR
+  Dev(["개발자"]) -- "PR" --> CI["GitHub Actions CI<br/>백엔드: Gradle test<br/>프론트: lint · typecheck · vitest · build"]
+  CI -- "초록불이어야 머지 가능" --> Main["main"]
+  Main -- "backend/** 변경" --> CD["backend-deploy.yml"]
+  CD -- "OIDC (키 파일 없음)" --> GCP["Google Cloud"]
+  CD -- "이미지 push" --> AR["Artifact Registry"]
+  AR --> CR["Cloud Run (us-east1)"]
+  CR --> DB[("Neon Postgres")]
+  Main -- "Git 연동 자동 배포" --> V["Vercel (Next.js)"]
+  V -- "REST" --> CR
+```
+
+| 구성 | 서비스 | 비고 |
+|---|---|---|
+| 프론트엔드 | Vercel (Hobby) | `main` 머지 시 자동 배포, Root Directory `frontend`, `NEXT_PUBLIC_BACKEND_URL`로 백엔드 주소 지정 |
+| 백엔드 | Cloud Run (`us-east1`) | Docker 이미지(`backend/Dockerfile`, 멀티스테이지·non-root), 배포 후 스모크 테스트 |
+| DB | Neon Postgres | 기동 시 Flyway가 마이그레이션 실행 |
+| 시크릿 | GCP Secret Manager | DB 접속 정보, `JWT_SECRET`, `ADMIN_PASSWORD`, `SELLER_PASSWORD` |
+
+- **머지 게이트**: `main`은 보호되어 있고, 백엔드(`test`)·프론트(`build-and-test`) CI가 모두 초록불이어야 머지할 수 있습니다(관리자 포함). CI 워크플로에는 `paths` 필터를 두지 않았습니다 — 필수 체크가 필터에 걸려 아예 실행되지 않으면 GitHub이 그 체크를 영원히 "대기"로 두어 문서만 고친 PR도 머지가 막히기 때문입니다.
+- **키 없는 인증**: GitHub Actions는 OIDC로 GCP(Workload Identity Federation)에 인증하며, 이 저장소에서 온 요청만 허용합니다. 서비스 계정 키 파일이 없습니다.
+- **무료 한도 유지**: 최소 인스턴스 0 / 최대 2, 요청을 처리하는 동안에만 CPU 할당, Artifact Registry는 최근 이미지 3개만 보관. 요청이 없으면 0대로 줄어 첫 접속이 몇 초 느릴 수 있습니다.
+- **리전**: Neon DB가 미국 동부(Ohio)에 있어 Cloud Run도 `us-east1`에 두었습니다(리전이 멀면 쿼리마다 왕복 지연이 쌓임).
+- **시크릿 분리**: 저장소에는 로컬 개발용 기본값만 있고, 운영 값은 Secret Manager에서 환경변수로 주입합니다.
+
+최초 1회 설정: Neon 프로젝트 생성 → Cloud Shell에서 `PROJECT_ID=... REGION=us-east1 bash scripts/gcp-setup.sh` (API 활성화, 서비스 계정, WIF, 시크릿 생성) → 출력된 값을 GitHub 저장소 Variables에 등록(`GCP_PROJECT_ID`, `GCP_REGION`, `GCP_DEPLOYER_SERVICE_ACCOUNT`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, `CORS_ALLOWED_ORIGINS`) → Vercel에서 저장소를 가져와 배포.
 
 ## 자동화 — push하면 자동으로 도는 코드 리뷰 봇
 
