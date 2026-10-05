@@ -4,6 +4,7 @@ import com.shop.backend.application.service.AuthService;
 import com.shop.backend.domain.entity.Role;
 import com.shop.backend.domain.entity.User;
 import com.shop.backend.domain.error.DuplicateEmailException;
+import com.shop.backend.domain.error.DuplicateUsernameException;
 import com.shop.backend.domain.error.InvalidCredentialsException;
 import com.shop.backend.infrastructure.security.JwtService;
 import com.shop.backend.infrastructure.security.SecurityConfig;
@@ -33,12 +34,12 @@ class AuthControllerTest {
 
     @Test
     void 성공_회원가입한다() throws Exception {
-        User user = new User("a@a.com", "hashed", Role.USER);
+        User user = new User("user01", "a@a.com", "hashed", Role.USER);
         ReflectionTestUtils.setField(user, "id", "user-1");
-        when(authService.register(any(), any())).thenReturn(user);
+        when(authService.register(any(), any(), any())).thenReturn(user);
 
         String body = """
-                {"email":"a@a.com","password":"password1"}
+                {"username":"user01","email":"a@a.com","password":"password1"}
                 """;
 
         mockMvc.perform(post("/api/auth/register")
@@ -49,11 +50,26 @@ class AuthControllerTest {
     }
 
     @Test
-    void 실패_이미_등록된_이메일이면_400을_반환한다() throws Exception {
-        when(authService.register(any(), any())).thenThrow(new DuplicateEmailException());
+    void 실패_이미_사용_중인_아이디면_400을_반환한다() throws Exception {
+        when(authService.register(any(), any(), any())).thenThrow(new DuplicateUsernameException());
 
         String body = """
-                {"email":"a@a.com","password":"password1"}
+                {"username":"user01","email":"a@a.com","password":"password1"}
+                """;
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType("application/json")
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("이미 사용 중인 아이디입니다."));
+    }
+
+    @Test
+    void 실패_이미_등록된_이메일이면_400을_반환한다() throws Exception {
+        when(authService.register(any(), any(), any())).thenThrow(new DuplicateEmailException());
+
+        String body = """
+                {"username":"user01","email":"a@a.com","password":"password1"}
                 """;
 
         mockMvc.perform(post("/api/auth/register")
@@ -64,11 +80,11 @@ class AuthControllerTest {
     }
 
     @Test
-    void 성공_로그인한다() throws Exception {
-        when(authService.login(any(), any())).thenReturn(new AuthService.LoginResult("token123", "ADMIN", "a@a.com"));
+    void 성공_아이디로_로그인한다() throws Exception {
+        when(authService.login(any(), any())).thenReturn(new AuthService.LoginResult("token123", "ADMIN", "seller01"));
 
         String body = """
-                {"email":"a@a.com","password":"password1"}
+                {"username":"seller01","password":"password1"}
                 """;
 
         mockMvc.perform(post("/api/auth/login")
@@ -77,7 +93,7 @@ class AuthControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.token").value("token123"))
                 .andExpect(jsonPath("$.role").value("ADMIN"))
-                .andExpect(jsonPath("$.email").value("a@a.com"));
+                .andExpect(jsonPath("$.username").value("seller01"));
     }
 
     @Test
@@ -85,13 +101,13 @@ class AuthControllerTest {
         when(authService.login(any(), any())).thenThrow(new InvalidCredentialsException());
 
         String body = """
-                {"email":"a@a.com","password":"wrong"}
+                {"username":"seller01","password":"wrong"}
                 """;
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType("application/json")
                         .content(body))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.error").value("이메일 또는 비밀번호가 올바르지 않습니다."));
+                .andExpect(jsonPath("$.error").value("아이디 또는 비밀번호가 올바르지 않습니다."));
     }
 }

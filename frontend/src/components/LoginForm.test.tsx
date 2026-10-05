@@ -36,10 +36,10 @@ function renderLoginForm() {
 
 describe("LoginForm", () => {
   it("성공: 로그인하면 역할에 맞는 페이지로 이동한다", async () => {
-    mockFetchOnce(200, { token: "jwt-token", role: "USER", email: "a@a.com" });
+    mockFetchOnce(200, { token: "jwt-token", role: "USER", username: "user01" });
     renderLoginForm();
 
-    await userEvent.type(screen.getByPlaceholderText("아이디 또는 이메일"), "a@a.com");
+    await userEvent.type(screen.getByPlaceholderText("아이디"), "user01");
     await userEvent.type(screen.getByPlaceholderText("비밀번호"), "password1");
     await userEvent.click(screen.getByRole("button", { name: "로그인" }));
 
@@ -47,39 +47,41 @@ describe("LoginForm", () => {
   });
 
   it("성공: ADMIN/SELLER는 상품 관리 페이지로 이동한다", async () => {
-    mockFetchOnce(200, { token: "jwt-token", role: "ADMIN", email: "owner@example.com" });
+    mockFetchOnce(200, { token: "jwt-token", role: "ADMIN", username: "owner01" });
     renderLoginForm();
 
-    await userEvent.type(screen.getByPlaceholderText("아이디 또는 이메일"), "owner@example.com");
+    await userEvent.type(screen.getByPlaceholderText("아이디"), "owner01");
     await userEvent.type(screen.getByPlaceholderText("비밀번호"), "test-password");
     await userEvent.click(screen.getByRole("button", { name: "로그인" }));
 
     await waitFor(() => expect(push).toHaveBeenCalledWith("/admin/products"));
   });
 
-  it("성공: @가 없는 아이디도 형식 검사에 막히지 않고 로그인 요청이 나간다", async () => {
-    mockFetchOnce(200, { token: "jwt-token", role: "SELLER", email: "seller01" });
+  it("성공: 아이디 입력칸은 이메일 형식을 강제하지 않고 {username, password}로 요청한다", async () => {
+    mockFetchOnce(200, { token: "jwt-token", role: "SELLER", username: "seller01" });
     renderLoginForm();
 
-    const idInput = screen.getByPlaceholderText("아이디 또는 이메일");
+    const idInput = screen.getByPlaceholderText("아이디");
     expect(idInput).toHaveAttribute("type", "text");
     await userEvent.type(idInput, "seller01");
     await userEvent.type(screen.getByPlaceholderText("비밀번호"), "test-password");
     await userEvent.click(screen.getByRole("button", { name: "로그인" }));
 
     await waitFor(() => expect(push).toHaveBeenCalledWith("/admin/products"));
+    const [, init] = vi.mocked(fetch).mock.calls[0];
+    expect(JSON.parse(String(init?.body))).toEqual({ username: "seller01", password: "test-password" });
   });
 
   it("실패: 잘못된 비밀번호면 에러 메시지를 보여주고 이동하지 않는다", async () => {
-    mockFetchOnce(401, { error: "이메일 또는 비밀번호가 올바르지 않습니다." });
+    mockFetchOnce(401, { error: "아이디 또는 비밀번호가 올바르지 않습니다." });
     renderLoginForm();
 
-    await userEvent.type(screen.getByPlaceholderText("아이디 또는 이메일"), "a@a.com");
+    await userEvent.type(screen.getByPlaceholderText("아이디"), "user01");
     await userEvent.type(screen.getByPlaceholderText("비밀번호"), "wrong-password");
     await userEvent.click(screen.getByRole("button", { name: "로그인" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "이메일 또는 비밀번호가 올바르지 않습니다."
+      "아이디 또는 비밀번호가 올바르지 않습니다."
     );
     expect(push).not.toHaveBeenCalled();
   });

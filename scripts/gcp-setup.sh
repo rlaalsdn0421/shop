@@ -105,17 +105,23 @@ if secret_exists jwt-secret; then
 else
   create_secret jwt-secret "$(openssl rand -base64 48)"
 fi
-# 운영 관리자/판매자 계정: 이메일도 코드에 두지 않고 시크릿으로 둔다(추측하기 어려운 값을 직접 정하세요).
-ask_secret admin-email "운영 ADMIN 로그인 이메일" visible
+# 운영 관리자/판매자 계정: 로그인 아이디도 코드에 두지 않고 시크릿으로 둔다(추측하기 어려운 값을 직접 정하세요).
+# 예전에 admin-email/seller-email로 저장해 둔 값은 지금까지 로그인 아이디로 쓰였으므로, 새 이름으로 그대로 복사한다.
+for role in admin seller; do
+  if ! secret_exists "${role}-username" && secret_exists "${role}-email"; then
+    create_secret "${role}-username" "$(gcloud secrets versions access latest --secret="${role}-email")"
+  fi
+done
+ask_secret admin-username "운영 ADMIN 로그인 아이디" visible
 ask_secret admin-password "운영 ADMIN 비밀번호"
-ask_secret seller-email "운영 SELLER 로그인 이메일" visible
+ask_secret seller-username "운영 SELLER 로그인 아이디" visible
 ask_secret seller-password "운영 SELLER 비밀번호"
-# 두 이메일은 서로 달라야 한다(users.email 유니크 제약, 같으면 판매자 계정이 조용히 안 만들어짐).
-ADMIN_EMAIL_VALUE="$(gcloud secrets versions access latest --secret=admin-email)"
-SELLER_EMAIL_VALUE="$(gcloud secrets versions access latest --secret=seller-email)"
-if [ "${ADMIN_EMAIL_VALUE,,}" = "${SELLER_EMAIL_VALUE,,}" ]; then
-  echo "  ! admin-email과 seller-email이 같습니다. 서로 다른 이메일이어야 합니다."
-  echo "    둘 중 하나를 지우고(gcloud secrets delete seller-email) 이 스크립트를 다시 실행하세요."
+# 두 아이디는 서로 달라야 한다(users.username 유니크 제약, 같으면 판매자 계정이 조용히 안 만들어짐).
+ADMIN_USERNAME_VALUE="$(gcloud secrets versions access latest --secret=admin-username)"
+SELLER_USERNAME_VALUE="$(gcloud secrets versions access latest --secret=seller-username)"
+if [ "${ADMIN_USERNAME_VALUE,,}" = "${SELLER_USERNAME_VALUE,,}" ]; then
+  echo "  ! admin-username과 seller-username이 같습니다. 서로 다른 아이디여야 합니다."
+  echo "    둘 중 하나를 지우고(gcloud secrets delete seller-username) 이 스크립트를 다시 실행하세요."
   exit 1
 fi
 

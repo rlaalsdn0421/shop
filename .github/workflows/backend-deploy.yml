@@ -55,9 +55,9 @@ jobs:
             DB_USERNAME=db-username:latest
             DB_PASSWORD=db-password:latest
             JWT_SECRET=jwt-secret:latest
-            ADMIN_EMAIL=admin-email:latest
+            ADMIN_USERNAME=admin-username:latest
             ADMIN_PASSWORD=admin-password:latest
-            SELLER_EMAIL=seller-email:latest
+            SELLER_USERNAME=seller-username:latest
             SELLER_PASSWORD=seller-password:latest
           # 무료 한도 유지: 요청 처리 중에만 CPU 할당(기본값), 최소 인스턴스 0, 최대 2
           flags: >-
