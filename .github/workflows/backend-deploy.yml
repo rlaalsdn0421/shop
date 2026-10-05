@@ -1,0 +1,75 @@
+name: backend-deploy
+
+# main에 머지되면(= CI가 통과해야 머지 가능) 백엔드를 Cloud Run에 자동 배포한다.
+# GCP 값은 저장소 Variables에서 읽고, 설정 전에는 배포 job이 통째로 건너뛰어진다.
+on:
+  push:
+    branches: [main]
+    paths: ["backend/**", ".github/workflows/backend-deploy.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: backend-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ vars.GCP_PROJECT_ID != '' }}
+    runs-on: ubuntu-latest
+    env:
+      REGION: ${{ vars.GCP_REGION }}
+      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/shop/backend:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push image
+        run: |
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          docker build -t "$IMAGE" backend
+          docker push "$IMAGE"
+
+      - id: deploy
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: shop-backend
+          region: ${{ vars.GCP_REGION }}
+          image: ${{ env.IMAGE }}
+          env_vars: |
+            CORS_ALLOWED_ORIGINS=${{ vars.CORS_ALLOWED_ORIGINS }}
+            SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=5
+            JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75
+          secrets: |
+            DB_URL=db-url:latest
+            DB_USERNAME=db-username:latest
+            DB_PASSWORD=db-password:latest
+            JWT_SECRET=jwt-secret:latest
+            ADMIN_PASSWORD=admin-password:latest
+            SELLER_PASSWORD=seller-password:latest
+          # 무료 한도 유지: 요청 처리 중에만 CPU 할당(기본값), 최소 인스턴스 0, 최대 2
+          flags: >-
+            --allow-unauthenticated
+            --min-instances=0
+            --max-instances=2
+            --cpu=1
+            --memory=1Gi
+            --cpu-boost
+            --port=8080
+            --service-account=shop-backend@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+
+      - name: Smoke test
+        run: |
+          curl --fail --silent --show-error \
+            --retry 6 --retry-delay 10 --retry-connrefused --max-time 30 \
+            "${{ steps.deploy.outputs.url }}/api/products?page=0&size=1"
