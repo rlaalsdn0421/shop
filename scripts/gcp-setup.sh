@@ -65,42 +65,59 @@ gcloud iam service-accounts add-iam-policy-binding "$DEPLOYER_SA" \
 
 echo "== 5/5 Secret Manager 시크릿"
 secret_exists() { gcloud secrets describe "$1" >/dev/null 2>&1; }
-create_secret() { # $1=이름 $2=값
-  printf '%s' "$2" | gcloud secrets create "$1" --data-file=- --replication-policy=automatic >/dev/null
+grant_secret_access() { # $1=이름 (기존/신규 관계없이 멱등하게 재적용)
   gcloud secrets add-iam-policy-binding "$1" \
     --member="serviceAccount:${RUNTIME_SA}" --role="roles/secretmanager.secretAccessor" >/dev/null
+}
+create_secret() { # $1=이름 $2=값 (빈 값은 저장하지 않음)
+  if [ -z "$2" ]; then echo "  ! $1: 빈 값은 저장하지 않습니다. 다시 실행하세요."; exit 1; fi
+  printf '%s' "$2" | gcloud secrets create "$1" --data-file=- --replication-policy=automatic >/dev/null
+  grant_secret_access "$1"
   echo "  - $1: 생성됨"
 }
-ask_secret() { # $1=이름 $2=안내문구 (입력은 화면에 표시되지 않음)
-  if secret_exists "$1"; then echo "  - $1: 이미 있음 (건너뜀)"; return; fi
+ask_secret() { # $1=이름 $2=안내문구 $3=visible이면 입력이 보임(기본은 숨김)
+  if secret_exists "$1"; then grant_secret_access "$1"; echo "  - $1: 이미 있음 (건너뜀)"; return; fi
   local value
-  read -rsp "  $2: " value
-  echo
+  if [ "${3:-hidden}" = "visible" ]; then
+    read -rp "  $2: " value
+  else
+    read -rsp "  $2: " value
+    echo
+  fi
   create_secret "$1" "$value"
 }
 
 if secret_exists db-url; then
+  grant_secret_access db-url
   echo "  - db-url: 이미 있음 (건너뜀)"
 else
   echo "  Neon 대시보드 Connection Details에서 'Pooled connection'을 끈 직접 연결 주소를 확인하세요."
   read -rp "  Neon 호스트 (예: ep-xxxx.ap-southeast-1.aws.neon.tech): " NEON_HOST
   read -rp "  DB 이름 (예: neondb): " NEON_DB
+  if [ -z "$NEON_HOST" ] || [ -z "$NEON_DB" ]; then echo "  ! db-url: 호스트와 DB 이름은 비워둘 수 없습니다. 다시 실행하세요."; exit 1; fi
   create_secret db-url "jdbc:postgresql://${NEON_HOST}/${NEON_DB}?sslmode=require"
 fi
-if secret_exists db-username; then
-  echo "  - db-username: 이미 있음 (건너뜀)"
-else
-  read -rp "  Neon DB 사용자 이름: " NEON_USER
-  create_secret db-username "$NEON_USER"
-fi
+ask_secret db-username "Neon DB 사용자 이름" visible
 ask_secret db-password "Neon DB 비밀번호"
 if secret_exists jwt-secret; then
+  grant_secret_access jwt-secret
   echo "  - jwt-secret: 이미 있음 (건너뜀)"
 else
   create_secret jwt-secret "$(openssl rand -base64 48)"
 fi
-ask_secret admin-password "운영 ADMIN 계정(admin@shop.local) 비밀번호 (직접 정하세요)"
-ask_secret seller-password "운영 SELLER 계정(seller@shop.local) 비밀번호 (직접 정하세요)"
+# 운영 관리자/판매자 계정: 이메일도 코드에 두지 않고 시크릿으로 둔다(추측하기 어려운 값을 직접 정하세요).
+ask_secret admin-email "운영 ADMIN 로그인 이메일" visible
+ask_secret admin-password "운영 ADMIN 비밀번호"
+ask_secret seller-email "운영 SELLER 로그인 이메일" visible
+ask_secret seller-password "운영 SELLER 비밀번호"
+# 두 이메일은 서로 달라야 한다(users.email 유니크 제약, 같으면 판매자 계정이 조용히 안 만들어짐).
+ADMIN_EMAIL_VALUE="$(gcloud secrets versions access latest --secret=admin-email)"
+SELLER_EMAIL_VALUE="$(gcloud secrets versions access latest --secret=seller-email)"
+if [ "${ADMIN_EMAIL_VALUE,,}" = "${SELLER_EMAIL_VALUE,,}" ]; then
+  echo "  ! admin-email과 seller-email이 같습니다. 서로 다른 이메일이어야 합니다."
+  echo "    둘 중 하나를 지우고(gcloud secrets delete seller-email) 이 스크립트를 다시 실행하세요."
+  exit 1
+fi
 
 cat <<EOF
 

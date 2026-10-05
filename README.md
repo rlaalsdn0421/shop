@@ -103,7 +103,7 @@ graph TD
 
 - `/api/admin/products/**`는 `ADMIN`/`SELLER`만, 주문 생성(`POST /api/orders`)은 로그인한 사용자만 호출할 수 있습니다. 나머지 조회 API는 공개입니다.
 - 토큰이 없거나 무효면 401, 역할이 부족하면 403을 반환합니다(프론트가 "로그인 필요"와 "권한 없음"을 구분할 수 있도록 Spring 기본 동작을 커스터마이징).
-- 시드 계정(`admin@shop.local`, `seller@shop.local`)의 비밀번호는 `ADMIN_PASSWORD`/`SELLER_PASSWORD` 환경변수로 주입합니다. 코드에는 로컬 개발용 기본값만 있고, 운영 값은 Secret Manager에 있습니다.
+- 관리자/판매자 시드 계정은 이메일과 비밀번호를 모두 환경변수(`ADMIN_EMAIL`/`ADMIN_PASSWORD`, `SELLER_EMAIL`/`SELLER_PASSWORD`)로만 받습니다. 저장소에는 계정 정보도 기본값도 없고(값이 없으면 계정을 만들지 않음), 운영 값은 Secret Manager에 있습니다.
 
 ## 핵심 로직 1 — 주문 생성 (재고 조작 방어 포함)
 

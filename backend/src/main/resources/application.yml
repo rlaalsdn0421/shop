@@ -19,6 +19,9 @@ jwt:
   secret: ${JWT_SECRET:dev-only-insecure-jwt-signing-secret-change-me-32chars}
 
 seed:
-  # Local-dev fallback only — MUST be overridden via ADMIN_PASSWORD / SELLER_PASSWORD env vars for any real deployment.
-  admin-password: ${ADMIN_PASSWORD:admin1234!}
-  seller-password: ${SELLER_PASSWORD:seller1234!}
+  # Intentionally no defaults: an ADMIN/SELLER account is only created when both its email and
+  # password env vars are set (ADMIN_EMAIL/ADMIN_PASSWORD, SELLER_EMAIL/SELLER_PASSWORD).
+  admin-email: ${ADMIN_EMAIL:}
+  admin-password: ${ADMIN_PASSWORD:}
+  seller-email: ${SELLER_EMAIL:}
+  seller-password: ${SELLER_PASSWORD:}
