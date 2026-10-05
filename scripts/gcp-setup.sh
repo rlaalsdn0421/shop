@@ -110,6 +110,14 @@ ask_secret admin-email "운영 ADMIN 로그인 이메일" visible
 ask_secret admin-password "운영 ADMIN 비밀번호"
 ask_secret seller-email "운영 SELLER 로그인 이메일" visible
 ask_secret seller-password "운영 SELLER 비밀번호"
+# 두 이메일은 서로 달라야 한다(users.email 유니크 제약, 같으면 판매자 계정이 조용히 안 만들어짐).
+ADMIN_EMAIL_VALUE="$(gcloud secrets versions access latest --secret=admin-email)"
+SELLER_EMAIL_VALUE="$(gcloud secrets versions access latest --secret=seller-email)"
+if [ "${ADMIN_EMAIL_VALUE,,}" = "${SELLER_EMAIL_VALUE,,}" ]; then
+  echo "  ! admin-email과 seller-email이 같습니다. 서로 다른 이메일이어야 합니다."
+  echo "    둘 중 하나를 지우고(gcloud secrets delete seller-email) 이 스크립트를 다시 실행하세요."
+  exit 1
+fi
 
 cat <<EOF
 

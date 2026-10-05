@@ -45,6 +45,9 @@ public class UserSeeder implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
+        if (!adminEmail.isBlank() && adminEmail.equalsIgnoreCase(sellerEmail)) {
+            throw new IllegalStateException("ADMIN_EMAIL and SELLER_EMAIL must be different");
+        }
         seed(adminEmail, adminPassword, Role.ADMIN);
         seed(sellerEmail, sellerPassword, Role.SELLER);
     }

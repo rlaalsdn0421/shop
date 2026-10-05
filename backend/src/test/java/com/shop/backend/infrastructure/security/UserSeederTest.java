@@ -10,6 +10,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -44,6 +45,14 @@ class UserSeederTest {
         when(userRepository.existsByEmail("boss@example.com")).thenReturn(true);
 
         seeder("boss@example.com", "pw-1", "", "").run(null);
+
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void 실패_관리자와_판매자_이메일이_같으면_기동을_막는다() {
+        assertThatThrownBy(() -> seeder("same@example.com", "pw-1", "SAME@example.com", "pw-2").run(null))
+                .isInstanceOf(IllegalStateException.class);
 
         verify(userRepository, never()).save(any());
     }
