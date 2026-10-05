@@ -13,7 +13,7 @@ export function Header() {
   return (
     <header className="sticky top-0 z-10 bg-black text-white">
       <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-6">
-        <Link href="/" className="text-lg font-extrabold tracking-tight">
+        <Link href="/" className="ml-[50px] text-lg font-extrabold tracking-tight">
           쇼핑몰
         </Link>
         <div className="hidden md:flex items-center gap-5 text-[13px] font-medium text-gray-300">
