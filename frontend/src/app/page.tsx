@@ -3,6 +3,8 @@ import { CategorySidebar } from "@/components/CategorySidebar";
 import { PromoBanner } from "@/components/PromoBanner";
 import { InfiniteProductGrid } from "@/components/InfiniteProductGrid";
 
+const BANNER_SLIDES = 5;
+
 export default async function Home({
   searchParams,
 }: {
@@ -12,12 +14,12 @@ export default async function Home({
   const category = Array.isArray(rawCategory) ? rawCategory[0] : rawCategory;
   const [{ items, hasMore }, featured] = await Promise.all([
     listProducts(category),
-    listProducts(undefined, 0, 1),
+    listProducts(undefined, 0, BANNER_SLIDES),
   ]);
 
   return (
     <div className="flex flex-col gap-6">
-      {featured.items[0] && <PromoBanner product={featured.items[0]} />}
+      <PromoBanner products={featured.items} />
       <div className="flex gap-6 items-start">
         <CategorySidebar active={category} />
         <div className="flex-1 flex flex-col gap-4 min-w-0">
