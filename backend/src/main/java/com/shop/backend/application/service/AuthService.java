@@ -1,6 +1,7 @@
 package com.shop.backend.application.service;
 
 import com.shop.backend.domain.error.DuplicateEmailException;
+import com.shop.backend.domain.error.DuplicateUsernameException;
 import com.shop.backend.domain.error.InvalidCredentialsException;
 import com.shop.backend.domain.entity.Role;
 import com.shop.backend.domain.entity.User;
@@ -25,25 +26,28 @@ public class AuthService {
     }
 
     @Transactional
-    public User register(String email, String password) {
-        UserValidation.validateRegistration(email, password);
+    public User register(String username, String email, String password) {
+        UserValidation.validateRegistration(username, email, password);
+        if (userRepository.existsByUsername(username)) {
+            throw new DuplicateUsernameException();
+        }
         if (userRepository.existsByEmail(email)) {
             throw new DuplicateEmailException();
         }
-        User user = new User(email, passwordEncoder.encode(password), Role.USER);
+        User user = new User(username, email, passwordEncoder.encode(password), Role.USER);
         return userRepository.save(user);
     }
 
-    public record LoginResult(String token, String role, String email) {
+    public record LoginResult(String token, String role, String username) {
     }
 
     @Transactional(readOnly = true)
-    public LoginResult login(String email, String password) {
-        User user = userRepository.findByEmail(email).orElseThrow(InvalidCredentialsException::new);
+    public LoginResult login(String username, String password) {
+        User user = userRepository.findByUsername(username).orElseThrow(InvalidCredentialsException::new);
         if (!passwordEncoder.matches(password, user.getPasswordHash())) {
             throw new InvalidCredentialsException();
         }
         String token = jwtService.generateToken(user);
-        return new LoginResult(token, user.getRole().name(), user.getEmail());
+        return new LoginResult(token, user.getRole().name(), user.getUsername());
     }
 }

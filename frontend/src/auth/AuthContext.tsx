@@ -7,7 +7,7 @@ export type Role = "ADMIN" | "SELLER" | "USER";
 
 type Session = {
   token: string;
-  email: string;
+  username: string;
   role: Role;
   expiresAt: number; // epoch ms
 };
@@ -15,7 +15,7 @@ type Session = {
 type AuthContextValue = {
   session: Session | null;
   ready: boolean;
-  login: (token: string, email: string, role: Role) => void;
+  login: (token: string, username: string, role: Role) => void;
   logout: () => void;
 };
 
@@ -32,7 +32,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed: Session = JSON.parse(raw);
-        if (parsed.expiresAt > Date.now()) {
+        // Sessions saved before the username change have no `username`; treat them as logged out.
+        if (parsed.username && parsed.expiresAt > Date.now()) {
           // eslint-disable-next-line react-hooks/set-state-in-effect
           setSession(parsed);
         } else {
@@ -51,8 +52,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     else localStorage.removeItem(STORAGE_KEY);
   }, [session, hydrated]);
 
-  function login(token: string, email: string, role: Role) {
-    setSession({ token, email, role, expiresAt: Date.now() + TOKEN_TTL_MS });
+  function login(token: string, username: string, role: Role) {
+    setSession({ token, username, role, expiresAt: Date.now() + TOKEN_TTL_MS });
   }
 
   function logout() {

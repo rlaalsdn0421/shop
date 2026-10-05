@@ -24,7 +24,7 @@ export function Header() {
                   상품 관리
                 </Link>
               )}
-              <span className="text-gray-500">{session.email}</span>
+              <span className="text-gray-500">{session.username}</span>
               <button
                 onClick={() => {
                   logout();

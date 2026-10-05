@@ -64,7 +64,7 @@ export type ReviewList = {
 export type LoginResponse = {
   token: string;
   role: "ADMIN" | "SELLER" | "USER";
-  email: string;
+  username: string;
 };
 
 async function apiFetch(path: string, init?: RequestInit) {

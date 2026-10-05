@@ -19,13 +19,13 @@ public class AuthController {
 
     @PostMapping("/register")
     public AuthDtos.RegisterResponse register(@RequestBody AuthDtos.RegisterRequest request) {
-        var user = authService.register(request.email(), request.password());
+        var user = authService.register(request.username(), request.email(), request.password());
         return AuthDtos.RegisterResponse.from(user);
     }
 
     @PostMapping("/login")
     public AuthDtos.LoginResponse login(@RequestBody AuthDtos.LoginRequest request) {
-        var result = authService.login(request.email(), request.password());
+        var result = authService.login(request.username(), request.password());
         return AuthDtos.LoginResponse.from(result);
     }
 }
