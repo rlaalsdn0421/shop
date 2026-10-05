@@ -39,7 +39,7 @@ describe("LoginForm", () => {
     mockFetchOnce(200, { token: "jwt-token", role: "USER", email: "a@a.com" });
     renderLoginForm();
 
-    await userEvent.type(screen.getByPlaceholderText("이메일"), "a@a.com");
+    await userEvent.type(screen.getByPlaceholderText("아이디 또는 이메일"), "a@a.com");
     await userEvent.type(screen.getByPlaceholderText("비밀번호"), "password1");
     await userEvent.click(screen.getByRole("button", { name: "로그인" }));
 
@@ -50,7 +50,20 @@ describe("LoginForm", () => {
     mockFetchOnce(200, { token: "jwt-token", role: "ADMIN", email: "owner@example.com" });
     renderLoginForm();
 
-    await userEvent.type(screen.getByPlaceholderText("이메일"), "owner@example.com");
+    await userEvent.type(screen.getByPlaceholderText("아이디 또는 이메일"), "owner@example.com");
+    await userEvent.type(screen.getByPlaceholderText("비밀번호"), "test-password");
+    await userEvent.click(screen.getByRole("button", { name: "로그인" }));
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/admin/products"));
+  });
+
+  it("성공: @가 없는 아이디도 형식 검사에 막히지 않고 로그인 요청이 나간다", async () => {
+    mockFetchOnce(200, { token: "jwt-token", role: "SELLER", email: "seller01" });
+    renderLoginForm();
+
+    const idInput = screen.getByPlaceholderText("아이디 또는 이메일");
+    expect(idInput).toHaveAttribute("type", "text");
+    await userEvent.type(idInput, "seller01");
     await userEvent.type(screen.getByPlaceholderText("비밀번호"), "test-password");
     await userEvent.click(screen.getByRole("button", { name: "로그인" }));
 
@@ -61,7 +74,7 @@ describe("LoginForm", () => {
     mockFetchOnce(401, { error: "이메일 또는 비밀번호가 올바르지 않습니다." });
     renderLoginForm();
 
-    await userEvent.type(screen.getByPlaceholderText("이메일"), "a@a.com");
+    await userEvent.type(screen.getByPlaceholderText("아이디 또는 이메일"), "a@a.com");
     await userEvent.type(screen.getByPlaceholderText("비밀번호"), "wrong-password");
     await userEvent.click(screen.getByRole("button", { name: "로그인" }));
 
