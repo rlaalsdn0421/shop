@@ -104,13 +104,21 @@ if secret_exists redis-url; then
   grant_secret_access redis-url
   echo "  - redis-url: 이미 있음 (건너뜀)"
 else
-  read -rsp "  Upstash Redis 접속 주소 (rediss://... 로 시작): " REDIS_URL_VALUE
-  echo
-  REDIS_URL_VALUE="${REDIS_URL_VALUE//[[:space:]]/}"
+  # 붙여넣은 글에서 redis(s):// 주소만 뽑는다(명령어 전체를 붙여도 됨). 붙여넣기 여부를 눈으로 확인할 수 있게 입력은 보이게 둔다.
+  read -rp "  Upstash Redis 접속 주소 (Connect 화면의 주소를 붙여넣고 Enter): " REDIS_INPUT
+  REDIS_URL_VALUE="$(printf '%s' "$REDIS_INPUT" | grep -oE "rediss?://[^[:space:]'\"]+" | head -n1 || true)"
   case "$REDIS_URL_VALUE" in
-    rediss://*) ;;
-    *) echo "  ! redis-url은 rediss://로 시작해야 합니다(Upstash Connect 화면의 주소 그대로). 다시 실행하세요."; exit 1 ;;
+    redis://*) REDIS_URL_VALUE="rediss://${REDIS_URL_VALUE#redis://}"; echo "  (redis:// 주소를 TLS용 rediss://로 바꿨습니다)" ;;
   esac
+  if [ -z "$REDIS_URL_VALUE" ]; then
+    if [ -z "$REDIS_INPUT" ]; then
+      echo "  ! 입력이 비어 있습니다. 붙여넣기가 안 된 것 같아요(Ctrl+Shift+V 또는 마우스 오른쪽 클릭 -> 붙여넣기). 다시 실행하세요."
+    else
+      echo "  ! 입력에서 redis:// 또는 rediss:// 주소를 찾지 못했습니다. Upstash Connect 화면의 주소를 확인하고 다시 실행하세요."
+    fi
+    exit 1
+  fi
+  echo "  인식한 주소: $(printf '%s' "$REDIS_URL_VALUE" | sed -E 's#(://[^:]+:)[^@]*@#\1****@#')"
   create_secret redis-url "$REDIS_URL_VALUE"
 fi
 if secret_exists jwt-secret; then
