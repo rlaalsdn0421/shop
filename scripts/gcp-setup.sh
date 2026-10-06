@@ -99,6 +99,31 @@ else
 fi
 ask_secret db-username "Neon DB 사용자 이름" visible
 ask_secret db-password "Neon DB 비밀번호"
+# 로그인/가입 횟수 제한용 Upstash Redis (TLS 주소는 rediss://로 시작, 비밀번호가 들어 있어 입력이 화면에 보이지 않는다)
+if secret_exists redis-url; then
+  grant_secret_access redis-url
+  echo "  - redis-url: 이미 있음 (건너뜀)"
+else
+  # 붙여넣은 글에서 redis(s):// 주소만 뽑는다(명령어 전체를 붙여도 됨). 붙여넣기 여부를 눈으로 확인할 수 있게 입력은 보이게 둔다.
+  # REDIS_INPUT 환경변수로 미리 넘기면 입력 칸을 건너뛴다(붙여넣기가 안 되는 터미널용). -e는 일반 명령줄과 같은 입력기를 써서 붙여넣기가 되게 한다.
+  if [ -z "${REDIS_INPUT:-}" ]; then
+    read -erp "  Upstash Redis 접속 주소 (Connect 화면의 주소를 붙여넣고 Enter): " REDIS_INPUT
+  fi
+  REDIS_URL_VALUE="$(printf '%s' "$REDIS_INPUT" | grep -oE "rediss?://[^[:space:]'\"]+" | head -n1 || true)"
+  case "$REDIS_URL_VALUE" in
+    redis://*) REDIS_URL_VALUE="rediss://${REDIS_URL_VALUE#redis://}"; echo "  (redis:// 주소를 TLS용 rediss://로 바꿨습니다)" ;;
+  esac
+  if [ -z "$REDIS_URL_VALUE" ]; then
+    if [ -z "$REDIS_INPUT" ]; then
+      echo "  ! 입력이 비어 있습니다. 붙여넣기가 안 된 것 같아요(Ctrl+Shift+V 또는 마우스 오른쪽 클릭 -> 붙여넣기). 다시 실행하세요."
+    else
+      echo "  ! 입력에서 redis:// 또는 rediss:// 주소를 찾지 못했습니다. Upstash Connect 화면의 주소를 확인하고 다시 실행하세요."
+    fi
+    exit 1
+  fi
+  echo "  인식한 주소: $(printf '%s' "$REDIS_URL_VALUE" | sed -E 's#(://[^:]+:)[^@]*@#\1****@#')"
+  create_secret redis-url "$REDIS_URL_VALUE"
+fi
 if secret_exists jwt-secret; then
   grant_secret_access jwt-secret
   echo "  - jwt-secret: 이미 있음 (건너뜀)"

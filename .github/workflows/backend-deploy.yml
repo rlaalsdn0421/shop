@@ -59,6 +59,7 @@ jobs:
             ADMIN_PASSWORD=admin-password:latest
             SELLER_USERNAME=seller-username:latest
             SELLER_PASSWORD=seller-password:latest
+            REDIS_URL=redis-url:latest
           # 무료 한도 유지: 요청 처리 중에만 CPU 할당(기본값), 최소 인스턴스 0, 최대 2
           flags: >-
             --allow-unauthenticated
