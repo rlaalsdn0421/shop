@@ -28,22 +28,28 @@ public class AuthController {
     @PostMapping("/register")
     public AuthDtos.RegisterResponse register(@RequestBody AuthDtos.RegisterRequest request,
                                               HttpServletRequest httpRequest) {
-        rateLimiter.checkAndRecordRegister(clientIpResolver.resolve(httpRequest));
-        var user = authService.register(request.username(), request.email(), request.password());
-        return AuthDtos.RegisterResponse.from(user);
+        var attempt = rateLimiter.acquireRegister(clientIpResolver.resolve(httpRequest));
+        try {
+            var user = authService.register(request.username(), request.email(), request.password());
+            return AuthDtos.RegisterResponse.from(user);
+        } finally {
+            // every register request counts, whatever its outcome (success, 400, unexpected error)
+            attempt.countAndRelease();
+        }
     }
 
     @PostMapping("/login")
     public AuthDtos.LoginResponse login(@RequestBody AuthDtos.LoginRequest request,
                                         HttpServletRequest httpRequest) {
-        String ip = clientIpResolver.resolve(httpRequest);
-        rateLimiter.assertLoginAllowed(ip);
+        var attempt = rateLimiter.acquireLogin(clientIpResolver.resolve(httpRequest));
         try {
             var result = authService.login(request.username(), request.password());
             return AuthDtos.LoginResponse.from(result);
         } catch (InvalidCredentialsException ex) {
-            rateLimiter.recordLoginFailure(ip);
+            attempt.countAndRelease();
             throw ex;
+        } finally {
+            attempt.release(); // success or unexpected error; no-op after countAndRelease
         }
     }
 }
