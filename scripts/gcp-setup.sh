@@ -105,7 +105,10 @@ if secret_exists redis-url; then
   echo "  - redis-url: 이미 있음 (건너뜀)"
 else
   # 붙여넣은 글에서 redis(s):// 주소만 뽑는다(명령어 전체를 붙여도 됨). 붙여넣기 여부를 눈으로 확인할 수 있게 입력은 보이게 둔다.
-  read -rp "  Upstash Redis 접속 주소 (Connect 화면의 주소를 붙여넣고 Enter): " REDIS_INPUT
+  # REDIS_INPUT 환경변수로 미리 넘기면 입력 칸을 건너뛴다(붙여넣기가 안 되는 터미널용). -e는 일반 명령줄과 같은 입력기를 써서 붙여넣기가 되게 한다.
+  if [ -z "${REDIS_INPUT:-}" ]; then
+    read -erp "  Upstash Redis 접속 주소 (Connect 화면의 주소를 붙여넣고 Enter): " REDIS_INPUT
+  fi
   REDIS_URL_VALUE="$(printf '%s' "$REDIS_INPUT" | grep -oE "rediss?://[^[:space:]'\"]+" | head -n1 || true)"
   case "$REDIS_URL_VALUE" in
     redis://*) REDIS_URL_VALUE="rediss://${REDIS_URL_VALUE#redis://}"; echo "  (redis:// 주소를 TLS용 rediss://로 바꿨습니다)" ;;
