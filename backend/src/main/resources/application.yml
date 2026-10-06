@@ -7,6 +7,13 @@ spring:
     hibernate:
       ddl-auto: validate
     open-in-view: false
+  data:
+    redis:
+      # Rate-limit store. Production: REDIS_URL secret (rediss://... for TLS). Short timeouts so an
+      # unreachable Redis costs well under a second per request (the limiter fails open).
+      url: ${REDIS_URL:redis://localhost:6379}
+      timeout: 500ms
+      connect-timeout: 500ms
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -17,6 +24,14 @@ server:
 jwt:
   # Local-dev fallback only — MUST be overridden via the JWT_SECRET env var for any real deployment.
   secret: ${JWT_SECRET:dev-only-insecure-jwt-signing-secret-change-me-32chars}
+
+rate-limit:
+  # IP당 윈도우(분) 안에서 max-attempts번째 시도가 쌓이면 그 시점부터 윈도우(분)만큼 잠근다.
+  # 로그인은 실패만, 회원가입은 모든 요청을 센다.
+  max-attempts: 5
+  window-minutes: 5
+  # X-Forwarded-For에서 오른쪽 기준 몇 번째 항목을 클라이언트 IP로 볼지(Cloud Run 직접 노출 = 1).
+  trusted-proxy-hops: 1
 
 seed:
   # Intentionally no defaults: an ADMIN/SELLER account is only created when both its username and

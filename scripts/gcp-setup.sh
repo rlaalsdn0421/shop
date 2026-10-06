@@ -99,6 +99,20 @@ else
 fi
 ask_secret db-username "Neon DB 사용자 이름" visible
 ask_secret db-password "Neon DB 비밀번호"
+# 로그인/가입 횟수 제한용 Upstash Redis (TLS 주소는 rediss://로 시작, 비밀번호가 들어 있어 입력이 화면에 보이지 않는다)
+if secret_exists redis-url; then
+  grant_secret_access redis-url
+  echo "  - redis-url: 이미 있음 (건너뜀)"
+else
+  read -rsp "  Upstash Redis 접속 주소 (rediss://... 로 시작): " REDIS_URL_VALUE
+  echo
+  REDIS_URL_VALUE="${REDIS_URL_VALUE//[[:space:]]/}"
+  case "$REDIS_URL_VALUE" in
+    rediss://*) ;;
+    *) echo "  ! redis-url은 rediss://로 시작해야 합니다(Upstash Connect 화면의 주소 그대로). 다시 실행하세요."; exit 1 ;;
+  esac
+  create_secret redis-url "$REDIS_URL_VALUE"
+fi
 if secret_exists jwt-secret; then
   grant_secret_access jwt-secret
   echo "  - jwt-secret: 이미 있음 (건너뜀)"
