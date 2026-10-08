@@ -5,6 +5,7 @@ import {
   listAdminProducts,
   getOrder,
   listReviews,
+  askChat,
   AuthError,
 } from "./api";
 
@@ -113,5 +114,63 @@ describe("listReviews", () => {
   it("실패: 500이면 예외를 던진다", async () => {
     mockFetchOnce(500, {});
     await expect(listReviews("1")).rejects.toThrow("리뷰를 불러오지 못했습니다.");
+  });
+});
+
+describe("askChat", () => {
+  it("성공: 답변과 추천 질문을 반환하고 메시지를 POST로 보낸다", async () => {
+    mockFetchOnce(200, { answer: "배송은 2~3일 걸려요.", suggestions: ["반품은?"] });
+    const res = await askChat("배송");
+    expect(res.answer).toBe("배송은 2~3일 걸려요.");
+    expect(res.suggestions).toEqual(["반품은?"]);
+    const [url, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toMatch(/\/api\/chat$/);
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ message: "배송" });
+  });
+
+  it("실패: 400이면 서버가 준 error 메시지로 예외를 던진다", async () => {
+    mockFetchOnce(400, { error: "메시지는 1~200자여야 합니다." });
+    await expect(askChat("")).rejects.toThrow("메시지는 1~200자여야 합니다.");
+  });
+});
+
+describe("askChat 응답 검증", () => {
+  it("실패: 오류 본문이 JSON이 아니면 기본 메시지로 예외를 던진다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 502,
+        json: async () => {
+          throw new SyntaxError("not json");
+        },
+      })
+    );
+    await expect(askChat("a")).rejects.toThrow("답변을 가져오지 못했습니다.");
+  });
+
+  it("실패: 네트워크 오류는 그대로 전달된다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("network")));
+    await expect(askChat("a")).rejects.toThrow("network");
+  });
+
+  it("실패: answer가 비어 있거나 suggestions 형식이 틀리면 예외를 던진다", async () => {
+    for (const body of [
+      {},
+      { answer: "", suggestions: [] },
+      { answer: "  ", suggestions: [] },
+      { answer: 1, suggestions: [] },
+      { answer: "a", suggestions: "x" },
+      { answer: "a", suggestions: [1] },
+    ]) {
+      mockFetchOnce(200, body);
+      await expect(askChat("a")).rejects.toThrow("답변을 가져오지 못했습니다.");
+    }
+  });
+
+  it("성공: suggestions가 없으면 빈 배열로 채운다", async () => {
+    mockFetchOnce(200, { answer: "a" });
+    expect(await askChat("a")).toEqual({ answer: "a", suggestions: [] });
   });
 });

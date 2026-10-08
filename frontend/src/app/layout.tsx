@@ -6,6 +6,7 @@ import { CartProvider } from "@/cart/CartContext";
 import { AuthProvider } from "@/auth/AuthContext";
 import { Header } from "@/components/Header";
 import { MobileTabBar } from "@/components/MobileTabBar";
+import { ChatWidget } from "@/components/ChatWidget";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -36,6 +37,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               {children}
             </main>
             <MobileTabBar />
+            <ChatWidget />
           </CartProvider>
         </AuthProvider>
       </body>

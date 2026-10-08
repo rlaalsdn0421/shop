@@ -112,3 +112,23 @@ export async function listReviews(productId: string): Promise<ReviewList | null>
   if (!res.ok) throw new Error("리뷰를 불러오지 못했습니다.");
   return res.json();
 }
+
+export type ChatResponse = {
+  answer: string;
+  suggestions: string[];
+};
+
+export async function askChat(message: string): Promise<ChatResponse> {
+  const res = await apiFetch("/api/chat", {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
+  const data = await res.json().catch(() => null);
+  const valid =
+    typeof data?.answer === "string" &&
+    data.answer.trim() !== "" &&
+    (data.suggestions === undefined ||
+      (Array.isArray(data.suggestions) && data.suggestions.every((s: unknown) => typeof s === "string")));
+  if (!res.ok || !valid) throw new Error((!res.ok && data?.error) || "답변을 가져오지 못했습니다.");
+  return { answer: data.answer, suggestions: data.suggestions ?? [] };
+}
