@@ -9,6 +9,7 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 @Entity
@@ -33,6 +34,10 @@ public class User {
     @Column(nullable = false, length = 20)
     private Role role;
 
+    /** Personal data: never expose in responses or logs. Null for seeded ADMIN/SELLER and pre-existing accounts. */
+    @Column(name = "birth_date")
+    private LocalDate birthDate;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -41,10 +46,15 @@ public class User {
     }
 
     public User(String username, String email, String passwordHash, Role role) {
+        this(username, email, passwordHash, role, null);
+    }
+
+    public User(String username, String email, String passwordHash, Role role, LocalDate birthDate) {
         this.username = username;
         this.email = email;
         this.passwordHash = passwordHash;
         this.role = role;
+        this.birthDate = birthDate;
     }
 
     @PrePersist
@@ -75,6 +85,10 @@ public class User {
 
     public Role getRole() {
         return role;
+    }
+
+    public LocalDate getBirthDate() {
+        return birthDate;
     }
 
     public Instant getCreatedAt() {

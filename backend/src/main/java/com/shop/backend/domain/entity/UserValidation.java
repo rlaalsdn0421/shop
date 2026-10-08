@@ -2,6 +2,9 @@ package com.shop.backend.domain.entity;
 
 import com.shop.backend.domain.error.ValidationException;
 
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.regex.Pattern;
 
 /** Business-rule validation for user registration. */
@@ -17,7 +20,25 @@ public final class UserValidation {
     private static final Pattern PW_DIGIT = Pattern.compile("[0-9]");
     private static final Pattern PW_SPECIAL = Pattern.compile("[!-/:-@\\[-`{-~]");
 
+    private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
+    private static final LocalDate EARLIEST_BIRTH_DATE = LocalDate.of(1900, 1, 1);
+    private static final int MIN_AGE = 14;
+
     private UserValidation() {
+    }
+
+    /** Requires a real birth date and age 만 14+. "Today" is the Seoul date of the given clock, whatever its zone. */
+    public static void validateBirthDate(LocalDate birthDate, Clock clock) {
+        if (birthDate == null) {
+            throw new ValidationException("생년월일을 입력해주세요.");
+        }
+        LocalDate today = LocalDate.now(clock.withZone(KOREA));
+        if (birthDate.isAfter(today) || birthDate.isBefore(EARLIEST_BIRTH_DATE)) {
+            throw new ValidationException("생년월일이 올바르지 않아요.");
+        }
+        if (birthDate.isAfter(today.minusYears(MIN_AGE))) {
+            throw new ValidationException("만 14세 이상만 가입할 수 있어요.");
+        }
     }
 
     public static void validateRegistration(String username, String email, String password) {

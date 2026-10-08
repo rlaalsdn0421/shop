@@ -6,6 +6,11 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -166,5 +171,108 @@ class UserValidationTest {
     void 성공_모두_올바르면_통과한다() {
         assertThatCode(() -> UserValidation.validateRegistration(OK_USER, OK_EMAIL, OK_PW))
                 .doesNotThrowAnyException();
+    }
+
+    // ---- 생년월일 (만 14세 이상) ----
+
+    private static final String BIRTH_REQUIRED_MSG = "생년월일을 입력해주세요.";
+    private static final String BIRTH_INVALID_MSG = "생년월일이 올바르지 않아요.";
+    private static final String BIRTH_UNDERAGE_MSG = "만 14세 이상만 가입할 수 있어요.";
+
+    /** A UTC clock at noon UTC, which is the same calendar day in Seoul (21:00 KST). */
+    private static Clock utcNoon(String date) {
+        return Clock.fixed(Instant.parse(date + "T12:00:00Z"), ZoneOffset.UTC);
+    }
+
+    @Test
+    void 성공_오늘_정확히_만_14세가_되는_생일이면_통과한다() {
+        assertThatCode(() -> UserValidation.validateBirthDate(LocalDate.of(2012, 6, 15), utcNoon("2026-06-15")))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void 실패_내일_만_14세가_되면_거절한다() {
+        assertThatThrownBy(() -> UserValidation.validateBirthDate(LocalDate.of(2012, 6, 16), utcNoon("2026-06-15")))
+                .isInstanceOf(ValidationException.class).hasMessage(BIRTH_UNDERAGE_MSG);
+    }
+
+    @Test
+    void 성공_어제_만_14세가_됐으면_통과한다() {
+        assertThatCode(() -> UserValidation.validateBirthDate(LocalDate.of(2012, 6, 14), utcNoon("2026-06-15")))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void 실패_오늘_태어난_아기는_만_14세_미만이다() {
+        assertThatThrownBy(() -> UserValidation.validateBirthDate(LocalDate.of(2026, 6, 15), utcNoon("2026-06-15")))
+                .isInstanceOf(ValidationException.class).hasMessage(BIRTH_UNDERAGE_MSG);
+    }
+
+    @Test
+    void 실패_윤일_생일은_평년_2월_28일에는_아직_만_14세가_아니다() {
+        assertThatThrownBy(() -> UserValidation.validateBirthDate(LocalDate.of(2012, 2, 29), utcNoon("2026-02-28")))
+                .isInstanceOf(ValidationException.class).hasMessage(BIRTH_UNDERAGE_MSG);
+    }
+
+    @Test
+    void 성공_윤일_생일은_평년_3월_1일에_만_14세가_된다() {
+        assertThatCode(() -> UserValidation.validateBirthDate(LocalDate.of(2012, 2, 29), utcNoon("2026-03-01")))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void 성공_1900년_1월_1일은_통과한다() {
+        assertThatCode(() -> UserValidation.validateBirthDate(LocalDate.of(1900, 1, 1), utcNoon("2026-06-15")))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void 실패_1899년_12월_31일은_올바르지_않은_날짜로_거절한다() {
+        assertThatThrownBy(() -> UserValidation.validateBirthDate(LocalDate.of(1899, 12, 31), utcNoon("2026-06-15")))
+                .isInstanceOf(ValidationException.class).hasMessage(BIRTH_INVALID_MSG);
+    }
+
+    @Test
+    void 실패_미래_날짜는_올바르지_않은_날짜로_거절한다() {
+        assertThatThrownBy(() -> UserValidation.validateBirthDate(LocalDate.of(2026, 6, 16), utcNoon("2026-06-15")))
+                .isInstanceOf(ValidationException.class).hasMessage(BIRTH_INVALID_MSG);
+    }
+
+    @Test
+    void 실패_생년월일이_null이면_입력_요청_메시지로_거절한다() {
+        assertThatThrownBy(() -> UserValidation.validateBirthDate(null, utcNoon("2026-06-15")))
+                .isInstanceOf(ValidationException.class).hasMessage(BIRTH_REQUIRED_MSG);
+    }
+
+    // 2026-06-14T16:00:00Z == 2026-06-15 01:00 KST: UTC 날짜로 보면 아직 14일이다.
+    private static final Clock UTC_PREVIOUS_DAY_SEOUL_NEXT = Clock.fixed(Instant.parse("2026-06-14T16:00:00Z"), ZoneOffset.UTC);
+
+    @Test
+    void 성공_UTC로는_전날이어도_서울_날짜로_오늘_만_14세가_되면_통과한다() {
+        assertThatCode(() -> UserValidation.validateBirthDate(LocalDate.of(2012, 6, 15), UTC_PREVIOUS_DAY_SEOUL_NEXT))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void 실패_UTC로는_전날이어도_서울_기준_오늘_태어난_사람은_미래가_아니라_만_14세_미만으로_거절한다() {
+        // 서울 날짜 6/15 생일은 미래가 아니다(UTC 날짜 6/14 기준이면 미래로 잘못 거절됨).
+        assertThatThrownBy(() -> UserValidation.validateBirthDate(LocalDate.of(2026, 6, 15), UTC_PREVIOUS_DAY_SEOUL_NEXT))
+                .isInstanceOf(ValidationException.class).hasMessage(BIRTH_UNDERAGE_MSG);
+    }
+
+    @Test
+    void 성공_시계의_시간대가_달라도_서울_날짜로_판단한다() {
+        // 2026-06-15T16:00Z: 로스앤젤레스는 6/15 09:00(같은 날), 서울은 6/16 01:00. 서울 기준 오늘은 6/16이다.
+        Clock la = Clock.fixed(Instant.parse("2026-06-15T16:00:00Z"), java.time.ZoneId.of("America/Los_Angeles"));
+        assertThatCode(() -> UserValidation.validateBirthDate(LocalDate.of(2012, 6, 16), la))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void 실패_로스앤젤레스_시계라도_서울_기준_내일_만_14세가_되면_거절한다() {
+        // 서울 기준 오늘은 6/16이므로 6/17생은 아직 만 13세. LA 날짜(6/15)로 보면 6/16생도 거절돼야 하는 차이를 확인한다.
+        Clock la = Clock.fixed(Instant.parse("2026-06-15T16:00:00Z"), java.time.ZoneId.of("America/Los_Angeles"));
+        assertThatThrownBy(() -> UserValidation.validateBirthDate(LocalDate.of(2012, 6, 17), la))
+                .isInstanceOf(ValidationException.class).hasMessage(BIRTH_UNDERAGE_MSG);
     }
 }
