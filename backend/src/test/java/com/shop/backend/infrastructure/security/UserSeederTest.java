@@ -39,6 +39,7 @@ class UserSeederTest {
         List<User> users = saved.getAllValues();
         assertThat(users).extracting(User::getUsername).containsExactly("boss01", "shop01");
         assertThat(users).extracting(User::getEmail).containsOnlyNulls();
+        assertThat(users).extracting(User::getBirthDate).containsOnlyNulls();
         assertThat(users).extracting(User::getRole).containsExactly(Role.ADMIN, Role.SELLER);
         assertThat(users).extracting(User::getPasswordHash).containsExactly("hash:pw-1", "hash:pw-2");
     }

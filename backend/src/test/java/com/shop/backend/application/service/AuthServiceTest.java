@@ -16,6 +16,10 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,6 +36,8 @@ class AuthServiceTest {
 
     private static final String BAD_CREDENTIALS = "아이디 또는 비밀번호가 올바르지 않습니다.";
     private static final String DUMMY_HASH = "hash:not-a-real-password";
+    private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-15T00:00:00Z"), ZoneOffset.UTC);
+    private static final LocalDate BIRTH = LocalDate.of(2000, 5, 5);
 
     private final UserRepository userRepository = mock(UserRepository.class);
     private final PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
@@ -41,7 +47,7 @@ class AuthServiceTest {
     AuthServiceTest() {
         // must be stubbed before construction: the constructor encodes a dummy hash once
         when(passwordEncoder.encode(any())).thenAnswer(invocation -> "hash:" + invocation.getArgument(0));
-        authService = new AuthService(userRepository, passwordEncoder, jwtService);
+        authService = new AuthService(userRepository, passwordEncoder, jwtService, CLOCK);
     }
 
     private static DataIntegrityViolationException integrityViolation(String causeMessage) {
@@ -54,7 +60,7 @@ class AuthServiceTest {
     void 성공_가입하면_아이디_이메일_해시된_비밀번호_USER_역할로_저장하고_저장된_엔티티를_돌려준다() {
         when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        User result = authService.register("user_01", "user01@example.com", "pass1234!");
+        User result = authService.register("user_01", "user01@example.com", "pass1234!", BIRTH);
 
         ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
         verify(userRepository).saveAndFlush(saved.capture());
@@ -70,7 +76,7 @@ class AuthServiceTest {
     void 실패_이미_있는_아이디면_이메일_검사와_저장_없이_중복_아이디_예외() {
         when(userRepository.existsByUsername("user_01")).thenReturn(true);
 
-        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!"))
+        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", BIRTH))
                 .isInstanceOf(DuplicateUsernameException.class)
                 .hasMessage("이미 사용 중인 아이디입니다.");
 
@@ -83,7 +89,7 @@ class AuthServiceTest {
     void 실패_이미_있는_이메일이면_저장_없이_중복_이메일_예외() {
         when(userRepository.existsByEmail("user01@example.com")).thenReturn(true);
 
-        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!"))
+        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", BIRTH))
                 .isInstanceOf(DuplicateEmailException.class)
                 .hasMessage("이미 사용 중인 이메일입니다.");
 
@@ -93,7 +99,7 @@ class AuthServiceTest {
 
     @Test
     void 실패_아이디_형식이_잘못되면_저장소를_전혀_호출하지_않고_검증_예외() {
-        assertThatThrownBy(() -> authService.register("Bob", "bob@example.com", "pass1234!"))
+        assertThatThrownBy(() -> authService.register("Bob", "bob@example.com", "pass1234!", BIRTH))
                 .isInstanceOf(ValidationException.class);
 
         verifyNoInteractions(userRepository);
@@ -104,7 +110,7 @@ class AuthServiceTest {
         when(userRepository.saveAndFlush(any(User.class)))
                 .thenThrow(integrityViolation("duplicate key value violates unique constraint \"uq_users_username\""));
 
-        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!"))
+        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", BIRTH))
                 .isInstanceOf(DuplicateUsernameException.class);
     }
 
@@ -113,7 +119,7 @@ class AuthServiceTest {
         when(userRepository.saveAndFlush(any(User.class)))
                 .thenThrow(integrityViolation("duplicate key value violates unique constraint \"uq_users_email\""));
 
-        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!"))
+        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", BIRTH))
                 .isInstanceOf(DuplicateEmailException.class);
     }
 
@@ -122,8 +128,48 @@ class AuthServiceTest {
         DataIntegrityViolationException original = integrityViolation("null value in column \"role\"");
         when(userRepository.saveAndFlush(any(User.class))).thenThrow(original);
 
-        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!"))
+        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", BIRTH))
                 .isSameAs(original);
+    }
+
+    @Test
+    void 성공_가입하면_생년월일이_저장된다() {
+        when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        authService.register("user_01", "user01@example.com", "pass1234!", BIRTH);
+
+        ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).saveAndFlush(saved.capture());
+        assertThat(saved.getValue().getBirthDate()).isEqualTo(BIRTH);
+    }
+
+    @Test
+    void 실패_만_14세_미만이면_저장소를_전혀_호출하지_않고_검증_예외() {
+        LocalDate dayBefore14th = LocalDate.of(2012, 6, 16); // CLOCK = 2026-06-15 (Seoul 09:00)
+
+        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", dayBefore14th))
+                .isInstanceOf(ValidationException.class)
+                .hasMessage("만 14세 이상만 가입할 수 있어요.");
+
+        verifyNoInteractions(userRepository);
+    }
+
+    @Test
+    void 실패_생년월일이_없으면_저장소를_전혀_호출하지_않고_검증_예외() {
+        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", null))
+                .isInstanceOf(ValidationException.class)
+                .hasMessage("생년월일을 입력해주세요.");
+
+        verifyNoInteractions(userRepository);
+    }
+
+    @Test
+    void 실패_아이디와_생년월일이_모두_틀리면_아이디_메시지가_먼저다() {
+        assertThatThrownBy(() -> authService.register("Bob", "bob@example.com", "pass1234!", null))
+                .isInstanceOf(ValidationException.class)
+                .hasMessage("아이디는 영문 소문자, 숫자, 밑줄(_)로 4~20자여야 합니다.");
+
+        verifyNoInteractions(userRepository);
     }
 
     // ---- login ----

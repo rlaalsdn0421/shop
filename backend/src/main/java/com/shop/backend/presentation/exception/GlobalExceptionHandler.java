@@ -7,8 +7,11 @@ import com.shop.backend.domain.error.ProductNotFoundException;
 import com.shop.backend.domain.error.TooManyRequestsException;
 import com.shop.backend.presentation.dto.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
+import java.sql.SQLException;
+import org.hibernate.exception.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -58,7 +61,9 @@ public class GlobalExceptionHandler {
     // Malformed client requests: no stack trace, these are not server errors.
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ErrorResponse> handleUnreadableBody(HttpMessageNotReadableException ex) {
-        logger.debug("Unreadable request body: {}", ex.getMessage());
+        // message and value omitted on purpose: Jackson echoes the offending input, which may be a birth date
+        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+        logger.debug("Unreadable request body: {}", cause.getClass().getSimpleName());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse("요청 본문을 읽을 수 없습니다."));
     }
 
@@ -74,9 +79,33 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body(new ErrorResponse("지원하지 않는 콘텐츠 타입입니다."));
     }
 
+    // PostgreSQL's message embeds "Failing row contains (...)" (birth date, password hash), so never log
+    // the message or pass the exception as throwable: only the class, SQLSTATE and constraint name.
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleDataIntegrity(HttpServletRequest request,
+                                                             DataIntegrityViolationException ex) {
+        String sqlState = null;
+        String constraint = null;
+        for (Throwable t = ex; t != null; t = t.getCause()) {
+            if (t instanceof ConstraintViolationException cve) {
+                sqlState = cve.getSQLState();
+                constraint = cve.getConstraintName();
+            } else if (sqlState == null && t instanceof SQLException sql) {
+                sqlState = sql.getSQLState();
+            }
+        }
+        logger.error("Data integrity violation while processing {}: {} sqlState={} constraint={}",
+                request.getRequestURI(), ex.getClass().getSimpleName(), sqlState, constraint);
+        return internalError(request);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(HttpServletRequest request, Exception ex) {
         logger.error("Unhandled exception while processing {}", request.getRequestURI(), ex);
+        return internalError(request);
+    }
+
+    private static ResponseEntity<ErrorResponse> internalError(HttpServletRequest request) {
         String uri = request.getRequestURI();
         String message;
         if (uri.startsWith("/api/orders")) {

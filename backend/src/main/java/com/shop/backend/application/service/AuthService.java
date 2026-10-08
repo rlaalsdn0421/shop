@@ -13,32 +13,39 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.LocalDate;
+
 @Service
 public class AuthService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final Clock clock;
     // Compared against when the username is unknown so unknown-user and wrong-password take similar time.
     private final String dummyHash;
 
-    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtService jwtService) {
+    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtService jwtService,
+                       Clock clock) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.clock = clock;
         this.dummyHash = passwordEncoder.encode("not-a-real-password");
     }
 
     @Transactional
-    public User register(String username, String email, String password) {
+    public User register(String username, String email, String password, LocalDate birthDate) {
         UserValidation.validateRegistration(username, email, password);
+        UserValidation.validateBirthDate(birthDate, clock);
         if (userRepository.existsByUsername(username)) {
             throw new DuplicateUsernameException();
         }
         if (userRepository.existsByEmail(email)) {
             throw new DuplicateEmailException();
         }
-        User user = new User(username, email, passwordEncoder.encode(password), Role.USER);
+        User user = new User(username, email, passwordEncoder.encode(password), Role.USER, birthDate);
         try {
             // flush so a concurrent duplicate hits the unique constraint here, not at commit
             return userRepository.saveAndFlush(user);
