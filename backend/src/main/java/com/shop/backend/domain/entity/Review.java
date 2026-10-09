@@ -33,6 +33,10 @@ public class Review {
     @Column(nullable = false, length = 1000)
     private String comment;
 
+    // null for legacy anonymous reviews. Never exposed in API responses.
+    @Column(name = "user_id", length = 36, updatable = false)
+    private String userId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -41,7 +45,12 @@ public class Review {
     }
 
     public Review(Product product, String reviewerName, Integer rating, String comment) {
+        this(product, null, reviewerName, rating, comment);
+    }
+
+    public Review(Product product, String userId, String reviewerName, Integer rating, String comment) {
         this.product = product;
+        this.userId = userId;
         this.reviewerName = reviewerName;
         this.rating = rating;
         this.comment = comment;
@@ -63,6 +72,10 @@ public class Review {
 
     public Product getProduct() {
         return product;
+    }
+
+    public String getUserId() {
+        return userId;
     }
 
     public String getReviewerName() {

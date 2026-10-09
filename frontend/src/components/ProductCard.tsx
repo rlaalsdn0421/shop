@@ -1,10 +1,6 @@
-"use client";
-
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCart } from "@/cart/CartContext";
-import { useAuth } from "@/auth/AuthContext";
+import { SHIPPING_FEE } from "@/lib/constants";
 
 type Props = {
   id: string;
@@ -14,52 +10,38 @@ type Props = {
   rank?: number;
 };
 
+// The whole card is one link. A heart button (name row, right side) and a hashtag row
+// (bottom) are planned; they will need to sit outside the link, so keep the text block
+// as its own element.
 export function ProductCard({ id, name, price, imageUrl, rank }: Props) {
-  const { add } = useCart();
-  const { session } = useAuth();
-  const router = useRouter();
-
   return (
-    <div className="group flex flex-col">
-      <Link href={`/products/${id}`} className="relative block aspect-square bg-gray-100 overflow-hidden">
+    <Link href={`/products/${id}`} className="group flex flex-col">
+      <span className="relative block aspect-[3/4] overflow-hidden bg-neutral-100">
         <Image
           src={imageUrl}
-          alt={name}
+          alt=""
           fill
-          className="object-cover transition-transform group-hover:scale-105"
+          className="object-cover transition-transform duration-300 group-hover:scale-105"
           unoptimized
         />
         {rank !== undefined && (
-          <span
-            className={`absolute top-2 left-2 flex items-center justify-center rounded-full font-bold text-white ${
-              rank === 1
-                ? "h-7 min-w-7 bg-black text-sm ring-2 ring-white/70"
-                : "h-6 min-w-6 bg-black/80 px-1.5 text-xs"
-            }`}
-          >
+          <span className="absolute left-0 top-0 flex h-6 min-w-6 items-center justify-center bg-neutral-900 px-1 text-xs font-semibold text-white">
+            <span className="sr-only">순위 </span>
             {rank}
           </span>
         )}
-        <button
-          onClick={(e) => {
-            e.preventDefault();
-            if (!session) {
-              router.push("/login");
-              return;
-            }
-            add({ productId: id, name, price, imageUrl });
-          }}
-          className="absolute inset-x-2 bottom-2 rounded bg-black py-2 text-xs font-semibold text-white opacity-0 transition-opacity hover:opacity-90 group-hover:opacity-100"
-        >
-          장바구니 담기
-        </button>
-      </Link>
-      <div className="pt-2 flex flex-col gap-0.5">
-        <Link href={`/products/${id}`} className="text-sm text-gray-900 line-clamp-1">
-          {name}
-        </Link>
-        <span className="text-sm font-bold text-gray-900">{price.toLocaleString()}원</span>
-      </div>
-    </div>
+      </span>
+      <span className="flex flex-col gap-1 pt-2.5">
+        <span className="flex items-center justify-between gap-2">
+          <span className="truncate text-[13px] text-neutral-800">{name}</span>
+        </span>
+        <span className="text-[15px] font-bold text-neutral-900">
+          {price.toLocaleString("ko-KR")}원
+        </span>
+        <span className="w-fit border border-neutral-200 px-1.5 py-0.5 text-[11px] leading-none text-neutral-500">
+          배송비 {SHIPPING_FEE.toLocaleString("ko-KR")}원
+        </span>
+      </span>
+    </Link>
   );
 }

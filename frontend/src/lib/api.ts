@@ -75,12 +75,40 @@ async function apiFetch(path: string, init?: RequestInit) {
   });
 }
 
-export async function listProducts(category?: string, page = 0, size = 8): Promise<ProductPage> {
+export const PRODUCT_SORTS = [
+  "newest",
+  "popular",
+  "price_asc",
+  "price_desc",
+  "reviews",
+  "rating",
+  "sales",
+] as const;
+export type ProductSort = (typeof PRODUCT_SORTS)[number];
+
+export const BEST_PERIODS = ["realtime", "weekly", "monthly"] as const;
+export type BestPeriod = (typeof BEST_PERIODS)[number];
+
+export async function listProducts(
+  category?: string,
+  page = 0,
+  size = 8,
+  sort?: ProductSort
+): Promise<ProductPage> {
   const params = new URLSearchParams({ page: String(page), size: String(size) });
   if (category) params.set("category", category);
+  if (sort) params.set("sort", sort);
   const res = await apiFetch(`/api/products?${params}`);
   if (!res.ok) throw new Error("상품 목록을 불러오지 못했습니다.");
   return res.json();
+}
+
+export async function listBestProducts(period: BestPeriod, size = 4): Promise<Product[]> {
+  const params = new URLSearchParams({ period, size: String(size) });
+  const res = await apiFetch(`/api/products/best?${params}`);
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !Array.isArray(data?.items)) throw new Error("베스트 상품을 불러오지 못했습니다.");
+  return data.items;
 }
 
 export async function getProduct(id: string): Promise<ProductDetail | null> {
