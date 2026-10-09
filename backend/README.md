@@ -80,9 +80,21 @@ ADMIN_USERNAME='원하는-아이디' ADMIN_PASSWORD='원하는-비밀번호' ./g
 
 ## 테스트
 
-`backend/src/test`에 컨트롤러별 성공/실패 테스트가 있습니다(`@WebMvcTest` + 서비스 계층 mock, DB 불필요):
+`backend/src/test`에 컨트롤러별 성공/실패 테스트가 있습니다(`@WebMvcTest` + 서비스 계층 mock, 이 테스트들은 DB 불필요):
 
 ```bash
 gradlew.bat test   # Windows
 ./gradlew test     # Git Bash / Unix
 ```
+
+### 실제 DB 통합 테스트 (Docker 필요)
+
+`src/test/java/com/shop/backend/integration`의 테스트는 [Testcontainers](https://testcontainers.com)로 **진짜 Postgres 16**(`postgres:16-alpine`)을 띄워 Flyway 마이그레이션 V1~최신을 그대로 적용하고 `ddl-auto: validate`로 엔티티와 스키마가 일치하는지까지 확인합니다. 그래서 **`gradlew test`를 돌리려면 Docker(Docker Desktop 등)가 실행 중이어야 합니다.** Docker가 없으면 이 테스트들은 건너뛰지 않고 **실패**합니다(CI가 실행 없이 통과하는 일을 막기 위해서입니다).
+
+이유: mock 테스트는 SQL을 한 줄도 실행하지 않아서, 아래 같은 문제는 실제 DB로만 잡힙니다.
+
+- 정렬 JPQL(할인율/평점 `NULLS LAST`/판매순 `PAID`만 집계/페이지 넘김 시 중복·누락)과 `Product.getDiscountRate()`가 같은 결과를 내는지(과거 `integer out of range` 500 회귀 포함)
+- 부분 유니크 인덱스(`uq_reviews_product_user`), CHECK 제약, 유니크 제약 이름으로 중복을 판별하는 코드가 실제 드라이버 메시지와 맞는지, 동시 리뷰 작성 경합
+- `TIMESTAMP`(시간대 없음) 컬럼과 베스트 상품 24시간 윈도우가 JVM 시간대(UTC/Asia/Seoul)와 무관하게 맞는지
+
+컨테이너는 JVM당 한 번만 뜨고(첫 실행은 이미지 pull로 더 걸림) 테스트 종료 시 Testcontainers(Ryuk)가 정리합니다. 각 테스트는 시작 전에 테이블을 비우므로 순서와 무관합니다. Docker Engine 29 이상에서는 Testcontainers 1.19(Spring Boot 3.3.4 기본)가 연결되지 않아 `build.gradle`에서 `testcontainers.version`을 1.21.4로 올려 두었습니다.
