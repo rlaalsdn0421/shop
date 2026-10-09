@@ -5,6 +5,7 @@ import com.shop.backend.domain.entity.Product;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -35,6 +36,18 @@ public interface ProductRepository extends JpaRepository<Product, String> {
     Page<Product> findAllByCategory(String category, Pageable pageable);
 
     List<Product> findAllByIdIn(List<String> ids);
+
+    /**
+     * Atomic check-and-decrement done by the database in one statement (the row lock makes concurrent orders for
+     * the same product queue up and re-check the WHERE against the committed stock). Returns 0 when the stock is
+     * too low, i.e. nothing was changed.
+     * Neither flush nor clear on purpose: nothing is pending when it is called, and clearing would detach the
+     * products the order items still point to. The loaded Product's in-memory stock is stale afterwards, so the
+     * caller must not read or save its stock in the same transaction.
+     */
+    @Modifying
+    @Query("UPDATE Product p SET p.stock = p.stock - :quantity WHERE p.id = :id AND p.stock >= :quantity")
+    int decrementStockIfAvailable(@Param("id") String id, @Param("quantity") int quantity);
 
     // category == null means all categories. Pageable must be unsorted: the order is in the query.
     @Query("SELECT p FROM Product p " + CATEGORY_FILTER + "ORDER BY " + REVIEW_COUNT + " DESC" + NEWEST_TIE)

@@ -1,6 +1,5 @@
 package com.shop.backend.domain.entity;
 
-import com.shop.backend.domain.error.InsufficientStockException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -84,19 +83,6 @@ public class Product {
         if (createdAt == null) {
             createdAt = Instant.now();
         }
-    }
-
-    /**
-     * Decrements stock by quantity.
-     * ponytail: check-then-decrement isn't safe under concurrent orders for the same
-     * product; the DB CHECK constraint (stock >= 0, see V1 migration) is the real
-     * backstop. Add pessimistic row locking if overselling under load matters.
-     */
-    public void decrementStock(int quantity) {
-        if (stock < quantity) {
-            throw new InsufficientStockException(name);
-        }
-        stock -= quantity;
     }
 
     public String getId() {

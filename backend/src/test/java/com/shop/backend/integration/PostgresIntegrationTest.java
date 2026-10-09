@@ -1,6 +1,7 @@
 package com.shop.backend.integration;
 
 import com.shop.backend.application.service.AuthService;
+import com.shop.backend.application.service.OrderService;
 import com.shop.backend.application.service.ProductService;
 import com.shop.backend.application.service.ReviewService;
 import com.shop.backend.infrastructure.repository.ProductRepository;
@@ -35,7 +36,7 @@ import javax.sql.DataSource;
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({AuthService.class, ReviewService.class, ProductService.class, JwtService.class, IntegrationTestConfig.class})
+@Import({AuthService.class, OrderService.class, ReviewService.class, ProductService.class, JwtService.class, IntegrationTestConfig.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 abstract class PostgresIntegrationTest {
 
