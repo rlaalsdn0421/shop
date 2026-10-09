@@ -28,7 +28,8 @@ public class AdminProductController {
     @PostMapping
     public ProductDtos.IdResponse createProduct(@RequestBody ProductDtos.NewProductRequest request) {
         var product = productService.createProduct(
-                request.name(), request.description(), request.price(), request.imageUrl(), request.stock(), request.category());
+                request.name(), request.description(), request.price(), request.imageUrl(), request.stock(), request.category(),
+                request.originalPrice(), request.hashtags());
         return new ProductDtos.IdResponse(product.getId());
     }
 }

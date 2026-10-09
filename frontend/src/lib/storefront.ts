@@ -9,15 +9,15 @@ import { CATEGORIES } from "@/lib/categories";
 export const DEFAULT_SORT: ProductSort = "popular";
 export const DEFAULT_BEST_PERIOD: BestPeriod = "realtime";
 
-// No 할인율순 yet: it needs discount data that a later change adds.
 export const SORT_OPTIONS: { value: ProductSort; label: string }[] = [
   { value: "popular", label: "인기도순" },
   { value: "newest", label: "최신 등록순" },
   { value: "price_asc", label: "낮은 가격순" },
   { value: "price_desc", label: "높은 가격순" },
+  { value: "discount", label: "할인율순" },
+  { value: "sales", label: "누적 판매순" },
   { value: "reviews", label: "리뷰 많은순" },
   { value: "rating", label: "평점 높은순" },
-  { value: "sales", label: "누적 판매순" },
 ];
 
 export const BEST_OPTIONS: { value: BestPeriod; label: string }[] = [

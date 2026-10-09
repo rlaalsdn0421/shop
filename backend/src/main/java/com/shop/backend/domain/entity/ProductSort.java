@@ -10,7 +10,8 @@ public enum ProductSort {
     REVIEWS("reviews"),
     RATING("rating"),
     SALES("sales"),
-    POPULAR("popular");
+    POPULAR("popular"),
+    DISCOUNT("discount");
 
     private final String key;
 

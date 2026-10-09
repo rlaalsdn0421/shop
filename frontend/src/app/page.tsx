@@ -63,14 +63,7 @@ export default async function Home({ searchParams }: { searchParams: SearchParam
         ) : (
           <div className="grid grid-cols-2 gap-x-4 gap-y-8 lg:grid-cols-4">
             {best.value.map((p, i) => (
-              <ProductCard
-                key={p.id}
-                id={p.id}
-                name={p.name}
-                price={p.price}
-                imageUrl={p.imageUrl}
-                rank={i + 1}
-              />
+              <ProductCard key={p.id} {...p} rank={i + 1} />
             ))}
           </div>
         )}
@@ -83,7 +76,7 @@ export default async function Home({ searchParams }: { searchParams: SearchParam
         ) : (
           <div className="grid grid-cols-2 gap-x-4 gap-y-8 md:grid-cols-5">
             {fresh.value.items.map((p) => (
-              <ProductCard key={p.id} id={p.id} name={p.name} price={p.price} imageUrl={p.imageUrl} />
+              <ProductCard key={p.id} {...p} />
             ))}
           </div>
         )}

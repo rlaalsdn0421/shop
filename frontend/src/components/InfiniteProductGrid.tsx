@@ -66,7 +66,7 @@ export function InfiniteProductGrid({ initialItems, initialHasMore, category, so
     <>
       <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-5">
         {items.map((p) => (
-          <ProductCard key={p.id} id={p.id} name={p.name} price={p.price} imageUrl={p.imageUrl} />
+          <ProductCard key={p.id} {...p} />
         ))}
       </div>
       <div ref={sentinelRef} className="h-1" />

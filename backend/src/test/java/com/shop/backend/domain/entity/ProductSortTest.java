@@ -26,10 +26,11 @@ class ProductSortTest {
         assertThat(ProductSort.parse("rating")).isEqualTo(ProductSort.RATING);
         assertThat(ProductSort.parse("sales")).isEqualTo(ProductSort.SALES);
         assertThat(ProductSort.parse("popular")).isEqualTo(ProductSort.POPULAR);
+        assertThat(ProductSort.parse("discount")).isEqualTo(ProductSort.DISCOUNT);
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"PRICE_ASC", "price", "random"})
+    @ValueSource(strings = {"PRICE_ASC", "price", "random", "DISCOUNT"})
     void 실패_알_수_없는_sort는_거부한다(String value) {
         assertThatThrownBy(() -> ProductSort.parse(value))
                 .isInstanceOf(ValidationException.class)
