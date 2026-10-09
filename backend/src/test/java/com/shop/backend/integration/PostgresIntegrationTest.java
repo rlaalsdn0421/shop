@@ -20,6 +20,8 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.containers.PostgreSQLContainer;
 
+import javax.sql.DataSource;
+
 /**
  * Base of every real-database test: Flyway runs V1..latest on a real Postgres and Hibernate keeps
  * ddl-auto=validate (from application.yml, deliberately not overridden), so a booting context already proves
@@ -46,6 +48,8 @@ abstract class PostgresIntegrationTest {
     }
 
     @Autowired
+    protected DataSource dataSource;
+    @Autowired
     protected JdbcTemplate jdbc;
     @Autowired
     protected EntityManager em;
@@ -68,6 +72,7 @@ abstract class PostgresIntegrationTest {
 
     @BeforeEach
     void cleanTables() {
+        TestDatabaseGuard.requireContainerDatabase(dataSource, POSTGRES.getJdbcUrl(), POSTGRES.getDatabaseName());
         // also removes the rows seeded by V2/V4; no test may depend on them
         jdbc.execute("TRUNCATE order_items, reviews, orders, products, users CASCADE");
         data = new TestData(em, txManager);

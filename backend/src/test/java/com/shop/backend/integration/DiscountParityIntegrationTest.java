@@ -68,7 +68,9 @@ class DiscountParityIntegrationTest extends PostgresIntegrationTest {
 
     @Test
     void 성공_Product_getDiscountRate가_손으로_계산한_할인율과_같다() {
-        for (Product p : productRepository.findAll()) {
+        List<Product> all = productRepository.findAll();
+        assertThat(all).hasSize(CASES.size()); // an empty table must not pass
+        for (Product p : all) {
             Case c = CASES.stream().filter(x -> x.id().equals(p.getId())).findFirst().orElseThrow();
             assertThat(p.getDiscountRate()).as("%s (%d -> %d)", c.id(), c.originalPrice(), c.price()).isEqualTo(c.expectedRate());
         }

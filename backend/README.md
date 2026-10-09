@@ -98,3 +98,9 @@ gradlew.bat test   # Windows
 - `TIMESTAMP`(시간대 없음) 컬럼과 베스트 상품 24시간 윈도우가 JVM 시간대(UTC/Asia/Seoul)와 무관하게 맞는지
 
 컨테이너는 JVM당 한 번만 뜨고(첫 실행은 이미지 pull로 더 걸림) 테스트 종료 시 Testcontainers(Ryuk)가 정리합니다. 각 테스트는 시작 전에 테이블을 비우므로 순서와 무관합니다. Docker Engine 29 이상에서는 Testcontainers 1.19(Spring Boot 3.3.4 기본)가 연결되지 않아 `build.gradle`에서 `testcontainers.version`을 1.21.4로 올려 두었습니다.
+
+운영과 다른 점(알고 쓰기):
+
+- 컨테이너는 `postgres:16-alpine`입니다. 운영 Neon은 15+이고 glibc collation이라 문자열 정렬 규칙이 다를 수 있어, 테스트는 ASCII id로만 정렬 순서를 검증합니다.
+- 운영 연결 옵션(`prepareThreshold=0`, `sslmode`, 커넥션 풀러)은 쓰지 않습니다. 풀러/prepared statement 관련 문제는 이 테스트로 잡히지 않습니다.
+- 컨테이너는 JVM당 1개로 모든 테스트가 공유하고, Spring 컨텍스트는 3개(공통, UTC, Asia/Seoul 시간대 테스트용)입니다. 또한 테스트 시작 전에 테이블을 TRUNCATE하는데, 연결 대상이 테스트 컨테이너가 아니면 `TestDatabaseGuard`가 즉시 실패시켜 실제 DB를 지우지 못하게 합니다.

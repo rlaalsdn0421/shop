@@ -4,6 +4,7 @@ import com.shop.backend.domain.entity.BestPeriod;
 import com.shop.backend.domain.entity.Product;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.data.domain.PageRequest;
 
@@ -45,6 +46,22 @@ class BestProductsIntegrationTest extends PostgresIntegrationTest {
         data.sale("cancelled", "CANCELLED", 9, FIXED_NOW.minus(Duration.ofMinutes(5)));
 
         assertThat(soldSince(FIXED_NOW.minus(period.window()))).isEmpty();
+    }
+
+    /** Durations are hard-coded on purpose: changing a window length in BestPeriod must break this test. */
+    @ParameterizedTest(name = "{0}: {1} counted, {2} not")
+    @CsvSource({
+            "REALTIME, PT23H, PT25H",
+            "WEEKLY, PT167H, PT169H",   // 6d23h / 7d1h
+            "MONTHLY, PT719H, PT721H"}) // 29d23h / 30d1h
+    void 성공_기간_길이는_24시간_7일_30일로_고정되어_있다(BestPeriod period, Duration insideAge, Duration outsideAge) {
+        data.product("inside", null, 1000, null, T0);
+        data.product("outside", null, 1000, null, T0);
+        data.sale("inside", "PAID", 1, FIXED_NOW.minus(insideAge));
+        data.sale("outside", "PAID", 9, FIXED_NOW.minus(outsideAge)); // would win by quantity if the window were too long
+
+        assertThat(best(period, 1)).containsExactly("inside");
+        assertThat(soldSince(FIXED_NOW.minus(period.window()))).containsExactly("inside");
     }
 
     @ParameterizedTest(name = "{0}")
