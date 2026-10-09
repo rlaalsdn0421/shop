@@ -1,12 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/auth/AuthContext";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080";
 
 export function ReviewForm({ productId }: { productId: string }) {
   const router = useRouter();
+  const { session, ready } = useAuth();
   const [reviewerName, setReviewerName] = useState("");
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
@@ -15,17 +18,26 @@ export function ReviewForm({ productId }: { productId: string }) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!session) return;
     setError("");
     setSubmitting(true);
     try {
       const res = await fetch(`${BACKEND_URL}/api/products/${productId}/reviews`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.token}`,
+        },
         body: JSON.stringify({ reviewerName, rating, comment }),
       });
-      const data = await res.json();
+      if (res.status === 401) {
+        setError("로그인이 필요해요. 다시 로그인해 주세요.");
+        return;
+      }
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(data.error ?? "리뷰 등록에 실패했습니다.");
+        // 409: the server explains that this user already reviewed the product.
+        setError(data?.error ?? "리뷰 등록에 실패했습니다.");
         return;
       }
       setReviewerName("");
@@ -37,6 +49,19 @@ export function ReviewForm({ productId }: { productId: string }) {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (!ready) return null;
+
+  if (!session) {
+    return (
+      <p className="border-t pt-4 text-sm text-gray-600">
+        리뷰는 로그인 후 작성할 수 있어요.{" "}
+        <Link href="/login" className="underline">
+          로그인
+        </Link>
+      </p>
+    );
   }
 
   return (

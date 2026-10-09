@@ -1,11 +1,13 @@
 package com.shop.backend.application.service;
 
 import com.shop.backend.domain.entity.Product;
+import com.shop.backend.domain.error.DuplicateReviewException;
 import com.shop.backend.domain.error.ProductNotFoundException;
 import com.shop.backend.domain.entity.Review;
 import com.shop.backend.domain.entity.ReviewValidation;
 import com.shop.backend.infrastructure.repository.ProductRepository;
 import com.shop.backend.infrastructure.repository.ReviewRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,11 +25,22 @@ public class ReviewService {
     }
 
     @Transactional
-    public Review createReview(String productId, String reviewerName, Integer rating, String comment) {
+    public Review createReview(String productId, String userId, String reviewerName, Integer rating, String comment) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ProductNotFoundException(productId));
         ReviewValidation.validateNewReview(reviewerName, rating, comment);
-        return reviewRepository.save(new Review(product, reviewerName, rating, comment));
+        if (reviewRepository.existsByProductIdAndUserId(productId, userId)) {
+            throw new DuplicateReviewException();
+        }
+        try {
+            // flush so a concurrent duplicate hits the unique index here, not at commit
+            return reviewRepository.saveAndFlush(new Review(product, userId, reviewerName, rating, comment));
+        } catch (DataIntegrityViolationException ex) {
+            if (String.valueOf(ex.getMostSpecificCause().getMessage()).contains("uq_reviews_product_user")) {
+                throw new DuplicateReviewException();
+            }
+            throw ex;
+        }
     }
 
     @Transactional(readOnly = true)

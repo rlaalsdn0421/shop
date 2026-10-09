@@ -2,6 +2,7 @@ package com.shop.backend.presentation.exception;
 
 import com.shop.backend.domain.error.DomainException;
 import com.shop.backend.domain.error.DuplicateEmailException;
+import com.shop.backend.domain.error.DuplicateReviewException;
 import com.shop.backend.domain.error.InvalidCredentialsException;
 import com.shop.backend.domain.error.ProductNotFoundException;
 import com.shop.backend.domain.error.TooManyRequestsException;
@@ -40,6 +41,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(DuplicateEmailException.class)
     public ResponseEntity<ErrorResponse> handleDuplicateEmail(DuplicateEmailException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse(ex.getMessage()));
+    }
+
+    @ExceptionHandler(DuplicateReviewException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicateReview(DuplicateReviewException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(ex.getMessage()));
     }
 
     @ExceptionHandler(InvalidCredentialsException.class)

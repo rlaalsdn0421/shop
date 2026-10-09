@@ -3,6 +3,7 @@ package com.shop.backend.presentation.controller;
 import com.shop.backend.application.service.ReviewService;
 import com.shop.backend.presentation.dto.ProductDtos;
 import com.shop.backend.presentation.dto.ReviewDtos;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -26,8 +27,11 @@ public class ReviewController {
     }
 
     @PostMapping
-    public ProductDtos.IdResponse createReview(@PathVariable String productId, @RequestBody ReviewDtos.NewReviewRequest request) {
-        var review = reviewService.createReview(productId, request.reviewerName(), request.rating(), request.comment());
+    public ProductDtos.IdResponse createReview(@PathVariable String productId, @RequestBody ReviewDtos.NewReviewRequest request,
+                                               Authentication authentication) {
+        // JwtAuthFilter sets the user id as the principal (its name); SecurityConfig guarantees it is present
+        var review = reviewService.createReview(
+                productId, authentication.getName(), request.reviewerName(), request.rating(), request.comment());
         return new ProductDtos.IdResponse(review.getId());
     }
 }
