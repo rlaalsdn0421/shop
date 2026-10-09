@@ -9,6 +9,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # 통합 테스트(Testcontainers)가 Docker 이미지 pull/컨테이너에서 멈추면 러너를 최대 6시간 잡는다.
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend
