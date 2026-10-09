@@ -12,6 +12,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.DeadlockLoserDataAccessException;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
@@ -22,6 +25,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -83,6 +87,41 @@ class OrderControllerTest {
                         .content(body))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("수량이 올바르지 않습니다."));
+    }
+
+    private static final String ORDER_BODY = """
+            {"customerName":"홍길동","customerPhone":"010-1234-5678","customerAddress":"서울시",
+             "items":[{"productId":"p1","quantity":1}]}
+            """;
+
+    @Test
+    @WithMockUser
+    void 실패_행_잠금_대기_시간이_지나면_503과_Retry_After를_반환한다() throws Exception {
+        when(orderService.createOrder(any(), any(), any(), any())).thenThrow(new CannotAcquireLockException("lock timeout"));
+
+        mockMvc.perform(post("/api/orders").contentType("application/json").content(ORDER_BODY))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string("Retry-After", "1"))
+                .andExpect(jsonPath("$.error").value("주문이 몰려 처리하지 못했어요. 잠시 후 다시 시도해 주세요."));
+    }
+
+    @Test
+    @WithMockUser
+    void 실패_교착_상태로_밀려난_주문도_503과_Retry_After를_반환한다() throws Exception {
+        when(orderService.createOrder(any(), any(), any(), any())).thenThrow(new DeadlockLoserDataAccessException("deadlock", null));
+
+        mockMvc.perform(post("/api/orders").contentType("application/json").content(ORDER_BODY))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string("Retry-After", "1"));
+    }
+
+    @Test
+    @WithMockUser
+    void 실패_잠금과_관계없는_DB_오류는_여전히_500이다() throws Exception {
+        when(orderService.createOrder(any(), any(), any(), any())).thenThrow(new DataAccessResourceFailureException("db down"));
+
+        mockMvc.perform(post("/api/orders").contentType("application/json").content(ORDER_BODY))
+                .andExpect(status().isInternalServerError());
     }
 
     @Test
