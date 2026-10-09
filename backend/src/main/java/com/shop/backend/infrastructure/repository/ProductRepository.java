@@ -48,6 +48,14 @@ public interface ProductRepository extends JpaRepository<Product, String> {
     @Query("SELECT p FROM Product p " + CATEGORY_FILTER + "ORDER BY " + SOLD + " DESC" + NEWEST_TIE)
     Page<Product> findBySalesDesc(@Param("category") String category, Pageable pageable);
 
+    // Discount sort: no original price counts as 0%, and so does a discount under 1% (same rule as
+    // Product.getDiscountRate), so those products tie at the bottom. The CAST keeps the math in bigint: a
+    // 100L literal is rendered as a plain int by Hibernate and (originalPrice - price) * 100 overflows int in Postgres.
+    String DISCOUNT_RATE = "(CASE WHEN p.originalPrice IS NULL THEN 0 ELSE (CAST(p.originalPrice AS long) - p.price) * 100 / p.originalPrice END)";
+
+    @Query("SELECT p FROM Product p " + CATEGORY_FILTER + "ORDER BY " + DISCOUNT_RATE + " DESC" + NEWEST_TIE)
+    Page<Product> findByDiscountDesc(@Param("category") String category, Pageable pageable);
+
     @Query(POPULAR_QUERY)
     Page<Product> findByPopularDesc(@Param("category") String category, Pageable pageable);
 

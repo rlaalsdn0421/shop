@@ -182,6 +182,25 @@ function mockFetchSpy(status: number, body: unknown) {
   return fn;
 }
 
+describe("listProducts discount", () => {
+  it("성공: sort=discount를 쿼리에 넣고 할인 필드를 그대로 돌려준다", async () => {
+    mockFetchOnce(200, {
+      items: [{ id: "1", name: "a", price: 8000, imageUrl: "x", originalPrice: 10000, discountRate: 20, hashtags: ["여름"] }],
+      hasMore: false,
+    });
+    const page = await listProducts(undefined, 0, 8, "discount");
+    expect(new URL(String(vi.mocked(fetch).mock.calls[0][0])).searchParams.get("sort")).toBe("discount");
+    expect(page.items[0]).toMatchObject({ originalPrice: 10000, discountRate: 20, hashtags: ["여름"] });
+  });
+
+  it("실패: 옛 백엔드 응답(할인 필드 없음)도 그대로 받는다", async () => {
+    mockFetchOnce(200, { items: [{ id: "1", name: "a", price: 8000, imageUrl: "x" }], hasMore: false });
+    const page = await listProducts();
+    expect(page.items[0].discountRate).toBeUndefined();
+    expect(page.items[0].hashtags).toBeUndefined();
+  });
+});
+
 describe("listProducts sort", () => {
   it("성공: sort를 주면 쿼리에 sort가 들어간다", async () => {
     const fetchMock = mockFetchSpy(200, { items: [], hasMore: false });

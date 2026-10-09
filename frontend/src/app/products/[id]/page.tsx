@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { notFound } from "next/navigation";
 import { getProduct, listReviews } from "@/lib/api";
+import { discountView, formatWon, visibleHashtags } from "@/lib/price";
 import { AddToCartForm } from "@/components/AddToCartForm";
 import { ReviewList } from "@/components/ReviewList";
 import { ReviewForm } from "@/components/ReviewForm";
@@ -14,6 +15,9 @@ export default async function ProductDetail({
   const [product, reviews] = await Promise.all([getProduct(id), listReviews(id)]);
 
   if (!product) notFound();
+
+  const { rate, original } = discountView(product);
+  const tags = visibleHashtags(product.hashtags);
 
   return (
     <div className="flex flex-col gap-10">
@@ -35,7 +39,30 @@ export default async function ProductDetail({
             </span>
           )}
           <p className="text-gray-600">{product.description}</p>
-          <p className="text-xl font-semibold">{product.price.toLocaleString()}원</p>
+          {tags.length > 0 && (
+            <ul aria-label="해시태그" className="flex flex-wrap gap-x-2 gap-y-1 text-sm text-gray-500">
+              {tags.map((tag) => (
+                <li key={tag} className="max-w-full truncate">
+                  {`#${tag}`}
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            {rate !== null && (
+              <span className="text-xl font-semibold text-red-600">
+                <span className="sr-only">할인율 </span>
+                {rate}%
+              </span>
+            )}
+            <p className="text-xl font-semibold">{formatWon(product.price)}</p>
+            {original !== null && (
+              <del className="text-sm text-gray-400">
+                <span className="sr-only">정가 </span>
+                {formatWon(original)}
+              </del>
+            )}
+          </div>
           <AddToCartForm
             id={product.id}
             name={product.name}

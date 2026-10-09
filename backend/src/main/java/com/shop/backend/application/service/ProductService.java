@@ -31,10 +31,12 @@ public class ProductService {
     }
 
     @Transactional
-    public Product createProduct(String name, String description, Integer price, String imageUrl, Integer stock, String category) {
+    public Product createProduct(String name, String description, Integer price, String imageUrl, Integer stock, String category,
+                                 Integer originalPrice, List<String> hashtags) {
         String normalizedCategory = category == null || category.trim().isEmpty() ? null : category.trim();
-        ProductValidation.validateNewProduct(name, description, price, imageUrl, stock, normalizedCategory);
-        return productRepository.save(new Product(name, description, price, imageUrl, stock, normalizedCategory));
+        ProductValidation.validateNewProduct(name, description, price, imageUrl, stock, normalizedCategory, originalPrice);
+        List<String> normalizedTags = ProductValidation.normalizeHashtags(hashtags);
+        return productRepository.save(new Product(name, description, price, imageUrl, stock, normalizedCategory, originalPrice, normalizedTags));
     }
 
     @Transactional(readOnly = true)
@@ -56,6 +58,7 @@ public class ProductService {
             case RATING -> productRepository.findByRatingDesc(trimmed, unsorted);
             case SALES -> productRepository.findBySalesDesc(trimmed, unsorted);
             case POPULAR -> productRepository.findByPopularDesc(trimmed, unsorted);
+            case DISCOUNT -> productRepository.findByDiscountDesc(trimmed, unsorted);
         };
     }
 

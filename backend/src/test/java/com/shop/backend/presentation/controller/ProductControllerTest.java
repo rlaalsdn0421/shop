@@ -21,6 +21,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 import java.util.Optional;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -109,7 +110,7 @@ class ProductControllerTest {
 
     @ParameterizedTest
     @CsvSource({"newest,NEWEST", "price_asc,PRICE_ASC", "price_desc,PRICE_DESC", "reviews,REVIEWS",
-            "rating,RATING", "sales,SALES", "popular,POPULAR"})
+            "rating,RATING", "sales,SALES", "popular,POPULAR", "discount,DISCOUNT"})
     void 성공_sort_값을_서비스에_정렬로_넘긴다(String param, ProductSort expected) throws Exception {
         when(productService.listProducts(null, expected, 0, 8))
                 .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 8), 0));
@@ -169,6 +170,57 @@ class ProductControllerTest {
         verifyNoInteractions(productService);
     }
 
+    // ---- discount / hashtags in the JSON ----
+
+    @Test
+    void 성공_할인_상품은_정가_할인율_해시태그를_담아_반환한다() throws Exception {
+        Product p = new Product("티셔츠", "설명", 7500, "http://img/1", 5, null, 10000, List.of("여름", "sale"));
+        when(productService.listProducts(null, ProductSort.DISCOUNT, 0, 8))
+                .thenReturn(new PageImpl<>(List.of(p), PageRequest.of(0, 8), 1));
+
+        mockMvc.perform(get("/api/products").param("sort", "discount"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].originalPrice").value(10000))
+                .andExpect(jsonPath("$.items[0].discountRate").value(25))
+                .andExpect(jsonPath("$.items[0].hashtags[0]").value("여름"))
+                .andExpect(jsonPath("$.items[0].hashtags[1]").value("sale"));
+    }
+
+    @Test
+    void 성공_할인_없는_상품은_originalPrice_discountRate가_null이고_hashtags는_빈_배열이다() throws Exception {
+        Product p = new Product("티셔츠", "설명1", 10000, "http://img/1", 5);
+        when(productService.listProducts(isNull(), any(ProductSort.class), anyInt(), anyInt()))
+                .thenReturn(new PageImpl<>(List.of(p), PageRequest.of(0, 8), 1));
+
+        mockMvc.perform(get("/api/products"))
+                .andExpect(jsonPath("$.items[0].originalPrice").value(nullValue()))
+                .andExpect(jsonPath("$.items[0].discountRate").value(nullValue()))
+                .andExpect(jsonPath("$.items[0].hashtags").isArray())
+                .andExpect(jsonPath("$.items[0].hashtags.length()").value(0));
+    }
+
+    @Test
+    void 성공_상품상세도_정가_할인율_해시태그를_담는다() throws Exception {
+        Product p = new Product("티셔츠", "상세", 9000, "http://img/1", 5, null, 12000, List.of("겨울"));
+        when(productService.getProduct("id1")).thenReturn(Optional.of(p));
+
+        mockMvc.perform(get("/api/products/id1"))
+                .andExpect(jsonPath("$.originalPrice").value(12000))
+                .andExpect(jsonPath("$.discountRate").value(25))
+                .andExpect(jsonPath("$.hashtags[0]").value("겨울"));
+    }
+
+    @Test
+    void 성공_할인_없는_상품상세는_hashtags가_빈_배열이다() throws Exception {
+        Product p = new Product("티셔츠", "상세", 9000, "http://img/1", 5);
+        when(productService.getProduct("id1")).thenReturn(Optional.of(p));
+
+        mockMvc.perform(get("/api/products/id1"))
+                .andExpect(jsonPath("$.originalPrice").value(nullValue()))
+                .andExpect(jsonPath("$.discountRate").value(nullValue()))
+                .andExpect(jsonPath("$.hashtags.length()").value(0));
+    }
+
     // ---- best ----
 
     @Test
@@ -182,6 +234,8 @@ class ProductControllerTest {
                 .andExpect(jsonPath("$.items[0].name").value("티셔츠"))
                 .andExpect(jsonPath("$.items[0].price").value(10000))
                 .andExpect(jsonPath("$.items[0].imageUrl").value("http://img/1"))
+                .andExpect(jsonPath("$.items[0].discountRate").value(nullValue()))
+                .andExpect(jsonPath("$.items[0].hashtags.length()").value(0))
                 .andExpect(jsonPath("$.hasMore").doesNotExist());
     }
 

@@ -11,6 +11,10 @@ export type Product = {
   name: string;
   price: number;
   imageUrl: string;
+  // Optional on purpose: an older backend does not send these yet (see lib/price.ts).
+  originalPrice?: number | null;
+  discountRate?: number | null;
+  hashtags?: string[];
 };
 
 export type ProductPage = {
@@ -83,6 +87,7 @@ export const PRODUCT_SORTS = [
   "reviews",
   "rating",
   "sales",
+  "discount",
 ] as const;
 export type ProductSort = (typeof PRODUCT_SORTS)[number];
 

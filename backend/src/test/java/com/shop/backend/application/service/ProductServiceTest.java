@@ -3,6 +3,7 @@ package com.shop.backend.application.service;
 import com.shop.backend.domain.entity.BestPeriod;
 import com.shop.backend.domain.entity.Product;
 import com.shop.backend.domain.entity.ProductSort;
+import com.shop.backend.domain.error.ValidationException;
 import com.shop.backend.infrastructure.repository.ProductRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -18,6 +19,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -116,6 +118,21 @@ class ProductServiceTest {
         verify(repository).findByRatingDesc(eq("가방"), any());
         verify(repository).findBySalesDesc(eq("가방"), any());
         verify(repository).findByPopularDesc(eq("가방"), any());
+        verifyNoMoreInteractions(repository);
+    }
+
+    @Test
+    void 성공_할인율순은_자기_쿼리를_정렬_없는_Pageable로_쓴다() {
+        when(repository.findByDiscountDesc(eq("신발"), any())).thenReturn(page);
+        when(repository.findByDiscountDesc(isNull(), any())).thenReturn(page);
+
+        assertThat(service.listProducts(" 신발 ", ProductSort.DISCOUNT, 1, 8)).isSameAs(page);
+        service.listProducts(null, ProductSort.DISCOUNT, 0, 8);
+
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(repository).findByDiscountDesc(eq("신발"), captor.capture());
+        assertThat(captor.getValue().getSort().isSorted()).isFalse(); // the order lives in the @Query
+        verify(repository).findByDiscountDesc(isNull(), any());
         verifyNoMoreInteractions(repository);
     }
 
@@ -249,5 +266,44 @@ class ProductServiceTest {
         verify(repository).findBestSoldSince(any(), captor.capture());
         assertThat(captor.getValue().getPageSize()).isEqualTo(1);
         verify(repository, never()).listByPopularDesc(any(), any());
+    }
+
+    // ---- createProduct ----
+
+    @Test
+    void 성공_정가와_정규화된_해시태그로_상품을_저장한다() {
+        when(repository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Product saved = service.createProduct("n", "d", 7500, "http://img", 3, " 신발 ", 10000, List.of(" ##여름 ", "#Sale", "sale"));
+
+        assertThat(saved.getOriginalPrice()).isEqualTo(10000);
+        assertThat(saved.getDiscountRate()).isEqualTo(25);
+        assertThat(saved.getHashtags()).containsExactly("여름", "Sale");
+        assertThat(saved.getCategory()).isEqualTo("신발");
+    }
+
+    @Test
+    void 성공_정가와_해시태그가_없으면_할인_없는_상품으로_저장한다() {
+        when(repository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Product saved = service.createProduct("n", "d", 7500, "http://img", 3, null, null, null);
+
+        assertThat(saved.getOriginalPrice()).isNull();
+        assertThat(saved.getDiscountRate()).isNull();
+        assertThat(saved.getHashtags()).isEmpty();
+    }
+
+    @Test
+    void 실패_정가가_판매가_이하면_저장하지_않는다() {
+        assertThatThrownBy(() -> service.createProduct("n", "d", 7500, "http://img", 3, null, 7500, null))
+                .isInstanceOf(ValidationException.class);
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void 실패_해시태그가_잘못되면_저장하지_않는다() {
+        assertThatThrownBy(() -> service.createProduct("n", "d", 7500, "http://img", 3, null, null, List.of("a", "b", "c", "d")))
+                .isInstanceOf(ValidationException.class);
+        verify(repository, never()).save(any());
     }
 }

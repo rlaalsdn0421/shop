@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import type { BestPeriod, ProductSort } from "@/lib/api";
 import { SORT_OPTIONS, sortHref } from "@/lib/storefront";
@@ -11,9 +14,20 @@ export function SortTabs({
   category?: string;
   best?: BestPeriod;
 }) {
+  const listRef = useRef<HTMLUListElement>(null);
+
+  // On mobile the strip scrolls sideways; bring the selected tab into view. block "nearest"
+  // keeps the page from scrolling vertically (the links use scroll={false}); scrollIntoView
+  // may be missing (jsdom).
+  useEffect(() => {
+    listRef.current
+      ?.querySelector("[aria-current]")
+      ?.scrollIntoView?.({ inline: "center", block: "nearest" });
+  }, [selected]);
+
   return (
     <nav aria-label="정렬" className="mb-6 border-b border-neutral-200">
-      <ul className="flex gap-x-5 overflow-x-auto whitespace-nowrap text-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:justify-center">
+      <ul ref={listRef} className="flex gap-x-5 overflow-x-auto whitespace-nowrap text-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:justify-center">
         {SORT_OPTIONS.map((option) => (
           <li key={option.value} className="shrink-0">
             <Link
