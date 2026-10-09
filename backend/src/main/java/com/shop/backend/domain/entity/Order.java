@@ -18,6 +18,9 @@ import java.util.UUID;
 @Table(name = "orders")
 public class Order {
 
+    /** The only status orders get today; product sales rankings count only these. */
+    public static final String STATUS_PAID = "PAID";
+
     @Id
     @Column(length = 36, nullable = false, updatable = false)
     private String id;
@@ -35,7 +38,7 @@ public class Order {
     private Integer totalAmount;
 
     @Column(nullable = false, length = 20)
-    private String status = "PAID";
+    private String status = STATUS_PAID;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

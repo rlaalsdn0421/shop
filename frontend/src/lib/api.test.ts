@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   listProducts,
+  listBestProducts,
   getProduct,
   listAdminProducts,
   getOrder,
@@ -172,5 +173,64 @@ describe("askChat 응답 검증", () => {
   it("성공: suggestions가 없으면 빈 배열로 채운다", async () => {
     mockFetchOnce(200, { answer: "a" });
     expect(await askChat("a")).toEqual({ answer: "a", suggestions: [] });
+  });
+});
+
+function mockFetchSpy(status: number, body: unknown) {
+  const fn = vi.fn().mockResolvedValue({ ok: status >= 200 && status < 300, status, json: async () => body });
+  vi.stubGlobal("fetch", fn);
+  return fn;
+}
+
+describe("listProducts sort", () => {
+  it("성공: sort를 주면 쿼리에 sort가 들어간다", async () => {
+    const fetchMock = mockFetchSpy(200, { items: [], hasMore: false });
+    await listProducts("상의", 2, 20, "price_desc");
+    const url = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(url.pathname).toBe("/api/products");
+    expect(url.searchParams.get("sort")).toBe("price_desc");
+    expect(url.searchParams.get("category")).toBe("상의");
+    expect(url.searchParams.get("page")).toBe("2");
+    expect(url.searchParams.get("size")).toBe("20");
+  });
+
+  it("성공: sort를 생략하면 쿼리에 sort가 없다 (기존 호출 유지)", async () => {
+    const fetchMock = mockFetchSpy(200, { items: [], hasMore: false });
+    await listProducts();
+    const url = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(url.searchParams.has("sort")).toBe(false);
+    expect(url.searchParams.get("size")).toBe("8");
+  });
+});
+
+describe("listBestProducts", () => {
+  it("성공: best 엔드포인트에 period와 size를 보내고 items를 반환한다", async () => {
+    const fetchMock = mockFetchSpy(200, {
+      items: [{ id: "1", name: "티셔츠", price: 1000, imageUrl: "x" }],
+    });
+    const items = await listBestProducts("weekly", 4);
+    const url = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(url.pathname).toBe("/api/products/best");
+    expect(url.searchParams.get("period")).toBe("weekly");
+    expect(url.searchParams.get("size")).toBe("4");
+    expect(items).toHaveLength(1);
+    expect(items[0].name).toBe("티셔츠");
+  });
+
+  it("실패: 400/404/500이면 예외를 던진다", async () => {
+    for (const status of [400, 404, 500]) {
+      mockFetchOnce(status, { error: "x" });
+      await expect(listBestProducts("realtime")).rejects.toThrow("베스트 상품을 불러오지 못했습니다.");
+    }
+  });
+
+  it("실패: 응답에 items 배열이 없으면 예외를 던진다", async () => {
+    mockFetchOnce(200, { something: "else" });
+    await expect(listBestProducts("monthly")).rejects.toThrow("베스트 상품을 불러오지 못했습니다.");
+  });
+
+  it("실패: 네트워크 오류는 그대로 예외로 전달된다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("network")));
+    await expect(listBestProducts("realtime")).rejects.toThrow("network");
   });
 });

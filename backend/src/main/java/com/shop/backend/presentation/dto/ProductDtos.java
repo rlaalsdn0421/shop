@@ -28,6 +28,12 @@ public final class ProductDtos {
         }
     }
 
+    public record BestProducts(List<ProductListItem> items) {
+        public static BestProducts from(List<Product> products) {
+            return new BestProducts(ProductListItem.from(products));
+        }
+    }
+
     public record ProductDetail(String id, String name, Integer price, String imageUrl, String description, Integer stock) {
         public static ProductDetail from(Product p) {
             return new ProductDetail(p.getId(), p.getName(), p.getPrice(), p.getImageUrl(), p.getDescription(), p.getStock());

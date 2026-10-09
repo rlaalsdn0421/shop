@@ -20,6 +20,7 @@ import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
  * Business-rule violations map to 400, except a missing product which maps to 404 (Spring
@@ -65,6 +66,13 @@ public class GlobalExceptionHandler {
         Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
         logger.debug("Unreadable request body: {}", cause.getClass().getSimpleName());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse("요청 본문을 읽을 수 없습니다."));
+    }
+
+    // e.g. ?page=abc. The rejected value is never echoed or logged (only the parameter name).
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        logger.debug("Invalid request parameter: {}", ex.getName());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse("요청 값의 형식이 올바르지 않아요."));
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)

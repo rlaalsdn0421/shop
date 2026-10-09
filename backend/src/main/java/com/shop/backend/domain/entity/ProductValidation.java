@@ -13,6 +13,9 @@ public final class ProductValidation {
             "가방", "모자", "소품", "속옷/홈웨어", "스포츠/레저"
     );
 
+    private static final int MAX_PAGE_SIZE = 50;
+    private static final int MAX_BEST_SIZE = 20;
+
     private ProductValidation() {
     }
 
@@ -29,6 +32,25 @@ public final class ProductValidation {
         }
         if (category != null && !category.isEmpty() && !ALLOWED_CATEGORIES.contains(category)) {
             throw new ValidationException("올바르지 않은 카테고리입니다.");
+        }
+    }
+
+    public static void validatePage(int page, int size) {
+        if (page < 0) {
+            throw new ValidationException("페이지 번호가 올바르지 않아요.");
+        }
+        if (size < 1 || size > MAX_PAGE_SIZE) {
+            throw new ValidationException("상품 수는 1~" + MAX_PAGE_SIZE + "개 사이여야 해요.");
+        }
+        // the row offset (page * size) must fit an int, otherwise the query layer overflows -> 500
+        if ((long) page * size > Integer.MAX_VALUE) {
+            throw new ValidationException("페이지 번호가 너무 커요.");
+        }
+    }
+
+    public static void validateBestSize(int size) {
+        if (size < 1 || size > MAX_BEST_SIZE) {
+            throw new ValidationException("상품 수는 1~" + MAX_BEST_SIZE + "개 사이여야 해요.");
         }
     }
 
