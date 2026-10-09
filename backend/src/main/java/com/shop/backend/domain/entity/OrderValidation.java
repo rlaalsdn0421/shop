@@ -23,6 +23,9 @@ public final class OrderValidation {
         if (lines == null || lines.isEmpty()) {
             throw new ValidationException("주문할 상품이 없습니다.");
         }
+        if (lines.stream().anyMatch(line -> line == null || isBlank(line.productId()))) {
+            throw new ValidationException("상품 정보가 올바르지 않습니다.");
+        }
         boolean hasInvalidQuantity = lines.stream()
                 .anyMatch(line -> line.quantity() == null || line.quantity() <= 0);
         if (hasInvalidQuantity) {
@@ -37,8 +40,13 @@ public final class OrderValidation {
      */
     public static Map<String, Integer> aggregateQuantities(List<OrderLine> lines) {
         Map<String, Integer> quantityByProductId = new LinkedHashMap<>();
-        for (OrderLine line : lines) {
-            quantityByProductId.merge(line.productId(), line.quantity(), Integer::sum);
+        try {
+            for (OrderLine line : lines) {
+                quantityByProductId.merge(line.productId(), line.quantity(), Math::addExact);
+            }
+        } catch (ArithmeticException e) {
+            // Integer::sum would wrap to a negative number; no business cap on purpose, only the int range.
+            throw new ValidationException("주문 수량이 너무 커요.");
         }
         return quantityByProductId;
     }

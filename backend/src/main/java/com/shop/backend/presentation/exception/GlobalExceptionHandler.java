@@ -13,6 +13,7 @@ import org.hibernate.exception.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -111,6 +112,23 @@ public class GlobalExceptionHandler {
         logger.error("Data integrity violation while processing {}: {} sqlState={} constraint={}",
                 request.getRequestURI(), ex.getClass().getSimpleName(), sqlState, constraint);
         return internalError(request);
+    }
+
+    // Lock wait timeout (55P03) or deadlock victim (40P01): transient, the client may simply retry. Only the class
+    // and SQLSTATE are logged: the driver message carries SQL and row details.
+    @ExceptionHandler(PessimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponse> handleLockFailure(HttpServletRequest request, PessimisticLockingFailureException ex) {
+        String sqlState = null;
+        for (Throwable t = ex; t != null && sqlState == null; t = t.getCause()) {
+            if (t instanceof SQLException sql) {
+                sqlState = sql.getSQLState();
+            }
+        }
+        logger.warn("Lock failure while processing {}: {} sqlState={}",
+                request.getRequestURI(), ex.getClass().getSimpleName(), sqlState);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "1")
+                .body(new ErrorResponse("주문이 몰려 처리하지 못했어요. 잠시 후 다시 시도해 주세요."));
     }
 
     @ExceptionHandler(Exception.class)
