@@ -51,6 +51,20 @@ export type Order = {
   items: OrderItem[];
 };
 
+export type OrderSummary = {
+  id: string;
+  createdAt: string;
+  totalAmount: number;
+  status: string;
+  itemCount: number;
+  firstItemName: string;
+};
+
+export type OrderSummaryPage = {
+  orders: OrderSummary[];
+  nextCursor: string | null;
+};
+
 export type Review = {
   id: string;
   reviewerName: string;
@@ -142,6 +156,18 @@ export async function getOrder(id: string, token: string): Promise<Order | null>
   if (res.status === 404) return null;
   if (!res.ok) throw new Error("주문 정보를 불러오지 못했습니다.");
   return res.json();
+}
+
+export async function listMyOrders(token: string, cursor?: string | null): Promise<OrderSummaryPage> {
+  const query = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
+  const res = await apiFetch(`/api/orders?size=10${query}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (res.status === 401 || res.status === 403) throw new AuthError();
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !Array.isArray(data?.orders)) throw new Error("주문 내역을 불러오지 못했습니다.");
+  return { orders: data.orders, nextCursor: data.nextCursor ?? null };
 }
 
 export async function listReviews(productId: string): Promise<ReviewList | null> {

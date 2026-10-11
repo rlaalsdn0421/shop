@@ -43,6 +43,17 @@ export function MobileTabBar() {
             상품 관리
           </Link>
         )}
+        {session && (
+          <Link
+            href="/orders"
+            className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[11px] ${
+              pathname === "/orders" ? "text-white" : ""
+            }`}
+          >
+            <span className="text-base">🧾</span>
+            주문내역
+          </Link>
+        )}
         {session ? (
           <button
             onClick={() => {

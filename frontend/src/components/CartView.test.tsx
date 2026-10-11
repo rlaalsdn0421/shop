@@ -62,7 +62,7 @@ describe("CartView 주문 멱등 키", () => {
     mockReplies({ status: 201, body: { orderId: "o1" } });
     await renderCart();
     await submit();
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/orders/o1"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/orders/o1?placed=1"));
     expect(keys()[0]).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
     expect(vi.mocked(fetch).mock.calls[0][1]?.headers).toMatchObject({ Authorization: "Bearer fake-token" });
     expect(await screen.findByText("장바구니가 비어있습니다.")).toBeInTheDocument();
@@ -74,7 +74,7 @@ describe("CartView 주문 멱등 키", () => {
     await submit();
     expect(await screen.findByRole("alert")).toHaveTextContent("서버 오류");
     await submit();
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/orders/o1"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/orders/o1?placed=1"));
     expect(keys()[1]).toBe(keys()[0]);
   });
 
@@ -84,7 +84,7 @@ describe("CartView 주문 멱등 키", () => {
     await submit();
     expect(await screen.findByRole("alert")).toHaveTextContent("네트워크 오류");
     await submit();
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/orders/o1"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/orders/o1?placed=1"));
     expect(keys()[1]).toBe(keys()[0]);
   });
 
@@ -251,7 +251,7 @@ describe("CartView 주문 멱등 키", () => {
     await submit();
     await screen.findByRole("alert");
     await submit();
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/orders/o1"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/orders/o1?placed=1"));
     expect(keys()[1]).toBe(keys()[0]);
   });
 
