@@ -1,4 +1,5 @@
 import type { ReviewList as ReviewListData } from "@/lib/api";
+import { formatKoreanDate } from "@/lib/date";
 
 export function ReviewList({ data }: { data: ReviewListData }) {
   return (
@@ -23,7 +24,7 @@ export function ReviewList({ data }: { data: ReviewListData }) {
             </div>
             <p className="text-sm text-gray-700 mt-1">{review.comment}</p>
             <p className="text-xs text-gray-400 mt-1">
-              {new Date(review.createdAt).toLocaleDateString("ko-KR")}
+              {formatKoreanDate(review.createdAt)}
             </p>
           </div>
         ))}

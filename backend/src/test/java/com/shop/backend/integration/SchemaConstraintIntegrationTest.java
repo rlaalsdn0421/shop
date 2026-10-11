@@ -72,7 +72,7 @@ class SchemaConstraintIntegrationTest extends PostgresIntegrationTest {
 
         List<String> indexes = jdbc.queryForList(
                 "SELECT indexname FROM pg_indexes WHERE tablename = 'orders' AND schemaname = current_schema()", String.class);
-        assertThat(indexes).contains("uq_orders_user_idempotency", "idx_orders_user_created");
+        assertThat(indexes).contains("uq_orders_user_idempotency", "idx_orders_user_created_id");
         assertThat(jdbc.queryForObject(
                 "SELECT indexdef FROM pg_indexes WHERE indexname = 'uq_orders_user_idempotency'", String.class))
                 .contains("UNIQUE").contains("user_id").contains("idempotency_key").containsIgnoringCase("idempotency_key IS NOT NULL");

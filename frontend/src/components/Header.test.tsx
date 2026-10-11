@@ -79,6 +79,13 @@ describe("Header", () => {
     expect(screen.getByRole("link", { name: "회원가입" })).toHaveAttribute("href", "/register");
     expect(screen.getByRole("link", { name: "장바구니 (0)" })).toHaveAttribute("href", "/cart");
     expect(screen.queryByRole("button", { name: "로그아웃" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "주문내역" })).not.toBeInTheDocument();
+  });
+
+  it("성공: 로그인 상태면 주문내역 링크가 /orders로 연결된다", async () => {
+    saveSession("USER");
+    renderHeader();
+    expect(await screen.findByRole("link", { name: "주문내역" })).toHaveAttribute("href", "/orders");
   });
 
   it("성공: 로그인 상태면 이름과 로그아웃을 보여주고, 로그아웃하면 홈으로 간다", async () => {

@@ -5,6 +5,7 @@ import {
   getProduct,
   listAdminProducts,
   getOrder,
+  listMyOrders,
   listReviews,
   askChat,
   AuthError,
@@ -109,6 +110,40 @@ describe("getOrder", () => {
   it("실패: 500이면 예외를 던진다", async () => {
     mockFetchOnce(500, {});
     await expect(getOrder("o1", "valid-token")).rejects.toThrow("주문 정보를 불러오지 못했습니다.");
+  });
+});
+
+describe("listMyOrders", () => {
+  const summary = { id: "o1", createdAt: "2026-10-11T03:00:00Z", totalAmount: 1000, status: "PAID", itemCount: 1, firstItemName: "셔츠" };
+
+  it("성공: cursor 없이 첫 페이지를 요청하고 토큰·timeout signal을 싣는다", async () => {
+    mockFetchOnce(200, { orders: [summary], nextCursor: "next" });
+    const page = await listMyOrders("valid-token");
+    expect(page).toEqual({ orders: [summary], nextCursor: "next" });
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(String(url)).toMatch(/\/api\/orders\?size=10$/);
+    expect(init?.headers).toMatchObject({ Authorization: "Bearer valid-token" });
+    expect(init?.signal).toHaveProperty("aborted", false);
+  });
+
+  it("성공: cursor는 URL 인코딩해서 보낸다", async () => {
+    mockFetchOnce(200, { orders: [], nextCursor: null });
+    await listMyOrders("valid-token", "a+b/c=d e");
+    expect(String(vi.mocked(fetch).mock.calls[0][0])).toMatch(/\?size=10&cursor=a%2Bb%2Fc%3Dd%20e$/);
+  });
+
+  it("실패: 401/403이면 AuthError를 던진다", async () => {
+    for (const status of [401, 403]) {
+      mockFetchOnce(status, {});
+      await expect(listMyOrders("bad-token")).rejects.toBeInstanceOf(AuthError);
+    }
+  });
+
+  it("실패: 400/500이거나 orders 배열이 없으면 예외를 던진다", async () => {
+    for (const [status, body] of [[400, { error: "x" }], [500, {}], [200, { something: 1 }]] as const) {
+      mockFetchOnce(status, body);
+      await expect(listMyOrders("valid-token")).rejects.toThrow("주문 내역을 불러오지 못했습니다.");
+    }
   });
 });
 

@@ -1,8 +1,10 @@
 package com.shop.backend.presentation.dto;
 
+import com.shop.backend.application.service.OrderService;
 import com.shop.backend.domain.entity.Order;
 import com.shop.backend.domain.entity.OrderItem;
 
+import java.time.Instant;
 import java.util.List;
 
 /** Response/request shapes for the order endpoints, matching the storefront's API contract. */
@@ -24,6 +26,19 @@ public final class OrderDtos {
     public record OrderItemView(String id, Integer quantity, Integer price, String productName) {
         static OrderItemView from(OrderItem item) {
             return new OrderItemView(item.getId(), item.getQuantity(), item.getPrice(), item.getProduct().getName());
+        }
+    }
+
+    public record OrderSummaryView(String id, Instant createdAt, Integer totalAmount, String status, int itemCount,
+                                    String firstItemName) {
+    }
+
+    public record OrderListResponse(List<OrderSummaryView> orders, String nextCursor) {
+        public static OrderListResponse from(OrderService.OrderPage page) {
+            return new OrderListResponse(page.orders().stream()
+                    .map(s -> new OrderSummaryView(s.order().getId(), s.order().getCreatedAt(),
+                            s.order().getTotalAmount(), s.order().getStatus(), s.itemCount(), s.firstItemName()))
+                    .toList(), page.nextCursor());
         }
     }
 

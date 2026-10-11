@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useAuth, useRequireRole } from "@/auth/AuthContext";
 import { getOrder, AuthError, type Order } from "@/lib/api";
 
@@ -12,11 +12,18 @@ export default function OrderPage() {
 
   if (!ready || !session) return null;
   // The key remounts the loader, so a different order or login never shows the previous state.
-  return <OrderComplete key={`${id}:${session.token}`} id={id} token={session.token} />;
+  // useSearchParams needs a Suspense boundary so the build can prerender this route's shell.
+  return (
+    <Suspense fallback={<p role="status" className="text-gray-600">불러오는 중...</p>}>
+      <OrderComplete key={`${id}:${session.token}`} id={id} token={session.token} />
+    </Suspense>
+  );
 }
 
 function OrderComplete({ id, token }: { id: string; token: string }) {
   const { logout } = useAuth();
+  // Only the redirect right after checkout carries ?placed=1; reopening an old order is just a detail view.
+  const placed = useSearchParams().get("placed") === "1";
   // undefined = still loading, null = no such order (or not the caller's).
   const [order, setOrder] = useState<Order | null | undefined>(undefined);
   const [failed, setFailed] = useState(false);
@@ -83,7 +90,7 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
   return (
     <div className="max-w-lg mx-auto flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-bold">주문이 완료되었습니다</h1>
+        <h1 className="text-2xl font-bold">{placed ? "주문이 접수되었습니다" : "주문 상세"}</h1>
         <p className="text-gray-600 text-sm mt-1">주문번호 {order.id}</p>
       </div>
 
@@ -99,7 +106,7 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
       </div>
 
       <div className="flex justify-between font-semibold border-t pt-4">
-        <span>총 결제금액</span>
+        <span>총 주문금액</span>
         <span>{order.totalAmount.toLocaleString()}원</span>
       </div>
 
@@ -107,6 +114,13 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
         <p>받는 사람: {order.customerName}</p>
         <p>연락처: {order.customerPhone}</p>
         <p>배송지: {order.customerAddress}</p>
+      </div>
+
+      <div className="flex gap-4 text-sm">
+        <Link href="/orders" className="underline">
+          주문내역으로
+        </Link>
+        {home}
       </div>
     </div>
   );

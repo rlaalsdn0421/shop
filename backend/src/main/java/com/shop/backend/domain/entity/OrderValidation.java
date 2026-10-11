@@ -16,8 +16,15 @@ import java.util.regex.Pattern;
 public final class OrderValidation {
 
     private static final Pattern IDEMPOTENCY_KEY = Pattern.compile("[A-Za-z0-9_-]{8,64}");
+    private static final int MAX_LIST_SIZE = 50;
 
     private OrderValidation() {
+    }
+
+    public static void validateListSize(int size) {
+        if (size < 1 || size > MAX_LIST_SIZE) {
+            throw new ValidationException("주문 수는 1~" + MAX_LIST_SIZE + "개 사이여야 해요.");
+        }
     }
 
     public static void validateIdempotencyKey(String key) {

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRequireRole } from "@/auth/AuthContext";
 import { listAdminProducts, AuthError, type AdminProduct } from "@/lib/api";
+import { formatKoreanDate } from "@/lib/date";
 
 export default function AdminProductsPage() {
   const { session, ready } = useRequireRole(["ADMIN", "SELLER"]);
@@ -50,7 +51,7 @@ export default function AdminProductsPage() {
                 <td className="py-2">{p.price.toLocaleString()}원</td>
                 <td className="py-2">{p.stock}</td>
                 <td className="py-2 text-gray-500">
-                  {new Date(p.createdAt).toLocaleDateString("ko-KR")}
+                  {formatKoreanDate(p.createdAt)}
                 </td>
               </tr>
             ))}

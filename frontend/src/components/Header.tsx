@@ -35,6 +35,11 @@ export function Header() {
                     </Link>
                   </li>
                 )}
+                <li>
+                  <Link href="/orders" className={utilityClass}>
+                    주문내역
+                  </Link>
+                </li>
                 <li className="text-neutral-500">{session.username}</li>
                 <li>
                   <button

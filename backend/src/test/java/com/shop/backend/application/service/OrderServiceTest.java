@@ -1,6 +1,7 @@
 package com.shop.backend.application.service;
 
 import com.shop.backend.domain.entity.Order;
+import com.shop.backend.domain.entity.OrderCursor;
 import com.shop.backend.domain.entity.OrderItem;
 import com.shop.backend.domain.entity.OrderLine;
 import com.shop.backend.domain.entity.OrderValidation;
@@ -18,8 +19,10 @@ import org.mockito.Answers;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -271,6 +274,139 @@ class OrderServiceTest {
         assertThat(service.getOrder("o1", null)).isEmpty();
         assertThat(service.getOrder("o1", "")).isEmpty();
         assertThat(service.getOrder("o1", "  ")).isEmpty();
+
+        verifyNoInteractions(orderRepository);
+    }
+
+    private static Order listedOrder(String id, Instant createdAt) {
+        Order order = new Order(USER, "k-" + id, "h", "구매자", "010", "서울", 1000);
+        ReflectionTestUtils.setField(order, "id", id);
+        ReflectionTestUtils.setField(order, "createdAt", createdAt);
+        return order;
+    }
+
+    private static OrderItem line(Order order, String itemId, String productName, int price, int quantity) {
+        Product product = new Product(productName, "설명", price, "http://img/x", 5);
+        OrderItem item = new OrderItem(product, quantity, price);
+        ReflectionTestUtils.setField(item, "id", itemId);
+        order.addItem(item);
+        return item;
+    }
+
+    private OrderService service() {
+        return new OrderService(productRepository, orderRepository, em);
+    }
+
+    @Test
+    void 성공_첫_페이지는_size_더하기_1개를_조회하고_다음_페이지가_있으면_마지막_주문으로_커서를_만든다() {
+        Instant t = Instant.parse("2026-10-11T01:02:03.123456Z");
+        Order o1 = listedOrder("o3", t.plusSeconds(2));
+        Order o2 = listedOrder("o2", t.plusSeconds(1));
+        Order o3 = listedOrder("o1", t);
+        line(o1, "i1", "A", 1000, 1);
+        line(o2, "i2", "B", 1000, 1);
+        when(orderRepository.findFirstPageByUser(USER, PageRequest.of(0, 3))).thenReturn(List.of(o1, o2, o3));
+        when(orderRepository.findItemsWithProductByOrderIds(List.of("o3", "o2")))
+                .thenReturn(List.of(o1.getItems().get(0), o2.getItems().get(0)));
+
+        OrderService.OrderPage page = service().listMyOrders(USER, 2, null);
+
+        assertThat(page.orders()).extracting(s -> s.order().getId()).containsExactly("o3", "o2");
+        OrderCursor next = OrderCursor.decode(page.nextCursor());
+        assertThat(next).isEqualTo(new OrderCursor(t.plusSeconds(1), "o2"));
+        verify(orderRepository, never()).findPageByUserAfter(any(), any(), any(), any());
+    }
+
+    @Test
+    void 성공_마지막_페이지는_nextCursor가_null이다() {
+        Order o1 = listedOrder("o1", Instant.parse("2026-10-11T00:00:00Z"));
+        line(o1, "i1", "A", 1000, 1);
+        when(orderRepository.findFirstPageByUser(USER, PageRequest.of(0, 11))).thenReturn(List.of(o1));
+        when(orderRepository.findItemsWithProductByOrderIds(List.of("o1"))).thenReturn(o1.getItems());
+
+        OrderService.OrderPage page = service().listMyOrders(USER, 10, null);
+
+        assertThat(page.orders()).hasSize(1);
+        assertThat(page.nextCursor()).isNull();
+    }
+
+    @Test
+    void 성공_커서가_있으면_커서_조건_쿼리로_디코딩한_값을_넘긴다() {
+        Instant t = Instant.parse("2026-10-11T01:02:03.123456Z");
+        String cursor = new OrderCursor(t, "o2").encode();
+        when(orderRepository.findPageByUserAfter(USER, t, "o2", PageRequest.of(0, 11))).thenReturn(List.of());
+
+        OrderService.OrderPage page = service().listMyOrders(USER, 10, cursor);
+
+        assertThat(page.orders()).isEmpty();
+        assertThat(page.nextCursor()).isNull();
+        verify(orderRepository, never()).findFirstPageByUser(any(), any());
+        verify(orderRepository, never()).findItemsWithProductByOrderIds(any());
+    }
+
+    @Test
+    void 성공_항목수와_대표_상품명은_한_번의_항목_조회로_계산한다() {
+        Order o1 = listedOrder("o1", Instant.parse("2026-10-11T00:00:00Z"));
+        OrderItem small = line(o1, "i1", "싼것", 1000, 1);
+        OrderItem big = line(o1, "i2", "비싼것", 3000, 1);
+        Order o2 = listedOrder("o2", Instant.parse("2026-10-10T00:00:00Z"));
+        OrderItem only = line(o2, "i3", "하나", 500, 2);
+        when(orderRepository.findFirstPageByUser(USER, PageRequest.of(0, 11))).thenReturn(List.of(o1, o2));
+        when(orderRepository.findItemsWithProductByOrderIds(List.of("o1", "o2"))).thenReturn(List.of(small, big, only));
+
+        List<OrderService.OrderSummary> summaries = service().listMyOrders(USER, 10, null).orders();
+
+        assertThat(summaries).extracting(OrderService.OrderSummary::itemCount).containsExactly(2, 1);
+        assertThat(summaries).extracting(OrderService.OrderSummary::firstItemName).containsExactly("비싼것", "하나");
+        verify(orderRepository, org.mockito.Mockito.times(1)).findItemsWithProductByOrderIds(anyList());
+    }
+
+    @Test
+    void 성공_대표_상품은_라인_금액이_큰_순이고_같으면_항목_id_순이다() {
+        Order o1 = listedOrder("o1", Instant.parse("2026-10-11T00:00:00Z"));
+        // 2000*1 == 1000*2: the tie goes to the smaller line id; quantity counts, not just unit price
+        OrderItem later = line(o1, "i9", "나중", 1000, 2);
+        OrderItem earlier = line(o1, "i1", "먼저", 2000, 1);
+        when(orderRepository.findFirstPageByUser(USER, PageRequest.of(0, 11))).thenReturn(List.of(o1));
+        when(orderRepository.findItemsWithProductByOrderIds(List.of("o1"))).thenReturn(List.of(later, earlier));
+
+        assertThat(service().listMyOrders(USER, 10, null).orders().get(0).firstItemName()).isEqualTo("먼저");
+    }
+
+    @Test
+    void 실패_size가_범위_밖이면_조회하지_않고_검증_오류다() {
+        assertThatThrownBy(() -> service().listMyOrders(USER, 0, null)).isInstanceOf(ValidationException.class);
+        assertThatThrownBy(() -> service().listMyOrders(USER, 51, null)).isInstanceOf(ValidationException.class);
+
+        verifyNoInteractions(orderRepository);
+    }
+
+    @Test
+    void 실패_커서가_올바르지_않으면_조회하지_않고_한국어_검증_오류다() {
+        assertThatThrownBy(() -> service().listMyOrders(USER, 10, "not-a-cursor!!"))
+                .isInstanceOf(ValidationException.class).hasMessage("커서가 올바르지 않아요.");
+
+        verifyNoInteractions(orderRepository);
+    }
+
+    @Test
+    void 실패_NUL_id나_극단_시각의_커서도_DB_조회_전에_한국어_검증_오류다() {
+        java.util.function.Function<String, String> b64 = raw -> java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(raw.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        for (String raw : new String[]{"2026-10-11T01:02:03Z|a\u0000b", "+999999999-12-31T23:59:59Z|o1",
+                "-1000000000-01-01T00:00:00Z|o1"}) {
+            assertThatThrownBy(() -> service().listMyOrders(USER, 10, b64.apply(raw)))
+                    .isInstanceOf(ValidationException.class).hasMessage("커서가 올바르지 않아요.");
+        }
+
+        verifyNoInteractions(orderRepository);
+    }
+
+    @Test
+    void 실패_사용자가_null이거나_비어_있으면_조회하지_않고_빈_목록이다() {
+        assertThat(service().listMyOrders(null, 10, null).orders()).isEmpty();
+        assertThat(service().listMyOrders(" ", 10, null).nextCursor()).isNull();
 
         verifyNoInteractions(orderRepository);
     }

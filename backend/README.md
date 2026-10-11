@@ -36,8 +36,9 @@ CORS는 모든 `/api/**` 경로에 대해 `http://localhost:3000`(Next.js 프론
 
 ### 주문
 
-- `POST /api/orders` — 주문 생성
-- `GET /api/orders/{id}` — 주문 상세 (없으면 404)
+- `POST /api/orders` — 주문 생성 (로그인 필수). `Idempotency-Key` 헤더(`[A-Za-z0-9_-]` 8~64자)가 필수이고, 같은 키로 같은 내용을 다시 보내면 새 주문 없이 기존 주문을 돌려줍니다(내용이 다르면 409).
+- `GET /api/orders?size=10&cursor=...` — 내 주문 목록 (로그인 필수, 본인 주문만). `size`는 1~50(기본 10), `cursor`는 이전 응답의 `nextCursor`(없으면 첫 페이지). 응답은 `{ orders: [{ id, createdAt, totalAmount, status, itemCount, firstItemName }], nextCursor }`이고 최신 주문부터(`created_at DESC, id DESC`) 키셋 방식으로 이어서 가져오며, `nextCursor`가 `null`이면 마지막 페이지입니다. `itemCount`는 주문 라인 수, `firstItemName`은 라인 금액이 가장 큰 상품의 이름입니다. `size`나 `cursor`가 올바르지 않으면 400.
+- `GET /api/orders/{id}` — 주문 상세 (로그인 필수, 본인 주문만. 없거나 남의 주문이면 404)
 
 ### 리뷰
 
@@ -72,11 +73,11 @@ ADMIN_USERNAME='원하는-아이디' ADMIN_PASSWORD='원하는-비밀번호' ./g
 
 - `GET /api/admin/products`
 - `POST /api/admin/products`
-- `POST /api/orders` (로그인만 되어 있으면 역할 무관 — 장바구니 이용에 로그인을 요구하는 프론트 정책과 짝을 이룸)
+- `POST /api/orders`, `GET /api/orders`, `GET /api/orders/{id}` (로그인만 되어 있으면 역할 무관 — 장바구니 이용에 로그인을 요구하는 프론트 정책과 짝을 이룸)
 
 토큰이 없거나 무효/만료면 401. 토큰은 유효하지만 역할이 안 맞으면 403.
 
-그 외(`/api/products/**`, `GET /api/orders/{id}`, 리뷰 조회/작성 엔드포인트)는 이전과 동일하게 인증 없이 열려 있습니다.
+리뷰 작성(`POST /api/products/*/reviews`)은 로그인이 필요합니다. 그 외(`/api/products/**` 조회, 리뷰 조회)는 인증 없이 열려 있습니다.
 
 ## 테스트
 

@@ -5,11 +5,13 @@ import OrderComplete from "./page";
 
 const mocks = vi.hoisted(() => ({
   id: "o1",
+  query: "placed=1",
   logout: vi.fn(),
   auth: { session: { token: "fake-token", role: "USER", username: "buyer" } as unknown, ready: true },
 }));
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: mocks.id }),
+  useSearchParams: () => new URLSearchParams(mocks.query),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }));
 vi.mock("@/auth/AuthContext", () => ({
@@ -41,6 +43,7 @@ const RECEIVED_MAYBE = "주문은 접수되었을 수 있어요. 잠시 후 다�
 beforeEach(() => {
   vi.unstubAllGlobals();
   mocks.id = "o1";
+  mocks.query = "placed=1";
   mocks.logout.mockClear();
   mocks.auth = { session: { token: "fake-token", role: "USER", username: "buyer" }, ready: true };
 });
@@ -49,13 +52,31 @@ describe("주문 완료 페이지", () => {
   it("성공: 토큰을 Authorization 헤더로 보내고 주문 내용을 보여준다", async () => {
     mockFetch(200, order);
     render(<OrderComplete />);
-    expect(await screen.findByText("주문이 완료되었습니다")).toBeInTheDocument();
+    expect(await screen.findByText("주문이 접수되었습니다")).toBeInTheDocument();
     expect(screen.getByText("주문번호 o1")).toBeInTheDocument();
     expect(screen.getByText("린넨 셔츠 x 2")).toBeInTheDocument();
     expect(screen.getByText("받는 사람: 홍길동")).toBeInTheDocument();
     const [url, init] = vi.mocked(fetch).mock.calls[0];
     expect(String(url)).toMatch(/\/api\/orders\/o1$/);
     expect(init?.headers).toMatchObject({ Authorization: "Bearer fake-token" });
+  });
+
+  it("성공: 방금 주문한 게 아니면(placed 없음) 접수 문구 대신 '주문 상세'를 보이고, 목록·홈 링크가 있다", async () => {
+    mocks.query = "";
+    mockFetch(200, order);
+    render(<OrderComplete />);
+    expect(await screen.findByRole("heading", { name: "주문 상세" })).toBeInTheDocument();
+    expect(screen.queryByText("주문이 접수되었습니다")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "주문내역으로" })).toHaveAttribute("href", "/orders");
+    expect(screen.getByRole("link", { name: "홈으로" })).toHaveAttribute("href", "/");
+  });
+
+  it("실패: placed 값이 1이 아니면 접수 문구를 보이지 않는다", async () => {
+    mocks.query = "placed=0";
+    mockFetch(200, order);
+    render(<OrderComplete />);
+    expect(await screen.findByRole("heading", { name: "주문 상세" })).toBeInTheDocument();
+    expect(screen.queryByText("주문이 접수되었습니다")).not.toBeInTheDocument();
   });
 
   it("성공: 불러오는 동안 status 영역에 로딩 문구를 보인다", async () => {
@@ -80,14 +101,14 @@ describe("주문 완료 페이지", () => {
     expect(await screen.findByText("주문을 찾을 수 없습니다.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "홈으로" })).toHaveAttribute("href", "/");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.queryByText("주문이 완료되었습니다")).not.toBeInTheDocument();
+    expect(screen.queryByText("주문이 접수되었습니다")).not.toBeInTheDocument();
   });
 
   it("실패: 401이면 로그아웃해서 로그인 페이지로 보낸다", async () => {
     mockFetch(401);
     render(<OrderComplete />);
     await waitFor(() => expect(mocks.logout).toHaveBeenCalledTimes(1));
-    expect(screen.queryByText("주문이 완료되었습니다")).not.toBeInTheDocument();
+    expect(screen.queryByText("주문이 접수되었습니다")).not.toBeInTheDocument();
   });
 
   it("실패: 서버 오류면 접수되었을 수 있다는 경고와 다시 불러오기 버튼을 보이고, 누르면 다시 가져온다", async () => {
@@ -96,7 +117,7 @@ describe("주문 완료 페이지", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(RECEIVED_MAYBE);
     expect(screen.getByRole("link", { name: "홈으로" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "다시 불러오기" }));
-    expect(await screen.findByText("주문이 완료되었습니다")).toBeInTheDocument();
+    expect(await screen.findByText("주문이 접수되었습니다")).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(mocks.logout).not.toHaveBeenCalled();
   });
@@ -111,7 +132,7 @@ describe("주문 완료 페이지", () => {
     mockFetch(200, { ...order, id: "other" });
     render(<OrderComplete />);
     expect(await screen.findByRole("alert")).toHaveTextContent(RECEIVED_MAYBE);
-    expect(screen.queryByText("주문이 완료되었습니다")).not.toBeInTheDocument();
+    expect(screen.queryByText("주문이 접수되었습니다")).not.toBeInTheDocument();
   });
 
   it("실패: 로그인하지 않았으면 요청하지 않고 아무것도 그리지 않는다", () => {

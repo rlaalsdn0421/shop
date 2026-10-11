@@ -93,7 +93,7 @@ export function CartView() {
         attempt.current = null;
         saveAttempt(null);
         clear();
-        router.push(`/orders/${data.orderId}`);
+        router.push(`/orders/${encodeURIComponent(data.orderId)}?placed=1`);
         return;
       }
       const serverMessage = typeof data?.error === "string" ? data.error : null;

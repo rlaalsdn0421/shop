@@ -1,6 +1,7 @@
 package com.shop.backend.application.service;
 
 import com.shop.backend.domain.entity.Order;
+import com.shop.backend.domain.entity.OrderCursor;
 import com.shop.backend.domain.entity.OrderItem;
 import com.shop.backend.domain.entity.OrderLine;
 import com.shop.backend.domain.entity.OrderValidation;
@@ -12,13 +13,16 @@ import com.shop.backend.domain.error.ValidationException;
 import com.shop.backend.infrastructure.repository.OrderRepository;
 import com.shop.backend.infrastructure.repository.ProductRepository;
 import jakarta.persistence.EntityManager;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 @Service
 public class OrderService {
@@ -104,6 +108,49 @@ public class OrderService {
         }
 
         return orderRepository.save(order);
+    }
+
+    /** One list row; the aggregates are computed in memory from the page's lines (no per-order query). */
+    public record OrderSummary(Order order, int itemCount, String firstItemName) {
+    }
+
+    public record OrderPage(List<OrderSummary> orders, String nextCursor) {
+    }
+
+    @Transactional(readOnly = true)
+    public OrderPage listMyOrders(String userId, int size, String cursor) {
+        OrderValidation.validateListSize(size);
+        OrderCursor position = cursor == null ? null : OrderCursor.decode(cursor);
+        // A null/blank userId must not reach the query (null would match every legacy user_id IS NULL order).
+        if (userId == null || userId.isBlank()) {
+            return new OrderPage(List.of(), null);
+        }
+        PageRequest limit = PageRequest.of(0, size + 1);
+        List<Order> fetched = position == null
+                ? orderRepository.findFirstPageByUser(userId, limit)
+                : orderRepository.findPageByUserAfter(userId, position.createdAt(), position.id(), limit);
+        boolean hasNext = fetched.size() > size;
+        List<Order> page = hasNext ? fetched.subList(0, size) : fetched;
+        if (page.isEmpty()) {
+            return new OrderPage(List.of(), null);
+        }
+
+        Map<String, List<OrderItem>> itemsByOrderId = orderRepository
+                .findItemsWithProductByOrderIds(page.stream().map(Order::getId).toList())
+                .stream().collect(Collectors.groupingBy(item -> item.getOrder().getId()));
+        // Largest line amount first, ties by line id: the same order always shows the same representative product.
+        Comparator<OrderItem> representative = Comparator
+                .comparingLong((OrderItem item) -> (long) item.getPrice() * item.getQuantity()).reversed()
+                .thenComparing(OrderItem::getId);
+        List<OrderSummary> summaries = page.stream().map(order -> {
+            List<OrderItem> items = itemsByOrderId.getOrDefault(order.getId(), List.of());
+            String firstName = items.stream().min(representative).map(i -> i.getProduct().getName()).orElse(null);
+            return new OrderSummary(order, items.size(), firstName);
+        }).toList();
+
+        Order last = page.get(page.size() - 1);
+        String nextCursor = hasNext ? new OrderCursor(last.getCreatedAt(), last.getId()).encode() : null;
+        return new OrderPage(summaries, nextCursor);
     }
 
     @Transactional(readOnly = true)
