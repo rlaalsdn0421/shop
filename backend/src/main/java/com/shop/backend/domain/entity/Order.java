@@ -25,6 +25,16 @@ public class Order {
     @Column(length = 36, nullable = false, updatable = false)
     private String id;
 
+    // NULL only for orders placed before V10
+    @Column(name = "user_id", length = 36, updatable = false)
+    private String userId;
+
+    @Column(name = "idempotency_key", length = 64, updatable = false)
+    private String idempotencyKey;
+
+    @Column(name = "request_hash", length = 64, updatable = false)
+    private String requestHash;
+
     @Column(name = "customer_name", nullable = false, length = 200)
     private String customerName;
 
@@ -50,7 +60,11 @@ public class Order {
         // JPA
     }
 
-    public Order(String customerName, String customerPhone, String customerAddress, Integer totalAmount) {
+    public Order(String userId, String idempotencyKey, String requestHash,
+                 String customerName, String customerPhone, String customerAddress, Integer totalAmount) {
+        this.userId = userId;
+        this.idempotencyKey = idempotencyKey;
+        this.requestHash = requestHash;
         this.customerName = customerName;
         this.customerPhone = customerPhone;
         this.customerAddress = customerAddress;
@@ -78,6 +92,18 @@ public class Order {
 
     public String getId() {
         return id;
+    }
+
+    public String getUserId() {
+        return userId;
+    }
+
+    public String getIdempotencyKey() {
+        return idempotencyKey;
+    }
+
+    public String getRequestHash() {
+        return requestHash;
     }
 
     public String getCustomerName() {

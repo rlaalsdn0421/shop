@@ -4,6 +4,7 @@ import com.shop.backend.application.service.OrderService;
 import com.shop.backend.domain.entity.Order;
 import com.shop.backend.domain.entity.OrderItem;
 import com.shop.backend.domain.entity.Product;
+import com.shop.backend.domain.error.IdempotencyKeyReuseException;
 import com.shop.backend.domain.error.ValidationException;
 import com.shop.backend.infrastructure.security.JwtService;
 import com.shop.backend.infrastructure.security.SecurityConfig;
@@ -22,6 +23,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -36,15 +39,17 @@ class OrderControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
+    private static final String KEY = "key-12345";
+
     @MockBean
     private OrderService orderService;
 
     @Test
     @WithMockUser
     void 성공_주문을_생성한다() throws Exception {
-        Order order = new Order("홍길동", "010-1234-5678", "서울시", 10000);
+        Order order = new Order("user-1", "key-12345", "hash", "홍길동", "010-1234-5678", "서울시", 10000);
         ReflectionTestUtils.setField(order, "id", "order-1");
-        when(orderService.createOrder(any(), any(), any(), any())).thenReturn(order);
+        when(orderService.createOrder(any(), any(), any(), any(), any(), any())).thenReturn(order);
 
         String body = """
                 {"customerName":"홍길동","customerPhone":"010-1234-5678","customerAddress":"서울시",
@@ -52,6 +57,7 @@ class OrderControllerTest {
                 """;
 
         mockMvc.perform(post("/api/orders")
+                        .header("Idempotency-Key", KEY)
                         .contentType("application/json")
                         .content(body))
                 .andExpect(status().isOk())
@@ -66,6 +72,7 @@ class OrderControllerTest {
                 """;
 
         mockMvc.perform(post("/api/orders")
+                        .header("Idempotency-Key", KEY)
                         .contentType("application/json")
                         .content(body))
                 .andExpect(status().isUnauthorized());
@@ -74,7 +81,7 @@ class OrderControllerTest {
     @Test
     @WithMockUser
     void 실패_수량이_올바르지_않으면_400을_반환한다() throws Exception {
-        when(orderService.createOrder(any(), any(), any(), any()))
+        when(orderService.createOrder(any(), any(), any(), any(), any(), any()))
                 .thenThrow(new ValidationException("수량이 올바르지 않습니다."));
 
         String body = """
@@ -83,6 +90,7 @@ class OrderControllerTest {
                 """;
 
         mockMvc.perform(post("/api/orders")
+                        .header("Idempotency-Key", KEY)
                         .contentType("application/json")
                         .content(body))
                 .andExpect(status().isBadRequest())
@@ -97,9 +105,9 @@ class OrderControllerTest {
     @Test
     @WithMockUser
     void 실패_행_잠금_대기_시간이_지나면_503과_Retry_After를_반환한다() throws Exception {
-        when(orderService.createOrder(any(), any(), any(), any())).thenThrow(new CannotAcquireLockException("lock timeout"));
+        when(orderService.createOrder(any(), any(), any(), any(), any(), any())).thenThrow(new CannotAcquireLockException("lock timeout"));
 
-        mockMvc.perform(post("/api/orders").contentType("application/json").content(ORDER_BODY))
+        mockMvc.perform(post("/api/orders").header("Idempotency-Key", KEY).contentType("application/json").content(ORDER_BODY))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(header().string("Retry-After", "1"))
                 .andExpect(jsonPath("$.error").value("주문이 몰려 처리하지 못했어요. 잠시 후 다시 시도해 주세요."));
@@ -108,9 +116,9 @@ class OrderControllerTest {
     @Test
     @WithMockUser
     void 실패_교착_상태로_밀려난_주문도_503과_Retry_After를_반환한다() throws Exception {
-        when(orderService.createOrder(any(), any(), any(), any())).thenThrow(new DeadlockLoserDataAccessException("deadlock", null));
+        when(orderService.createOrder(any(), any(), any(), any(), any(), any())).thenThrow(new DeadlockLoserDataAccessException("deadlock", null));
 
-        mockMvc.perform(post("/api/orders").contentType("application/json").content(ORDER_BODY))
+        mockMvc.perform(post("/api/orders").header("Idempotency-Key", KEY).contentType("application/json").content(ORDER_BODY))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(header().string("Retry-After", "1"));
     }
@@ -118,21 +126,55 @@ class OrderControllerTest {
     @Test
     @WithMockUser
     void 실패_잠금과_관계없는_DB_오류는_여전히_500이다() throws Exception {
-        when(orderService.createOrder(any(), any(), any(), any())).thenThrow(new DataAccessResourceFailureException("db down"));
+        when(orderService.createOrder(any(), any(), any(), any(), any(), any())).thenThrow(new DataAccessResourceFailureException("db down"));
 
-        mockMvc.perform(post("/api/orders").contentType("application/json").content(ORDER_BODY))
+        mockMvc.perform(post("/api/orders").header("Idempotency-Key", KEY).contentType("application/json").content(ORDER_BODY))
                 .andExpect(status().isInternalServerError());
     }
 
     @Test
+    @WithMockUser(username = "user-1")
+    void 성공_로그인_사용자의_id와_요청_번호를_서비스에_넘긴다() throws Exception {
+        Order order = new Order("user-1", KEY, "hash", "홍길동", "010-1234-5678", "서울시", 10000);
+        ReflectionTestUtils.setField(order, "id", "order-1");
+        when(orderService.createOrder(eq("user-1"), eq(KEY), any(), any(), any(), any())).thenReturn(order);
+
+        mockMvc.perform(post("/api/orders").header("Idempotency-Key", KEY).contentType("application/json").content(ORDER_BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.orderId").value("order-1"));
+    }
+
+    @Test
+    @WithMockUser(username = "user-1")
+    void 실패_요청_번호_헤더가_없으면_서비스의_한국어_400을_그대로_반환한다() throws Exception {
+        when(orderService.createOrder(eq("user-1"), isNull(), any(), any(), any(), any()))
+                .thenThrow(new ValidationException("요청 번호(Idempotency-Key)가 올바르지 않아요."));
+
+        mockMvc.perform(post("/api/orders").contentType("application/json").content(ORDER_BODY))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("요청 번호(Idempotency-Key)가 올바르지 않아요."));
+    }
+
+    @Test
+    @WithMockUser
+    void 실패_같은_요청_번호로_다른_내용이면_409를_반환한다() throws Exception {
+        when(orderService.createOrder(any(), any(), any(), any(), any(), any())).thenThrow(new IdempotencyKeyReuseException());
+
+        mockMvc.perform(post("/api/orders").header("Idempotency-Key", KEY).contentType("application/json").content(ORDER_BODY))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("같은 요청 번호로 내용이 다른 주문은 보낼 수 없어요."));
+    }
+
+    @Test
+    @WithMockUser(username = "user-1")
     void 성공_주문상세를_조회한다() throws Exception {
         Product product = new Product("티셔츠", "설명", 5000, "http://img/1", 5);
-        Order order = new Order("홍길동", "010-1234-5678", "서울시", 10000);
+        Order order = new Order("user-1", "key-12345", "hash", "홍길동", "010-1234-5678", "서울시", 10000);
         OrderItem item = new OrderItem(product, 2, 5000);
         order.addItem(item);
         ReflectionTestUtils.setField(order, "id", "order-1");
         ReflectionTestUtils.setField(item, "id", "item-1");
-        when(orderService.getOrder("order-1")).thenReturn(Optional.of(order));
+        when(orderService.getOrder("order-1", "user-1")).thenReturn(Optional.of(order));
 
         mockMvc.perform(get("/api/orders/order-1"))
                 .andExpect(status().isOk())
@@ -143,10 +185,17 @@ class OrderControllerTest {
     }
 
     @Test
-    void 실패_존재하지_않는_주문이면_404를_반환한다() throws Exception {
-        when(orderService.getOrder("missing")).thenReturn(Optional.empty());
+    @WithMockUser(username = "user-1")
+    void 실패_존재하지_않거나_남의_주문이면_404를_반환한다() throws Exception {
+        when(orderService.getOrder("missing", "user-1")).thenReturn(Optional.empty());
 
         mockMvc.perform(get("/api/orders/missing"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void 실패_인증없이_주문을_조회하면_401을_반환한다() throws Exception {
+        mockMvc.perform(get("/api/orders/order-1"))
+                .andExpect(status().isUnauthorized());
     }
 }

@@ -9,6 +9,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import java.io.IOException;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -50,6 +51,68 @@ class SchemaConstraintIntegrationTest extends PostgresIntegrationTest {
         assertThat(files).isGreaterThanOrEqualTo(9);
         assertThat(applied).isEqualTo((int) files);
         assertThat(environment.getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
+    }
+
+    private void insertOrder(String id, String userId, String idempotencyKey) {
+        jdbc.update("INSERT INTO orders (id, customer_name, customer_phone, customer_address, total_amount, status, created_at, "
+                        + "user_id, idempotency_key, request_hash) VALUES (?, 'n', 'p', 'a', 1, 'PAID', ?, ?, ?, 'h')",
+                id, Timestamp.valueOf(LocalDateTime.now()), userId, idempotencyKey);
+    }
+
+    @Test
+    void 성공_주문_테이블에_주문자_요청번호_해시_컬럼과_두_인덱스가_있다() {
+        List<String> columns = jdbc.queryForList(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'orders' AND table_schema = current_schema()",
+                String.class);
+        assertThat(columns).contains("user_id", "idempotency_key", "request_hash");
+        // legacy rows have no owner/key/hash, so all three must stay nullable
+        assertThat(jdbc.queryForList(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'orders' AND table_schema = current_schema() "
+                        + "AND is_nullable = 'NO' AND column_name IN ('user_id', 'idempotency_key', 'request_hash')", String.class)).isEmpty();
+
+        List<String> indexes = jdbc.queryForList(
+                "SELECT indexname FROM pg_indexes WHERE tablename = 'orders' AND schemaname = current_schema()", String.class);
+        assertThat(indexes).contains("uq_orders_user_idempotency", "idx_orders_user_created");
+        assertThat(jdbc.queryForObject(
+                "SELECT indexdef FROM pg_indexes WHERE indexname = 'uq_orders_user_idempotency'", String.class))
+                .contains("UNIQUE").contains("user_id").contains("idempotency_key").containsIgnoringCase("idempotency_key IS NOT NULL");
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM pg_constraint WHERE conrelid = 'orders'::regclass AND contype = 'f' AND confrelid = 'users'::regclass",
+                Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void 실패_같은_사용자의_같은_요청번호로_주문_행을_두_번_넣으면_DB가_거부한다() {
+        String u1 = data.user();
+        insertOrder("o1", u1, "key-0000-0001");
+
+        assertThatThrownBy(() -> insertOrder("o2", u1, "key-0000-0001"))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .satisfies(t -> assertThat(message(t)).contains("uq_orders_user_idempotency"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM orders", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void 성공_요청번호가_NULL이거나_사용자가_다르면_같은_값이어도_주문_행을_넣을_수_있다() {
+        String u1 = data.user();
+        String u2 = data.user();
+
+        assertThatCode(() -> {
+            insertOrder("o1", u1, null);
+            insertOrder("o2", u1, null);       // two keyless rows of the same user
+            insertOrder("o3", null, null);     // legacy rows
+            insertOrder("o4", null, null);
+            insertOrder("o5", u1, "key-0000-0001");
+            insertOrder("o6", u2, "key-0000-0001"); // same key, other user
+            insertOrder("o7", u1, "key-0000-0002"); // same user, other key
+        }).doesNotThrowAnyException();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM orders", Integer.class)).isEqualTo(7);
+    }
+
+    @Test
+    void 실패_존재하지_않는_사용자를_주문자로_넣으면_DB가_거부한다() {
+        assertThatThrownBy(() -> insertOrder("o1", "no-such-user", "key-0000-0001"))
+                .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test

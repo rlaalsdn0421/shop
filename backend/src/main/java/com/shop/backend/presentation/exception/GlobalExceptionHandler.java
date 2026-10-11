@@ -3,6 +3,7 @@ package com.shop.backend.presentation.exception;
 import com.shop.backend.domain.error.DomainException;
 import com.shop.backend.domain.error.DuplicateEmailException;
 import com.shop.backend.domain.error.DuplicateReviewException;
+import com.shop.backend.domain.error.IdempotencyKeyReuseException;
 import com.shop.backend.domain.error.InvalidCredentialsException;
 import com.shop.backend.domain.error.ProductNotFoundException;
 import com.shop.backend.domain.error.TooManyRequestsException;
@@ -25,8 +26,9 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
- * Business-rule violations map to 400, except a missing product which maps to 404 (Spring
- * picks the most specific handler, so this takes precedence over the DomainException one below).
+ * Business-rule violations map to 400, except a missing product (404), invalid credentials (401), a duplicate
+ * review or a reused Idempotency-Key (409) and rate limiting (429); Spring picks the most specific handler, so
+ * those take precedence over the DomainException one below. Lock timeouts and deadlocks map to 503.
  * Anything unexpected maps to 500 with a per-area message, matching the original API contract.
  */
 @RestControllerAdvice
@@ -46,6 +48,11 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DuplicateReviewException.class)
     public ResponseEntity<ErrorResponse> handleDuplicateReview(DuplicateReviewException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(ex.getMessage()));
+    }
+
+    @ExceptionHandler(IdempotencyKeyReuseException.class)
+    public ResponseEntity<ErrorResponse> handleIdempotencyKeyReuse(IdempotencyKeyReuseException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(ex.getMessage()));
     }
 
