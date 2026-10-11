@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -34,6 +35,13 @@ public class OrderController {
         var order = orderService.createOrder(authentication.getName(), idempotencyKey,
                 request.customerName(), request.customerPhone(), request.customerAddress(), lines);
         return new OrderDtos.OrderIdResponse(order.getId());
+    }
+
+    @GetMapping
+    public OrderDtos.OrderListResponse listMyOrders(
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String cursor, Authentication authentication) {
+        return OrderDtos.OrderListResponse.from(orderService.listMyOrders(authentication.getName(), size, cursor));
     }
 
     @GetMapping("/{id}")

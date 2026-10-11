@@ -56,6 +56,20 @@ class OrderValidationTest {
     }
 
     @Test
+    void 성공_목록_size는_1에서_50까지_통과한다() {
+        OrderValidation.validateListSize(1);
+        OrderValidation.validateListSize(50);
+    }
+
+    @Test
+    void 실패_목록_size가_범위_밖이면_검증_오류다() {
+        assertThatThrownBy(() -> OrderValidation.validateListSize(0))
+                .isInstanceOf(ValidationException.class).hasMessage("주문 수는 1~50개 사이여야 해요.");
+        assertThatThrownBy(() -> OrderValidation.validateListSize(51)).isInstanceOf(ValidationException.class);
+        assertThatThrownBy(() -> OrderValidation.validateListSize(-1)).isInstanceOf(ValidationException.class);
+    }
+
+    @Test
     void 성공_올바른_요청_번호는_통과한다() {
         OrderValidation.validateIdempotencyKey("abcd1234");
         OrderValidation.validateIdempotencyKey("a-b_C-0123456789".repeat(4)); // 64 chars

@@ -20,8 +20,12 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
+import static org.hamcrest.Matchers.nullValue;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -197,5 +201,75 @@ class OrderControllerTest {
     void 실패_인증없이_주문을_조회하면_401을_반환한다() throws Exception {
         mockMvc.perform(get("/api/orders/order-1"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void 실패_인증없이_주문_목록을_조회하면_401을_반환하고_서비스를_부르지_않는다() throws Exception {
+        mockMvc.perform(get("/api/orders"))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(orderService);
+    }
+
+    @Test
+    @WithMockUser(username = "user-1")
+    void 성공_내_주문_목록을_응답_형태대로_반환한다() throws Exception {
+        Order order = new Order("user-1", KEY, "hash", "홍길동", "010-1234-5678", "서울시", 10000);
+        ReflectionTestUtils.setField(order, "id", "order-1");
+        ReflectionTestUtils.setField(order, "createdAt", Instant.parse("2026-10-11T01:02:03.123456Z"));
+        when(orderService.listMyOrders("user-1", 10, null)).thenReturn(new OrderService.OrderPage(
+                List.of(new OrderService.OrderSummary(order, 3, "티셔츠")), "next-cursor"));
+
+        mockMvc.perform(get("/api/orders"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.orders[0].id").value("order-1"))
+                .andExpect(jsonPath("$.orders[0].createdAt").value("2026-10-11T01:02:03.123456Z"))
+                .andExpect(jsonPath("$.orders[0].totalAmount").value(10000))
+                .andExpect(jsonPath("$.orders[0].status").value("PAID"))
+                .andExpect(jsonPath("$.orders[0].itemCount").value(3))
+                .andExpect(jsonPath("$.orders[0].firstItemName").value("티셔츠"))
+                .andExpect(jsonPath("$.orders[0].customerAddress").doesNotExist())
+                .andExpect(jsonPath("$.nextCursor").value("next-cursor"));
+    }
+
+    @Test
+    @WithMockUser(username = "user-1")
+    void 성공_size와_cursor를_서비스에_넘기고_마지막_페이지는_nextCursor가_null이다() throws Exception {
+        when(orderService.listMyOrders("user-1", 25, "abc")).thenReturn(new OrderService.OrderPage(List.of(), null));
+
+        mockMvc.perform(get("/api/orders").param("size", "25").param("cursor", "abc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.orders").isEmpty())
+                .andExpect(jsonPath("$.nextCursor").value(nullValue()));
+    }
+
+    @Test
+    @WithMockUser(username = "user-1")
+    void 실패_size가_숫자가_아니면_400을_반환한다() throws Exception {
+        mockMvc.perform(get("/api/orders").param("size", "abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("요청 값의 형식이 올바르지 않아요."));
+    }
+
+    @Test
+    @WithMockUser(username = "user-1")
+    void 실패_size가_범위_밖이면_서비스의_한국어_400을_그대로_반환한다() throws Exception {
+        when(orderService.listMyOrders("user-1", 51, null))
+                .thenThrow(new ValidationException("주문 수는 1~50개 사이여야 해요."));
+
+        mockMvc.perform(get("/api/orders").param("size", "51"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("주문 수는 1~50개 사이여야 해요."));
+    }
+
+    @Test
+    @WithMockUser(username = "user-1")
+    void 실패_커서가_올바르지_않으면_한국어_400을_반환한다() throws Exception {
+        when(orderService.listMyOrders("user-1", 10, "garbage"))
+                .thenThrow(new ValidationException("커서가 올바르지 않아요."));
+
+        mockMvc.perform(get("/api/orders").param("cursor", "garbage"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("커서가 올바르지 않아요."));
     }
 }
