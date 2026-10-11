@@ -5,6 +5,7 @@ import com.shop.backend.domain.entity.OrderItem;
 import com.shop.backend.domain.entity.OrderLine;
 import com.shop.backend.domain.entity.OrderValidation;
 import com.shop.backend.domain.entity.Product;
+import com.shop.backend.domain.error.IdempotencyKeyReuseException;
 import com.shop.backend.domain.error.InsufficientStockException;
 import com.shop.backend.domain.error.ProductNotFoundException;
 import com.shop.backend.domain.error.ValidationException;
@@ -34,14 +35,30 @@ public class OrderService {
     }
 
     @Transactional
-    public Order createOrder(String customerName, String customerPhone, String customerAddress, List<OrderLine> lines) {
+    public Order createOrder(String userId, String idempotencyKey, String customerName, String customerPhone,
+                             String customerAddress, List<OrderLine> lines) {
+        OrderValidation.validateIdempotencyKey(idempotencyKey);
         OrderValidation.validateCustomerInfo(customerName, customerPhone, customerAddress);
         OrderValidation.validateOrderLines(lines);
         Map<String, Integer> quantityByProductId = OrderValidation.aggregateQuantities(lines);
+        String requestHash = OrderValidation.requestHash(customerName, customerPhone, customerAddress, quantityByProductId);
 
         // Transaction-scoped (needs this transaction, resets at commit/rollback; fine behind a connection pooler): a
         // stuck lock holder fails this order after 3 s (-> 503) instead of tying up one of the few pooled connections.
         em.createNativeQuery("SET LOCAL lock_timeout = '3s'").executeUpdate();
+
+        // Serializes requests with the same user+key until commit, so the lookup below sees a concurrent twin's order
+        // (READ COMMITTED) instead of both creating one; the unique index is only the last-resort backstop. The user
+        // id is a UUID (no ':') and a key is [A-Za-z0-9_-], so two different user+key pairs cannot share one lock string.
+        orderRepository.lockUserIdempotencyKey(userId, idempotencyKey);
+
+        Optional<Order> existing = orderRepository.findByUserIdAndIdempotencyKey(userId, idempotencyKey);
+        if (existing.isPresent()) {
+            if (!requestHash.equals(existing.get().getRequestHash())) {
+                throw new IdempotencyKeyReuseException();
+            }
+            return existing.get(); // replay: no stock change, nothing saved
+        }
 
         List<Product> products = productRepository.findAllByIdIn(List.copyOf(quantityByProductId.keySet()));
         Map<String, Product> productsById = products.stream()
@@ -76,7 +93,7 @@ public class OrderService {
         // the new absolute value would lose concurrent orders (the V1 CHECK stock >= 0 is only the last-resort
         // backstop). A failed update throws, which rolls back the whole transaction (DomainException is a
         // RuntimeException), undoing the products already decremented.
-        Order order = new Order(customerName, customerPhone, customerAddress, totalAmount);
+        Order order = new Order(userId, idempotencyKey, requestHash, customerName, customerPhone, customerAddress, totalAmount);
         for (Map.Entry<String, Integer> entry : sortedQuantities.entrySet()) {
             Product product = productsById.get(entry.getKey());
             int quantity = entry.getValue();
@@ -90,10 +107,16 @@ public class OrderService {
     }
 
     @Transactional(readOnly = true)
-    public Optional<Order> getOrder(String id) {
+    public Optional<Order> getOrder(String id, String userId) {
         // ponytail: open-in-view is off, so items and each item's product (both LAZY) must be
         // touched before the transaction/session closes, or the controller's DTO mapping throws.
-        Optional<Order> order = orderRepository.findById(id);
+        // Someone else's, missing and legacy (user_id NULL) orders all look the same: empty.
+        // A null/blank userId (a null principal gives getName() "") must not reach the query: Spring Data would turn
+        // null into "user_id IS NULL" = every legacy order.
+        if (userId == null || userId.isBlank()) {
+            return Optional.empty();
+        }
+        Optional<Order> order = orderRepository.findByIdAndUserId(id, userId);
         order.ifPresent(o -> o.getItems().forEach(item -> item.getProduct().getName()));
         return order;
     }

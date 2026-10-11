@@ -132,8 +132,13 @@ export async function listAdminProducts(token: string): Promise<AdminProduct[]> 
   return res.json();
 }
 
-export async function getOrder(id: string): Promise<Order | null> {
-  const res = await apiFetch(`/api/orders/${id}`);
+export async function getOrder(id: string, token: string): Promise<Order | null> {
+  const res = await apiFetch(`/api/orders/${encodeURIComponent(id)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    // A hung request would otherwise leave the page on "loading" forever.
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (res.status === 401 || res.status === 403) throw new AuthError();
   if (res.status === 404) return null;
   if (!res.ok) throw new Error("주문 정보를 불러오지 못했습니다.");
   return res.json();

@@ -1,15 +1,84 @@
-import { notFound } from "next/navigation";
-import { getOrder } from "@/lib/api";
+"use client";
 
-export default async function OrderComplete({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  const order = await getOrder(id);
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { useAuth, useRequireRole } from "@/auth/AuthContext";
+import { getOrder, AuthError, type Order } from "@/lib/api";
 
-  if (!order) notFound();
+export default function OrderPage() {
+  const { id } = useParams<{ id: string }>();
+  const { session, ready } = useRequireRole(["ADMIN", "SELLER", "USER"]);
+
+  if (!ready || !session) return null;
+  // The key remounts the loader, so a different order or login never shows the previous state.
+  return <OrderComplete key={`${id}:${session.token}`} id={id} token={session.token} />;
+}
+
+function OrderComplete({ id, token }: { id: string; token: string }) {
+  const { logout } = useAuth();
+  // undefined = still loading, null = no such order (or not the caller's).
+  const [order, setOrder] = useState<Order | null | undefined>(undefined);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    // Ignore a response that arrives after unmount or a retry.
+    let cancelled = false;
+    getOrder(id, token)
+      .then((o) => {
+        if (cancelled) return;
+        // A body for some other order must never be shown as this one.
+        if (o && String(o.id).toLowerCase() !== id.toLowerCase()) setFailed(true);
+        else setOrder(o);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        // An expired or invalid token: logging out makes useRequireRole send the user to /login.
+        if (e instanceof AuthError) logout();
+        else setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // `logout` is a fresh function every render; including it would refetch on each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, token, attempt]);
+
+  function retry() {
+    setFailed(false);
+    setOrder(undefined);
+    setAttempt((a) => a + 1);
+  }
+
+  const home = (
+    <Link href="/" className="text-sm underline">
+      홈으로
+    </Link>
+  );
+
+  if (failed) {
+    return (
+      <div className="flex flex-col items-start gap-3">
+        <p role="alert" className="text-sm text-red-600">
+          주문은 접수되었을 수 있어요. 잠시 후 다시 확인해 주세요.
+        </p>
+        <button onClick={retry} className="border rounded px-3 py-2 text-sm">
+          다시 불러오기
+        </button>
+        {home}
+      </div>
+    );
+  }
+  if (order === undefined) return <p role="status" className="text-gray-600">불러오는 중...</p>;
+  if (order === null) {
+    return (
+      <div className="flex flex-col items-start gap-3">
+        <p className="text-gray-600">주문을 찾을 수 없습니다.</p>
+        {home}
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-lg mx-auto flex flex-col gap-6">

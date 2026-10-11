@@ -90,13 +90,25 @@ describe("getOrder", () => {
       customerAddress: "서울",
       items: [],
     });
-    const order = await getOrder("o1");
+    const order = await getOrder("o1", "valid-token");
     expect(order?.customerName).toBe("홍길동");
+    expect(vi.mocked(fetch).mock.calls[0][1]?.headers).toMatchObject({ Authorization: "Bearer valid-token" });
+    expect(vi.mocked(fetch).mock.calls[0][1]?.signal).toHaveProperty("aborted", false);
   });
 
   it("실패: 404면 null을 반환한다", async () => {
     mockFetchOnce(404, {});
-    expect(await getOrder("missing")).toBeNull();
+    expect(await getOrder("missing", "valid-token")).toBeNull();
+  });
+
+  it("실패: 401이면 AuthError를 던진다", async () => {
+    mockFetchOnce(401, {});
+    await expect(getOrder("o1", "bad-token")).rejects.toBeInstanceOf(AuthError);
+  });
+
+  it("실패: 500이면 예외를 던진다", async () => {
+    mockFetchOnce(500, {});
+    await expect(getOrder("o1", "valid-token")).rejects.toThrow("주문 정보를 불러오지 못했습니다.");
   });
 });
 

@@ -54,4 +54,38 @@ class OrderValidationTest {
         assertThatThrownBy(() -> OrderValidation.validateOrderLines(Arrays.asList(new OrderLine("p1", 1), null)))
                 .isInstanceOf(ValidationException.class);
     }
+
+    @Test
+    void 성공_올바른_요청_번호는_통과한다() {
+        OrderValidation.validateIdempotencyKey("abcd1234");
+        OrderValidation.validateIdempotencyKey("a-b_C-0123456789".repeat(4)); // 64 chars
+    }
+
+    @Test
+    void 실패_요청_번호가_없거나_형식이_틀리면_검증_오류다() {
+        for (String bad : new String[]{null, "", "        ", "short12", "a".repeat(65), "has space1", "한글한글한글한글", "a:b:c:d:e:f"}) {
+            assertThatThrownBy(() -> OrderValidation.validateIdempotencyKey(bad))
+                    .as("key: %s", bad)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessage("요청 번호(Idempotency-Key)가 올바르지 않아요.");
+        }
+    }
+
+    @Test
+    void 성공_요청_해시는_앞뒤_공백과_상품_순서에_관계없이_같고_64자_hex다() {
+        String a = OrderValidation.requestHash(" 홍길동", "010", "서울 ", Map.of("p2", 1, "p1", 3));
+        String b = OrderValidation.requestHash("홍길동", "010 ", " 서울", new java.util.LinkedHashMap<>(Map.of("p1", 3, "p2", 1)));
+
+        assertThat(a).isEqualTo(b).matches("[0-9a-f]{64}");
+    }
+
+    @Test
+    void 실패_내용이_다르면_요청_해시도_다르다() {
+        String base = OrderValidation.requestHash("홍길동", "010", "서울", Map.of("p1", 3));
+
+        assertThat(OrderValidation.requestHash("홍길동", "010", "서울", Map.of("p1", 4))).isNotEqualTo(base);
+        assertThat(OrderValidation.requestHash("홍길동", "010", "서울", Map.of("p2", 3))).isNotEqualTo(base);
+        assertThat(OrderValidation.requestHash("홍길동", "011", "서울", Map.of("p1", 3))).isNotEqualTo(base);
+        assertThat(OrderValidation.requestHash("홍길동0", "10", "서울", Map.of("p1", 3))).isNotEqualTo(base);
+    }
 }

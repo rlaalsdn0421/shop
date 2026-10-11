@@ -13,6 +13,7 @@ import java.sql.Connection;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutionException;
@@ -39,7 +40,7 @@ class OrderStockConcurrencyIntegrationTest extends PostgresIntegrationTest {
     }
 
     private void order(OrderLine... lines) {
-        orderService.createOrder("구매자", "010-0000-0000", "서울", List.of(lines));
+        orderService.createOrder(data.user(), UUID.randomUUID().toString(), "구매자", "010-0000-0000", "서울", List.of(lines));
     }
 
     private void product(String id, int stock) {
