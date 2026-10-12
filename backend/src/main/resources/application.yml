@@ -33,6 +33,20 @@ rate-limit:
   # X-Forwarded-For에서 오른쪽 기준 몇 번째 항목을 클라이언트 IP로 볼지(Cloud Run 직접 노출 = 1).
   trusted-proxy-hops: 1
 
+portone:
+  # Payment (docs/payment-design.md). All empty = payment feature off (payment endpoints answer 503). Secrets come from
+  # Secret Manager env vars only; never put values here.
+  api-secret: ${PORTONE_API_SECRET:}
+  webhook-secret: ${PORTONE_WEBHOOK_SECRET:}
+  store-id: ${PORTONE_STORE_ID:}
+  api-base: ${PORTONE_API_BASE:https://api.portone.io}
+  # false (default): only payments made on a LIVE channel are accepted. Set true only for test-channel trials.
+  allow-test-channel: ${PORTONE_ALLOW_TEST_CHANNEL:false}
+
+internal:
+  # Shared token for /api/internal/** (Cloud Scheduler), at least 32 characters. Empty or shorter = those endpoints answer 404.
+  token: ${INTERNAL_TOKEN:}
+
 seed:
   # Intentionally no defaults: an ADMIN/SELLER account is only created when both its username and
   # password env vars are set (ADMIN_USERNAME/ADMIN_PASSWORD, SELLER_USERNAME/SELLER_PASSWORD).

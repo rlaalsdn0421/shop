@@ -57,6 +57,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/admin/products/**").hasAnyRole("ADMIN", "SELLER")
                         .requestMatchers(HttpMethod.POST, "/api/orders").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/orders/**").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/orders/*/payment/complete").authenticated()
+                        // /api/payments/webhook (signature) and /api/internal/** (token) authenticate themselves, not by JWT
                         .requestMatchers(HttpMethod.POST, "/api/products/*/reviews").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/api/users/me").authenticated()
                         .anyRequest().permitAll())

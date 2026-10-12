@@ -38,7 +38,7 @@ final class TestData {
         tx.executeWithoutResult(s -> em.persist(product));
     }
 
-    /** One order with a single line of {@code quantity} units; status is PAID or CANCELLED. */
+    /** One order with a single line of {@code quantity} units; status is any orders_status_valid value (PENDING_PAYMENT, PAID, EXPIRED, PAYMENT_REVIEW); only PAID counts as a sale. */
     void sale(String productId, String status, int quantity, Instant orderCreatedAt) {
         tx.executeWithoutResult(s -> {
             Order order = new Order(null, null, null, "구매자", "010-0000-0000", "서울", 1000 * quantity, 0);

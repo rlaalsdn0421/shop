@@ -64,8 +64,8 @@ class ProductRankingIntegrationTest extends PostgresIntegrationTest {
 
         data.sale("p01", "PAID", 5, NOW);
         data.sale("p02", "PAID", 5, NOW);
-        data.sale("p02", "CANCELLED", 10, NOW); // must not count
-        data.sale("p03", "CANCELLED", 20, NOW); // must not count
+        data.sale("p02", "EXPIRED", 10, NOW); // must not count
+        data.sale("p03", "EXPIRED", 20, NOW); // must not count
         data.sale("p04", "PAID", 1, NOW);
         data.sale("p05", "PAID", 2, NOW);
         data.sale("p08", "PAID", 3, NOW);

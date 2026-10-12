@@ -5,6 +5,10 @@ import com.shop.backend.domain.error.DuplicateEmailException;
 import com.shop.backend.domain.error.DuplicateReviewException;
 import com.shop.backend.domain.error.IdempotencyKeyReuseException;
 import com.shop.backend.domain.error.InvalidCredentialsException;
+import com.shop.backend.domain.error.OrderNotFoundException;
+import com.shop.backend.domain.error.PaymentException;
+import com.shop.backend.domain.error.PaymentNotConfiguredException;
+import com.shop.backend.domain.error.PaymentProviderUnavailableException;
 import com.shop.backend.domain.error.ProductNotFoundException;
 import com.shop.backend.domain.error.TooManyRequestsException;
 import com.shop.backend.domain.error.WithdrawalNotAllowedException;
@@ -27,8 +31,9 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
- * Business-rule violations map to 400, except a missing product (404), invalid credentials (401), a withdrawal by
- * ADMIN/SELLER (403), a duplicate review or a reused Idempotency-Key (409) and rate limiting (429); Spring picks the
+ * Business-rule violations map to 400, except a missing product or order (404), invalid credentials (401), a withdrawal by
+ * ADMIN/SELLER (403), a duplicate review, a reused Idempotency-Key or an unconfirmed/mismatched payment (409), a payment
+ * provider outage or empty payment settings (503) and rate limiting (429); Spring picks the
  * most specific handler, so those take precedence over the DomainException one below. Lock timeouts and deadlocks
  * map to 503.
  * Anything unexpected maps to 500 with a per-area message, matching the original API contract.
@@ -41,6 +46,21 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ProductNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleProductNotFound(ProductNotFoundException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(ex.getMessage()));
+    }
+
+    @ExceptionHandler(OrderNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleOrderNotFound(OrderNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(ex.getMessage()));
+    }
+
+    // Payment conflicts (not confirmed / amount mismatch / needs review) are 409; the provider being down or the
+    // payment settings being empty is the server's problem: 503.
+    @ExceptionHandler(PaymentException.class)
+    public ResponseEntity<ErrorResponse> handlePayment(PaymentException ex) {
+        boolean unavailable = ex instanceof PaymentProviderUnavailableException
+                || ex instanceof PaymentNotConfiguredException;
+        return ResponseEntity.status(unavailable ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.CONFLICT)
+                .body(new ErrorResponse(ex.getMessage(), ex.getCode()));
     }
 
     @ExceptionHandler(DuplicateEmailException.class)

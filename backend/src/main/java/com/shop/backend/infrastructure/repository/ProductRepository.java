@@ -49,6 +49,11 @@ public interface ProductRepository extends JpaRepository<Product, String> {
     @Query("UPDATE Product p SET p.stock = p.stock - :quantity WHERE p.id = :id AND p.stock >= :quantity")
     int decrementStockIfAvailable(@Param("id") String id, @Param("quantity") int quantity);
 
+    /** Gives reserved stock back (expired order, or a re-reservation that had to be rolled back). Same flush/clear caveats as above. */
+    @Modifying
+    @Query("UPDATE Product p SET p.stock = p.stock + :quantity WHERE p.id = :id")
+    int incrementStock(@Param("id") String id, @Param("quantity") int quantity);
+
     // category == null means all categories. Pageable must be unsorted: the order is in the query.
     @Query("SELECT p FROM Product p " + CATEGORY_FILTER + "ORDER BY " + REVIEW_COUNT + " DESC" + NEWEST_TIE)
     Page<Product> findByReviewCountDesc(@Param("category") String category, Pageable pageable);

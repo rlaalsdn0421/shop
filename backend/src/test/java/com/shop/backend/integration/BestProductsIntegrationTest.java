@@ -43,7 +43,7 @@ class BestProductsIntegrationTest extends PostgresIntegrationTest {
         data.product("early", null, 1000, null, T0);
         data.product("cancelled", null, 1000, null, T0);
         data.sale("early", "PAID", 9, FIXED_NOW.minus(period.window()).minusMillis(1));
-        data.sale("cancelled", "CANCELLED", 9, FIXED_NOW.minus(Duration.ofMinutes(5)));
+        data.sale("cancelled", "EXPIRED", 9, FIXED_NOW.minus(Duration.ofMinutes(5)));
 
         assertThat(soldSince(FIXED_NOW.minus(period.window()))).isEmpty();
     }
