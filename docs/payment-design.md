@@ -85,6 +85,8 @@ CREATE INDEX idx_orders_pending_expires ON orders (expires_at) WHERE status = 'P
 
 ## 6. 운영 설정(사용자 몫, Cloud Shell 숨김 입력)
 
+실제 명령과 순서는 [payment-setup.md](payment-setup.md)에 있다.
+
 - 시크릿 3개: `portone-api-secret`, `portone-webhook-secret`, `internal-token`(Secret Manager) + Cloud Run 서비스 계정 `secretAccessor`. 값은 채팅에 붙이지 않는다.
 - `PORTONE_STORE_ID`는 시크릿이 아니라 일반 환경변수. 테스트 단계에서만 `PORTONE_ALLOW_TEST_CHANNEL=true`를 추가하고, 실서비스 전에 지운다.
 - `internal-token`은 32자 이상 임의 값(예: `openssl rand -hex 32`)으로 만든다. 더 짧으면 내부 정리 API가 꺼진다.
