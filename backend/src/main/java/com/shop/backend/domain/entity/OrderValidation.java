@@ -16,6 +16,7 @@ import java.util.regex.Pattern;
 public final class OrderValidation {
 
     private static final Pattern IDEMPOTENCY_KEY = Pattern.compile("[A-Za-z0-9_-]{8,64}");
+    private static final Pattern PHONE_CHARS = Pattern.compile("\\+?[0-9() -]+");
     private static final int MAX_LIST_SIZE = 50;
 
     private OrderValidation() {
@@ -59,6 +60,11 @@ public final class OrderValidation {
         if (isBlank(customerName) || isBlank(customerPhone) || isBlank(customerAddress)
                 || customerName.length() > 200 || customerPhone.length() > 50 || customerAddress.length() > 500) {
             throw new ValidationException("필수 정보가 누락되었거나 형식이 올바르지 않습니다.");
+        }
+        String phone = customerPhone.trim();
+        long digits = phone.chars().filter(c -> c >= '0' && c <= '9').count();
+        if (!PHONE_CHARS.matcher(phone).matches() || digits < 9 || digits > 15) {
+            throw new ValidationException("연락처는 숫자 9~15자리로 입력해 주세요.");
         }
     }
 

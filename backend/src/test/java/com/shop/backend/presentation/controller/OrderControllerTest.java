@@ -3,6 +3,7 @@ package com.shop.backend.presentation.controller;
 import com.shop.backend.application.service.OrderService;
 import com.shop.backend.domain.entity.Order;
 import com.shop.backend.domain.entity.OrderItem;
+import com.shop.backend.domain.entity.OrderValidation;
 import com.shop.backend.domain.entity.Product;
 import com.shop.backend.domain.error.IdempotencyKeyReuseException;
 import com.shop.backend.domain.error.ValidationException;
@@ -143,6 +144,26 @@ class OrderControllerTest {
                         .content(body))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("수량이 올바르지 않습니다."));
+    }
+
+    @Test
+    @WithMockUser
+    void 실패_연락처가_숫자가_아니면_400과_안내_문구를_반환한다() throws Exception {
+        // run the real validation rule behind the mocked service
+        when(orderService.createOrder(any(), any(), any(), any(), any(), any())).thenAnswer(inv -> {
+            OrderValidation.validateCustomerInfo(inv.getArgument(2), inv.getArgument(3), inv.getArgument(4));
+            return null;
+        });
+
+        mockMvc.perform(post("/api/orders")
+                        .header("Idempotency-Key", KEY)
+                        .contentType("application/json")
+                        .content("""
+                                {"customerName":"홍길동","customerPhone":"asd","customerAddress":"서울시",
+                                 "items":[{"productId":"p1","quantity":1}]}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("연락처는 숫자 9~15자리로 입력해 주세요."));
     }
 
     private static final String ORDER_BODY = """

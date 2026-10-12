@@ -86,6 +86,33 @@ class OrderValidationTest {
     }
 
     @Test
+    void 성공_올바른_연락처_형식은_통과한다() {
+        for (String ok : new String[]{"010-1234-5678", "01012345678", "+82 10 1234 5678", "(02) 123-4567", " 010-1234-5678 ",
+                "123456789", "1".repeat(15)}) {
+            OrderValidation.validateCustomerInfo("홍길동", ok, "서울");
+        }
+    }
+
+    @Test
+    void 실패_연락처가_숫자_9에서_15자리_형식이_아니면_검증_오류다() {
+        for (String bad : new String[]{"asd", "12345678", "1".repeat(16), "010-abcd-5678", "---", "010+1234+5678", "++82101234567"}) {
+            assertThatThrownBy(() -> OrderValidation.validateCustomerInfo("홍길동", bad, "서울"))
+                    .as("phone: %s", bad)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessage("연락처는 숫자 9~15자리로 입력해 주세요.");
+        }
+    }
+
+    @Test
+    void 실패_연락처가_비어_있으면_필수_정보_검증_오류다() {
+        for (String blank : new String[]{null, "", "   "}) {
+            assertThatThrownBy(() -> OrderValidation.validateCustomerInfo("홍길동", blank, "서울"))
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessage("필수 정보가 누락되었거나 형식이 올바르지 않습니다.");
+        }
+    }
+
+    @Test
     void 성공_요청_해시는_앞뒤_공백과_상품_순서에_관계없이_같고_64자_hex다() {
         String a = OrderValidation.requestHash(" 홍길동", "010", "서울 ", Map.of("p2", 1, "p1", 3));
         String b = OrderValidation.requestHash("홍길동", "010 ", " 서울", new java.util.LinkedHashMap<>(Map.of("p1", 3, "p2", 1)));
