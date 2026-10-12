@@ -235,6 +235,43 @@ describe("CartView 주문 멱등 키", () => {
     expect(keys()[1]).not.toBe(keys()[0]);
   });
 
+  it("성공: 저장되는 값은 {key, fingerprintHash(SHA-256 hex)}뿐이고 이름·연락처·주소가 들어 있지 않다", async () => {
+    mockReplies({ status: 500, body: {} });
+    await renderCart();
+    await submit();
+    await screen.findByRole("alert");
+
+    const raw = sessionStorage.getItem("shop-order-attempt")!;
+    const stored = JSON.parse(raw);
+    expect(Object.keys(stored).sort()).toEqual(["fingerprintHash", "key"]);
+    expect(stored.fingerprintHash).toMatch(/^[0-9a-f]{64}$/);
+    for (const personal of ["홍길동", "010-0000-0000", "서울시 테스트구", "p1"]) expect(raw).not.toContain(personal);
+  });
+
+  it("성공: 예전 형식(평문 fingerprint)으로 저장된 값은 읽지 않고 지운다", async () => {
+    sessionStorage.setItem("shop-order-attempt", JSON.stringify({ key: "old", fingerprint: '["홍길동","010-0000-0000"]' }));
+    mockReplies({ status: 201, body: { orderId: "o1" } });
+    await renderCart();
+    await submit();
+    await waitFor(() => expect(push).toHaveBeenCalled());
+
+    expect(keys()[0]).not.toBe("old");
+    expect(sessionStorage.getItem("shop-order-attempt")).toBeNull();
+  });
+
+  it("성공: SubtleCrypto가 없으면 sessionStorage에는 아무것도 쓰지 않고 메모리로만 같은 키를 유지한다", async () => {
+    const real = crypto;
+    vi.stubGlobal("crypto", { randomUUID: () => real.randomUUID() });
+    mockReplies({ status: 500, body: {} }, { status: 201, body: { orderId: "o1" } });
+    await renderCart();
+    await submit();
+    await screen.findByRole("alert");
+    expect(sessionStorage.getItem("shop-order-attempt")).toBeNull();
+    await submit();
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/orders/o1?placed=1"));
+    expect(keys()[1]).toBe(keys()[0]);
+  });
+
   it("성공: 성공하면 저장된 키를 지운다", async () => {
     mockReplies({ status: 201, body: { orderId: "o1" } });
     await renderCart();

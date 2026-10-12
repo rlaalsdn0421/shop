@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { clearOrderAttempt } from "@/lib/orderAttempt";
 
 export type Role = "ADMIN" | "SELLER" | "USER";
 
@@ -57,6 +58,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   function logout() {
+    // The stored order retry key belongs to this login; withdrawal also goes through here.
+    clearOrderAttempt();
     setSession(null);
   }
 

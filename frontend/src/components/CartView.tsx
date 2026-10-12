@@ -5,31 +5,10 @@ import { useRef, useState } from "react";
 import Image from "next/image";
 import { useCart } from "@/cart/CartContext";
 import { useRequireRole } from "@/auth/AuthContext";
+import { type Attempt, readAttempt, saveAttempt, sha256Hex } from "@/lib/orderAttempt";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080";
 const ORDER_TIMEOUT_MS = 20_000;
-const ATTEMPT_STORAGE_KEY = "shop-order-attempt";
-
-type Attempt = { key: string; fingerprint: string };
-
-// sessionStorage keeps the key across a reload; it can throw (blocked, quota), so every access is guarded.
-function readAttempt(): Attempt | null {
-  try {
-    const a = JSON.parse(sessionStorage.getItem(ATTEMPT_STORAGE_KEY) ?? "null");
-    return typeof a?.key === "string" && typeof a?.fingerprint === "string" ? a : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveAttempt(attempt: Attempt | null) {
-  try {
-    if (attempt) sessionStorage.setItem(ATTEMPT_STORAGE_KEY, JSON.stringify(attempt));
-    else sessionStorage.removeItem(ATTEMPT_STORAGE_KEY);
-  } catch {
-    // The in-memory ref still protects retries without a reload.
-  }
-}
 
 export function CartView() {
   const { items, setQuantity, remove, totalAmount, clear } = useCart();
@@ -70,11 +49,13 @@ export function CartView() {
       orderItems.map((i) => `${i.productId}:${i.quantity}`).sort(),
     ]);
     try {
+      // Without SubtleCrypto the plain fingerprint is compared in memory only and never written to sessionStorage.
+      const hash = await sha256Hex(fingerprint);
       const saved = attempt.current ?? readAttempt();
-      if (saved?.fingerprint === fingerprint) attempt.current = saved;
+      if (saved && saved.fingerprintHash === (hash ?? fingerprint)) attempt.current = saved;
       else {
-        attempt.current = { key: crypto.randomUUID(), fingerprint };
-        saveAttempt(attempt.current);
+        attempt.current = { key: crypto.randomUUID(), fingerprintHash: hash ?? fingerprint };
+        if (hash) saveAttempt(attempt.current);
       }
       const res = await fetch(`${BACKEND_URL}/api/orders`, {
         method: "POST",
