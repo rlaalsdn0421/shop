@@ -6,6 +6,7 @@ import { InfiniteProductGrid } from "@/components/InfiniteProductGrid";
 import { ProductCard } from "@/components/ProductCard";
 import { ProductSection, SectionNote } from "@/components/ProductSection";
 import { SortTabs } from "@/components/SortTabs";
+import { WithdrawnNotice } from "@/components/WithdrawnNotice";
 
 const BEST_COUNT = 4;
 const NEW_COUNT = 10;
@@ -50,6 +51,7 @@ export default async function Home({ searchParams }: { searchParams: SearchParam
 
   return (
     <>
+      {query.withdrawn === "1" && <WithdrawnNotice />}
       <ProductSection
         id="best"
         title="베스트 상품"

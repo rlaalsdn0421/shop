@@ -35,6 +35,20 @@ function renderLoginForm() {
 }
 
 describe("LoginForm", () => {
+  it("성공: expired면 로그인 만료 안내를 보인다", () => {
+    render(
+      <AuthProvider>
+        <LoginForm expired />
+      </AuthProvider>
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("이미 탈퇴가 처리됐을 수 있어요");
+  });
+
+  it("실패: 기본 상태에서는 만료 안내가 없다", () => {
+    renderLoginForm();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
   it("성공: 로그인하면 역할에 맞는 페이지로 이동한다", async () => {
     mockFetchOnce(200, { token: "jwt-token", role: "USER", username: "user01" });
     renderLoginForm();

@@ -99,6 +99,24 @@ describe("Header", () => {
     expect(await screen.findByRole("link", { name: "로그인" })).toBeInTheDocument();
   });
 
+  it("성공: USER는 사용자명이 /account 링크다", async () => {
+    saveSession("USER");
+    renderHeader();
+    expect(await screen.findByRole("link", { name: "내 정보 (user01)" })).toHaveAttribute("href", "/account");
+  });
+
+  it("실패: 관리자는 사용자명이 링크가 아닌 텍스트다", async () => {
+    saveSession("ADMIN");
+    renderHeader();
+    expect(await screen.findByText("user01")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /user01/ })).not.toBeInTheDocument();
+  });
+
+  it("실패: 비로그인이면 /account 링크가 없다", () => {
+    renderHeader();
+    expect(document.querySelector('a[href="/account"]')).toBeNull();
+  });
+
   it("성공: 관리자에게는 상품 관리 링크가 보인다", async () => {
     saveSession("ADMIN");
     renderHeader();

@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import { AuthProvider, useAuth } from "./AuthContext";
+import { AuthProvider, useAuth, useRequireRole } from "./AuthContext";
 
+const replace = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace }),
 }));
 
 const KEY = "shop-auth";
@@ -80,5 +81,33 @@ describe("AuthProvider", () => {
     const stored = JSON.parse(localStorage.getItem(KEY) ?? "{}");
     expect(stored).toMatchObject({ token: "new-token", username: "newuser01", role: "SELLER" });
     expect(stored.expiresAt).toBeGreaterThan(Date.now());
+  });
+});
+
+describe("useRequireRole", () => {
+  function Guard({ enabled }: { enabled?: boolean }) {
+    useRequireRole(["USER"], enabled);
+    return null;
+  }
+
+  it("성공: 세션이 없으면 /login으로 보낸다", async () => {
+    replace.mockClear();
+    render(
+      <AuthProvider>
+        <Guard />
+      </AuthProvider>
+    );
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));
+  });
+
+  it("실패: enabled=false면 세션이 없어도 이동시키지 않는다", async () => {
+    replace.mockClear();
+    render(
+      <AuthProvider>
+        <Guard enabled={false} />
+      </AuthProvider>
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    expect(replace).not.toHaveBeenCalled();
   });
 });

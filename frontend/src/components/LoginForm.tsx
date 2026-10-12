@@ -8,7 +8,7 @@ import type { LoginResponse } from "@/lib/api";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080";
 
-export function LoginForm() {
+export function LoginForm({ expired = false }: { expired?: boolean }) {
   const router = useRouter();
   const { login } = useAuth();
   const [username, setUsername] = useState("");
@@ -44,6 +44,11 @@ export function LoginForm() {
   return (
     <div className="max-w-sm mx-auto flex flex-col gap-4">
       <h1 className="text-xl font-bold">로그인</h1>
+      {expired && (
+        <p role="status" className="text-sm text-gray-700">
+          로그인이 만료됐어요. 이미 탈퇴가 처리됐을 수 있어요. 다시 로그인해 보세요.
+        </p>
+      )}
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
         <label htmlFor="login-username" className="sr-only">아이디</label>
         <input

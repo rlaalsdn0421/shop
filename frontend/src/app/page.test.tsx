@@ -188,7 +188,8 @@ describe("Home", () => {
       const tree = (await Home({ searchParams: Promise.resolve(query) })) as ReactElement<{
         children: ReactElement<{ children: ReactElement[] }>[];
       }>;
-      return tree.props.children[2].props.children[1].key;
+      // children: [withdrawn notice, 베스트, 신상품, 전체상품]
+      return tree.props.children[3].props.children[1].key;
     };
     expect(await gridKey({ sort: "price_asc", best: "realtime" })).toBe(
       await gridKey({ sort: "price_asc", best: "monthly" })
@@ -206,5 +207,17 @@ describe("Home", () => {
     ]);
     expect(screen.queryByText(/해킹/)).not.toBeInTheDocument();
     expect(calls.every((u) => !u.searchParams.has("category"))).toBe(true);
+  });
+
+  it("성공: withdrawn=1이면 탈퇴 완료 안내가 보인다", async () => {
+    mockBackend({ best: () => ({ status: 200, body: { items: [] } }), list: okList });
+    await renderHome({ withdrawn: "1" });
+    expect(screen.getByText("탈퇴가 완료되었어요")).toHaveAttribute("role", "status");
+  });
+
+  it("실패: withdrawn 값이 없거나 1이 아니면 안내가 없다", async () => {
+    mockBackend({ best: () => ({ status: 200, body: { items: [] } }), list: okList });
+    await renderHome({ withdrawn: "0" });
+    expect(screen.queryByText("탈퇴가 완료되었어요")).not.toBeInTheDocument();
   });
 });
