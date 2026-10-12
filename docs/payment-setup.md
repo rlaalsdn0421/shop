@@ -25,10 +25,10 @@ https://shop-backend-mklbqo55qa-as.a.run.app/api/payments/webhook
 
 Cloud Shell에서 한 블록씩 실행한다. 붙여넣기는 **`Ctrl + Shift + V`**(Mac은 `Cmd + V`)다. 값을 물으면 붙여 넣고 Enter.
 
-먼저 프로젝트를 선택한다(선택돼 있지 않으면 `Failed to find attribute [project]` 오류가 난다). 프로젝트 ID는 GitHub 저장소 변수 `GCP_PROJECT_ID`와 같은 값이다. `PROJECT_ID`를 글자 그대로 쓰지 말고 아래 실제 값을 쓴다. 확인 질문에는 영문 `y`.
+먼저 프로젝트를 선택한다(선택돼 있지 않으면 `Failed to find attribute [project]` 오류가 난다). 프로젝트 ID는 GitHub 저장소 변수 `GCP_PROJECT_ID`와 같은 값이다. 아래 `GCP_PROJECT_ID`를 그 실제 값으로 바꿔서 실행한다. 확인 질문에는 영문 `y`.
 
 ```bash
-gcloud config set project project-882f3f4e-3aec-4330-9b3
+gcloud config set project GCP_PROJECT_ID
 ```
 
 ```bash
