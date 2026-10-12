@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { SHIPPING_FEE } from "@/lib/constants";
+import { FREE_SHIPPING_THRESHOLD, SHIPPING_FEE } from "@/lib/constants";
 import { discountView, formatWon, visibleHashtags } from "@/lib/price";
 
 type Props = {
@@ -55,8 +55,8 @@ export function ProductCard({ id, name, price, imageUrl, originalPrice, discount
             </del>
           )}
         </span>
-        <span className="w-fit border border-neutral-200 px-1.5 py-0.5 text-[11px] leading-none text-neutral-500">
-          배송비 {SHIPPING_FEE.toLocaleString("ko-KR")}원
+        <span className="w-fit border border-neutral-200 px-1.5 py-0.5 text-[11px] leading-tight text-neutral-500">
+          배송비 {SHIPPING_FEE.toLocaleString("ko-KR")}원 ({FREE_SHIPPING_THRESHOLD.toLocaleString("ko-KR")}원 이상 무료)
         </span>
         {tags.length > 0 && (
           <span className="flex flex-wrap gap-x-1.5 gap-y-0.5">

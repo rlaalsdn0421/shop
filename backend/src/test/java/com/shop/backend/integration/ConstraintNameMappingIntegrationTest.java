@@ -51,30 +51,30 @@ class ConstraintNameMappingIntegrationTest extends PostgresIntegrationTest {
 
     @Test
     void 성공_회원가입_아이디_중복은_사전_검사로_DuplicateUsernameException이_된다() {
-        authService.register("taken_name", "taken@example.com", PASSWORD, BIRTH);
+        authService.register("taken_name", "taken@example.com", PASSWORD, BIRTH, true, true);
 
-        assertThatThrownBy(() -> authService.register("taken_name", "fresh@example.com", PASSWORD, BIRTH))
+        assertThatThrownBy(() -> authService.register("taken_name", "fresh@example.com", PASSWORD, BIRTH, true, true))
                 .isInstanceOf(DuplicateUsernameException.class);
-        assertThatThrownBy(() -> authService.register("fresh_name", "taken@example.com", PASSWORD, BIRTH))
+        assertThatThrownBy(() -> authService.register("fresh_name", "taken@example.com", PASSWORD, BIRTH, true, true))
                 .isInstanceOf(DuplicateEmailException.class);
     }
 
     @Test
     void 성공_경쟁으로_DB까지_온_아이디_중복은_제약_이름으로_DuplicateUsernameException이_된다() {
-        authService.register("taken_name", "taken@example.com", PASSWORD, BIRTH);
+        authService.register("taken_name", "taken@example.com", PASSWORD, BIRTH, true, true);
 
         assertThatThrownBy(() -> authServiceBlindToExistingUsers()
-                .register("taken_name", "fresh@example.com", PASSWORD, BIRTH))
+                .register("taken_name", "fresh@example.com", PASSWORD, BIRTH, true, true))
                 .isInstanceOf(DuplicateUsernameException.class);
         assertThat(userRepository.count()).isEqualTo(1);
     }
 
     @Test
     void 성공_경쟁으로_DB까지_온_이메일_중복은_제약_이름으로_DuplicateEmailException이_된다() {
-        authService.register("taken_name", "taken@example.com", PASSWORD, BIRTH);
+        authService.register("taken_name", "taken@example.com", PASSWORD, BIRTH, true, true);
 
         assertThatThrownBy(() -> authServiceBlindToExistingUsers()
-                .register("fresh_name", "taken@example.com", PASSWORD, BIRTH))
+                .register("fresh_name", "taken@example.com", PASSWORD, BIRTH, true, true))
                 .isInstanceOf(DuplicateEmailException.class);
         assertThat(userRepository.count()).isEqualTo(1);
     }

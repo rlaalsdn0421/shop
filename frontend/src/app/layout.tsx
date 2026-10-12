@@ -5,6 +5,7 @@ import "./globals.css";
 import { CartProvider } from "@/cart/CartContext";
 import { AuthProvider } from "@/auth/AuthContext";
 import { Header } from "@/components/Header";
+import { Footer } from "@/components/Footer";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { ChatWidget } from "@/components/ChatWidget";
 
@@ -20,7 +21,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "쇼핑몰",
-  description: "간단한 쇼핑몰 데모",
+  description: "쇼핑몰: 다양한 상품을 둘러보고 주문하세요.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
@@ -33,9 +34,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <AuthProvider>
           <CartProvider>
             <Header />
-            <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6 pb-20 md:pb-6">
+            <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6">
               {children}
             </main>
+            <Footer />
             <MobileTabBar />
             <ChatWidget />
           </CartProvider>

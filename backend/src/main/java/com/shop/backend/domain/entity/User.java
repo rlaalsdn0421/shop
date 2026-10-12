@@ -45,6 +45,16 @@ public class User {
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
+    /** Signup consent evidence (after anonymization it no longer identifies anyone, so it is kept on withdrawal). Null for seeded ADMIN/SELLER and pre-existing accounts. */
+    @Column(name = "terms_agreed_at")
+    private Instant termsAgreedAt;
+
+    @Column(name = "privacy_agreed_at")
+    private Instant privacyAgreedAt;
+
+    @Column(name = "policy_version", length = 20)
+    private String policyVersion;
+
     protected User() {
         // JPA
     }
@@ -69,6 +79,12 @@ public class User {
         if (createdAt == null) {
             createdAt = Instant.now();
         }
+    }
+
+    public void recordConsent(Instant at, String policyVersion) {
+        this.termsAgreedAt = at;
+        this.privacyAgreedAt = at;
+        this.policyVersion = policyVersion;
     }
 
     /** Anonymizes this account; the placeholder hash is not a BCrypt hash, so no password can ever match it. */
@@ -114,5 +130,17 @@ public class User {
 
     public Instant getDeletedAt() {
         return deletedAt;
+    }
+
+    public Instant getTermsAgreedAt() {
+        return termsAgreedAt;
+    }
+
+    public Instant getPrivacyAgreedAt() {
+        return privacyAgreedAt;
+    }
+
+    public String getPolicyVersion() {
+        return policyVersion;
     }
 }

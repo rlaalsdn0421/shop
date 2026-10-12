@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { ProductCard } from "./ProductCard";
-import { SHIPPING_FEE } from "@/lib/constants";
+import { FREE_SHIPPING_THRESHOLD, SHIPPING_FEE } from "@/lib/constants";
 
 const base = { id: "p1", name: "린넨 셔츠", price: 12900, imageUrl: "https://example.com/a.jpg" };
 
@@ -10,8 +10,22 @@ describe("ProductCard", () => {
     render(<ProductCard {...base} />);
     expect(screen.getByText("린넨 셔츠")).toBeInTheDocument();
     expect(screen.getByText("12,900원")).toBeInTheDocument();
-    expect(screen.getByText(`배송비 ${SHIPPING_FEE.toLocaleString("ko-KR")}원`)).toBeInTheDocument();
-    expect(screen.getByText("배송비 3,500원")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        `배송비 ${SHIPPING_FEE.toLocaleString("ko-KR")}원 (${FREE_SHIPPING_THRESHOLD.toLocaleString("ko-KR")}원 이상 무료)`
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText("배송비 3,500원 (50,000원 이상 무료)")).toBeInTheDocument();
+  });
+
+  it("성공: 배송비 칩은 좁은 칸에서 줄바꿈돼도 답답하지 않게 leading-tight를 쓴다", () => {
+    render(<ProductCard {...base} />);
+    expect(screen.getByText(/^배송비 /)).toHaveClass("leading-tight");
+  });
+
+  it("실패: 예전 문구(무료 조건 없는 '배송비 3,500원')만 있는 칩은 더 이상 없다", () => {
+    render(<ProductCard {...base} />);
+    expect(screen.queryByText("배송비 3,500원")).not.toBeInTheDocument();
   });
 
   it("성공: 카드 전체가 상품 페이지로 가는 링크 하나다", () => {

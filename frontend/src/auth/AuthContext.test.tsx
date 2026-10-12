@@ -11,13 +11,14 @@ const KEY = "shop-auth";
 const HOUR = 60 * 60 * 1000;
 
 function Consumer() {
-  const { session, ready, login } = useAuth();
+  const { session, ready, login, logout } = useAuth();
   return (
     <div>
       <span data-testid="ready">{String(ready)}</span>
       <span data-testid="username">{session?.username ?? "none"}</span>
       <span data-testid="role">{session?.role ?? "none"}</span>
       <button onClick={() => login("new-token", "newuser01", "SELLER")}>login</button>
+      <button onClick={logout}>logout</button>
     </div>
   );
 }
@@ -81,6 +82,41 @@ describe("AuthProvider", () => {
     const stored = JSON.parse(localStorage.getItem(KEY) ?? "{}");
     expect(stored).toMatchObject({ token: "new-token", username: "newuser01", role: "SELLER" });
     expect(stored.expiresAt).toBeGreaterThan(Date.now());
+  });
+
+  it("성공: logout()은 세션과 sessionStorage의 주문 시도 키를 지운다", async () => {
+    localStorage.setItem(
+      KEY,
+      JSON.stringify({ token: "t", username: "user01", role: "USER", expiresAt: Date.now() + HOUR })
+    );
+    sessionStorage.setItem("shop-order-attempt", JSON.stringify({ key: "k", fingerprintHash: "h" }));
+    renderConsumer();
+    await waitFor(() => expect(screen.getByTestId("username")).toHaveTextContent("user01"));
+
+    screen.getByRole("button", { name: "logout" }).click();
+
+    await waitFor(() => expect(screen.getByTestId("username")).toHaveTextContent("none"));
+    expect(localStorage.getItem(KEY)).toBeNull();
+    expect(sessionStorage.getItem("shop-order-attempt")).toBeNull();
+  });
+
+  it("실패: sessionStorage를 쓸 수 없어도 logout()은 세션을 지운다", async () => {
+    localStorage.setItem(
+      KEY,
+      JSON.stringify({ token: "t", username: "user01", role: "USER", expiresAt: Date.now() + HOUR })
+    );
+    renderConsumer();
+    await waitFor(() => expect(screen.getByTestId("username")).toHaveTextContent("user01"));
+    vi.stubGlobal("sessionStorage", {
+      removeItem: () => {
+        throw new Error("blocked");
+      },
+    });
+
+    screen.getByRole("button", { name: "logout" }).click();
+
+    await waitFor(() => expect(screen.getByTestId("username")).toHaveTextContent("none"));
+    vi.unstubAllGlobals();
   });
 });
 

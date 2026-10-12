@@ -51,7 +51,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AuthControllerTest {
 
     private static final String REGISTER_BODY = """
-            {"username":"user01","email":"a@a.com","password":"password1","birthDate":"2000-05-05"}
+            {"username":"user01","email":"a@a.com","password":"password1","birthDate":"2000-05-05",
+             "termsAgreed":true,"privacyAgreed":true}
             """;
     private static final String LOGIN_BODY = """
             {"username":"seller01","password":"password1","birthDate":"2000-05-05"}
@@ -85,7 +86,7 @@ class AuthControllerTest {
     void 성공_회원가입한다() throws Exception {
         User user = new User("user01", "a@a.com", "hashed", Role.USER);
         ReflectionTestUtils.setField(user, "id", "user-1");
-        when(authService.register(any(), any(), any(), any())).thenReturn(user);
+        when(authService.register(any(), any(), any(), any(), any(), any())).thenReturn(user);
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType("application/json")
@@ -99,7 +100,7 @@ class AuthControllerTest {
 
     @Test
     void 실패_이미_사용_중인_아이디면_400을_반환하고_시도는_세어진다() throws Exception {
-        when(authService.register(any(), any(), any(), any())).thenThrow(new DuplicateUsernameException());
+        when(authService.register(any(), any(), any(), any(), any(), any())).thenThrow(new DuplicateUsernameException());
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType("application/json")
@@ -112,7 +113,7 @@ class AuthControllerTest {
 
     @Test
     void 실패_이미_등록된_이메일이면_400을_반환하고_시도는_세어진다() throws Exception {
-        when(authService.register(any(), any(), any(), any())).thenThrow(new DuplicateEmailException());
+        when(authService.register(any(), any(), any(), any(), any(), any())).thenThrow(new DuplicateEmailException());
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType("application/json")
@@ -125,7 +126,7 @@ class AuthControllerTest {
 
     @Test
     void 실패_검증에_실패한_가입도_시도로_세어진다() throws Exception {
-        when(authService.register(any(), any(), any(), any())).thenThrow(new ValidationException("비밀번호 규칙 위반"));
+        when(authService.register(any(), any(), any(), any(), any(), any())).thenThrow(new ValidationException("비밀번호 규칙 위반"));
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType("application/json")
@@ -137,7 +138,7 @@ class AuthControllerTest {
 
     @Test
     void 실패_가입_중_예상치_못한_오류가_나도_시도가_세어지고_해제된다() throws Exception {
-        when(authService.register(any(), any(), any(), any())).thenThrow(new IllegalStateException("boom"));
+        when(authService.register(any(), any(), any(), any(), any(), any())).thenThrow(new IllegalStateException("boom"));
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType("application/json")
@@ -254,19 +255,19 @@ class AuthControllerTest {
     void 성공_가입하면_생년월일을_서비스에_그대로_넘긴다() throws Exception {
         User user = new User("user01", "a@a.com", "hashed", Role.USER, LocalDate.of(2000, 5, 5));
         ReflectionTestUtils.setField(user, "id", "user-1");
-        when(authService.register(any(), any(), any(), any())).thenReturn(user);
+        when(authService.register(any(), any(), any(), any(), any(), any())).thenReturn(user);
 
         mockMvc.perform(post("/api/auth/register").contentType("application/json").content(REGISTER_BODY))
                 .andExpect(status().isOk());
 
-        verify(authService).register(eq("user01"), eq("a@a.com"), eq("password1"), eq(LocalDate.of(2000, 5, 5)));
+        verify(authService).register(eq("user01"), eq("a@a.com"), eq("password1"), eq(LocalDate.of(2000, 5, 5)), eq(true), eq(true));
     }
 
     @Test
     void 성공_가입_응답에는_생년월일이_들어_있지_않다() throws Exception {
         User user = new User("user01", "a@a.com", "hashed", Role.USER, LocalDate.of(2000, 5, 5));
         ReflectionTestUtils.setField(user, "id", "user-1");
-        when(authService.register(any(), any(), any(), any())).thenReturn(user);
+        when(authService.register(any(), any(), any(), any(), any(), any())).thenReturn(user);
 
         String body = mockMvc.perform(post("/api/auth/register").contentType("application/json").content(REGISTER_BODY))
                 .andReturn().getResponse().getContentAsString();
@@ -288,7 +289,7 @@ class AuthControllerTest {
 
     @Test
     void 실패_생년월일이_없으면_400과_안내_메시지를_반환한다() throws Exception {
-        when(authService.register(any(), any(), any(), eq(null)))
+        when(authService.register(any(), any(), any(), eq(null), any(), any()))
                 .thenThrow(new ValidationException("생년월일을 입력해주세요."));
 
         mockMvc.perform(post("/api/auth/register").contentType("application/json")
@@ -299,7 +300,7 @@ class AuthControllerTest {
 
     @Test
     void 실패_만_14세_미만이면_400과_안내_메시지를_반환한다() throws Exception {
-        when(authService.register(any(), any(), any(), any()))
+        when(authService.register(any(), any(), any(), any(), any(), any()))
                 .thenThrow(new ValidationException("만 14세 이상만 가입할 수 있어요."));
 
         mockMvc.perform(post("/api/auth/register").contentType("application/json").content(REGISTER_BODY))
@@ -321,7 +322,7 @@ class AuthControllerTest {
 
     @Test
     void 성공_빈_문자열_생년월일은_없는_값으로_서비스에_넘어가_거절된다() throws Exception {
-        when(authService.register(any(), any(), any(), eq(null)))
+        when(authService.register(any(), any(), any(), eq(null), any(), any()))
                 .thenThrow(new ValidationException("생년월일을 입력해주세요."));
 
         mockMvc.perform(post("/api/auth/register").contentType("application/json")
@@ -344,6 +345,76 @@ class AuthControllerTest {
 
         assertThat(body).doesNotContain("2000").doesNotContain("12345");
         verifyNoInteractions(authService);
+    }
+
+    // ---- 약관 동의 ----
+
+    @Test
+    void 성공_동의_값이_JSON_리터럴_true_false이면_그대로_서비스에_넘어간다() throws Exception {
+        when(authService.register(any(), any(), any(), any(), any(), any()))
+                .thenThrow(new ValidationException("이용약관과 개인정보 수집·이용에 동의해주세요."));
+
+        mockMvc.perform(post("/api/auth/register").contentType("application/json")
+                        .content("{\"username\":\"user01\",\"email\":\"a@a.com\",\"password\":\"password1\","
+                                + "\"birthDate\":\"2000-05-05\",\"termsAgreed\":false,\"privacyAgreed\":true}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("이용약관과 개인정보 수집·이용에 동의해주세요."));
+
+        verify(authService).register(any(), any(), any(), any(), eq(false), eq(true));
+    }
+
+    @Test
+    void 성공_동의_값이_JSON_null이면_누락과_같이_null로_서비스에_넘어간다() throws Exception {
+        when(authService.register(any(), any(), any(), any(), eq(null), eq(null)))
+                .thenThrow(new ValidationException("이용약관과 개인정보 수집·이용에 동의해주세요."));
+
+        mockMvc.perform(post("/api/auth/register").contentType("application/json")
+                        .content("{\"username\":\"user01\",\"email\":\"a@a.com\",\"password\":\"password1\","
+                                + "\"birthDate\":\"2000-05-05\",\"termsAgreed\":null,\"privacyAgreed\":null}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("이용약관과 개인정보 수집·이용에 동의해주세요."));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"\"true\"", "1", "\"TRUE\"", "\"maybe\"", "0", "\"false\"",
+            "[true]", "{}", "\"\""})
+    void 실패_JSON_리터럴이_아닌_동의_값은_어느_필드든_본문_오류_400이고_서비스는_호출되지_않는다(String raw) throws Exception {
+        String head = "{\"username\":\"user01\",\"email\":\"a@a.com\",\"password\":\"password1\","
+                + "\"birthDate\":\"2000-05-05\",";
+        for (String fields : new String[]{"\"termsAgreed\":" + raw + ",\"privacyAgreed\":true",
+                "\"termsAgreed\":true,\"privacyAgreed\":" + raw}) {
+            mockMvc.perform(post("/api/auth/register").contentType("application/json").content(head + fields + "}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error").value("요청 본문을 읽을 수 없습니다."));
+        }
+
+        verifyNoInteractions(authService);
+    }
+
+    @Test
+    void 실패_동의_필드가_없으면_null로_서비스에_넘어가고_한국어_400이다() throws Exception {
+        when(authService.register(any(), any(), any(), any(), eq(null), eq(null)))
+                .thenThrow(new ValidationException("이용약관과 개인정보 수집·이용에 동의해주세요."));
+
+        mockMvc.perform(post("/api/auth/register").contentType("application/json")
+                        .content("{\"username\":\"user01\",\"email\":\"a@a.com\",\"password\":\"password1\","
+                                + "\"birthDate\":\"2000-05-05\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("이용약관과 개인정보 수집·이용에 동의해주세요."));
+
+        verify(attempt).countAndRelease();
+    }
+
+    @Test
+    void 실패_한쪽만_false이면_그_값이_서비스에_넘어가고_한국어_400이다() throws Exception {
+        when(authService.register(any(), any(), any(), any(), eq(true), eq(false)))
+                .thenThrow(new ValidationException("이용약관과 개인정보 수집·이용에 동의해주세요."));
+
+        mockMvc.perform(post("/api/auth/register").contentType("application/json")
+                        .content("{\"username\":\"user01\",\"email\":\"a@a.com\",\"password\":\"password1\","
+                                + "\"birthDate\":\"2000-05-05\",\"termsAgreed\":true,\"privacyAgreed\":false}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("이용약관과 개인정보 수집·이용에 동의해주세요."));
     }
 
     // ---- 로그에 개인정보가 남지 않는지 ----
@@ -374,7 +445,7 @@ class AuthControllerTest {
         String row = "Failing row contains (x, user, a@b.c, HASH, USER, 2000-05-05)";
         var hibernateCause = new org.hibernate.exception.ConstraintViolationException(
                 row, new SQLException(row, "23514"), "users_birth_date_check");
-        when(authService.register(any(), any(), any(), any()))
+        when(authService.register(any(), any(), any(), any(), any(), any()))
                 .thenThrow(new DataIntegrityViolationException(row, hibernateCause));
 
         mockMvc.perform(post("/api/auth/register").contentType("application/json").content(REGISTER_BODY))

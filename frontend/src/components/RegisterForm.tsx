@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { MIN_BIRTH_DATE, validateBirthDate } from "@/lib/birthDate";
@@ -19,6 +19,14 @@ export function RegisterForm() {
   const [submitting, setSubmitting] = useState(false);
 
   const [submitTried, setSubmitTried] = useState(false);
+  const confirmRef = useRef<HTMLInputElement>(null);
+  const birthRef = useRef<HTMLInputElement>(null);
+  const termsRef = useRef<HTMLInputElement>(null);
+  const privacyRef = useRef<HTMLInputElement>(null);
+  const [termsAgreed, setTermsAgreed] = useState(false);
+  const [privacyAgreed, setPrivacyAgreed] = useState(false);
+  // Not the native `required` attribute: the browser would block submit with its own tooltip and our alert would never show.
+  const consentMissing = submitTried && (!termsAgreed || !privacyAgreed);
 
   // 입력 중에는 올바른 앞부분(접두사)이면 조용하고, 틀린 글자나 더 긴 값이면 안내한다. 제출하면 다르기만 해도 항상 안내한다.
   const differs = passwordConfirm !== password;
@@ -31,13 +39,17 @@ export function RegisterForm() {
     setSubmitTried(true);
     const ageError = validateBirthDate(birthDate);
     setBirthDateError(ageError ?? "");
-    if (differs || ageError) return;
+    if (differs || ageError || !termsAgreed || !privacyAgreed) {
+      // Move focus to the first field that needs attention, in page order.
+      (differs ? confirmRef : ageError ? birthRef : !termsAgreed ? termsRef : privacyRef).current?.focus();
+      return;
+    }
     setSubmitting(true);
     try {
       const res = await fetch(`${BACKEND_URL}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, email, password, birthDate }),
+        body: JSON.stringify({ username, email, password, birthDate, termsAgreed: true, privacyAgreed: true }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -99,6 +111,7 @@ export function RegisterForm() {
         <label htmlFor="register-password-confirm" className="sr-only">비밀번호 확인</label>
         <input
           id="register-password-confirm"
+          ref={confirmRef}
           type="password"
           autoComplete="new-password"
           className="border rounded px-3 py-2 text-sm"
@@ -120,6 +133,7 @@ export function RegisterForm() {
         <label htmlFor="register-birthdate" className="text-xs text-gray-500">생년월일 (만 14세 이상)</label>
         <input
           id="register-birthdate"
+          ref={birthRef}
           type="date"
           className="border rounded px-3 py-2 text-sm"
           value={birthDate}
@@ -136,6 +150,45 @@ export function RegisterForm() {
         {birthDateError && (
           <p id="register-birthdate-error" role="alert" className="text-sm text-red-600">
             {birthDateError}
+          </p>
+        )}
+        <div className="flex items-start gap-2">
+          <input
+            id="register-terms"
+            ref={termsRef}
+            type="checkbox"
+            className="mt-0.5 size-4 shrink-0"
+            checked={termsAgreed}
+            onChange={(e) => setTermsAgreed(e.target.checked)}
+            aria-required="true"
+            aria-invalid={submitTried && !termsAgreed}
+            aria-describedby={submitTried && !termsAgreed ? "register-consent-error" : undefined}
+          />
+          <label htmlFor="register-terms" className="text-sm">
+            (필수){" "}
+            <Link href="/terms" target="_blank" rel="noopener noreferrer" className="underline">이용약관<span className="sr-only"> (새 창)</span></Link>에 동의합니다
+          </label>
+        </div>
+        <div className="flex items-start gap-2">
+          <input
+            id="register-privacy"
+            ref={privacyRef}
+            type="checkbox"
+            className="mt-0.5 size-4 shrink-0"
+            checked={privacyAgreed}
+            onChange={(e) => setPrivacyAgreed(e.target.checked)}
+            aria-required="true"
+            aria-invalid={submitTried && !privacyAgreed}
+            aria-describedby={submitTried && !privacyAgreed ? "register-consent-error" : undefined}
+          />
+          <label htmlFor="register-privacy" className="text-sm">
+            (필수){" "}
+            <Link href="/privacy" target="_blank" rel="noopener noreferrer" className="underline">개인정보 수집·이용<span className="sr-only"> (새 창)</span></Link>에 동의합니다
+          </label>
+        </div>
+        {consentMissing && (
+          <p id="register-consent-error" role="alert" className="text-sm text-red-600">
+            이용약관과 개인정보 수집·이용에 동의해주세요.
           </p>
         )}
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}

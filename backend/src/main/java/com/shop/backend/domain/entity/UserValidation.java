@@ -45,6 +45,13 @@ public final class UserValidation {
         }
     }
 
+    /** Both consents are mandatory; missing (null) counts as not agreed. */
+    public static void validateConsent(Boolean termsAgreed, Boolean privacyAgreed) {
+        if (!Boolean.TRUE.equals(termsAgreed) || !Boolean.TRUE.equals(privacyAgreed)) {
+            throw new ValidationException("이용약관과 개인정보 수집·이용에 동의해주세요.");
+        }
+    }
+
     public static void validateRegistration(String username, String email, String password) {
         if (username == null || !USERNAME_PATTERN.matcher(username).matches()) {
             throw new ValidationException("아이디는 영문 소문자, 숫자, 밑줄(_)로 4~20자여야 합니다.");

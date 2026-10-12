@@ -3,6 +3,7 @@ package com.shop.backend.application.service;
 import com.shop.backend.domain.error.DuplicateEmailException;
 import com.shop.backend.domain.error.DuplicateUsernameException;
 import com.shop.backend.domain.error.InvalidCredentialsException;
+import com.shop.backend.domain.entity.PolicyVersion;
 import com.shop.backend.domain.entity.Role;
 import com.shop.backend.domain.entity.User;
 import com.shop.backend.domain.entity.UserValidation;
@@ -36,9 +37,11 @@ public class AuthService {
     }
 
     @Transactional
-    public User register(String username, String email, String password, LocalDate birthDate) {
+    public User register(String username, String email, String password, LocalDate birthDate,
+                         Boolean termsAgreed, Boolean privacyAgreed) {
         UserValidation.validateRegistration(username, email, password);
         UserValidation.validateBirthDate(birthDate, clock);
+        UserValidation.validateConsent(termsAgreed, privacyAgreed);
         if (userRepository.existsByUsername(username)) {
             throw new DuplicateUsernameException();
         }
@@ -46,6 +49,7 @@ public class AuthService {
             throw new DuplicateEmailException();
         }
         User user = new User(username, email, passwordEncoder.encode(password), Role.USER, birthDate);
+        user.recordConsent(clock.instant(), PolicyVersion.CURRENT);
         try {
             // flush so a concurrent duplicate hits the unique constraint here, not at commit
             return userRepository.saveAndFlush(user);

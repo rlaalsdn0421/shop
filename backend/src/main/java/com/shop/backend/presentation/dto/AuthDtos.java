@@ -14,7 +14,9 @@ public final class AuthDtos {
     }
 
     public record RegisterRequest(String username, String email, String password,
-                                  @JsonDeserialize(using = IsoDateDeserializer.class) LocalDate birthDate) {
+                                  @JsonDeserialize(using = IsoDateDeserializer.class) LocalDate birthDate,
+                                  @JsonDeserialize(using = StrictBooleanDeserializer.class) Boolean termsAgreed,
+                                  @JsonDeserialize(using = StrictBooleanDeserializer.class) Boolean privacyAgreed) {
     }
 
     public record LoginRequest(String username, String password) {

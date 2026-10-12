@@ -28,23 +28,33 @@ beforeEach(() => {
 const passwordInput = () => screen.getByPlaceholderText(/^비밀번호 \(/);
 const confirmInput = () => screen.getByLabelText("비밀번호 확인");
 const birthInput = () => screen.getByLabelText(/생년월일/);
+const termsCheckbox = () => screen.getByRole("checkbox", { name: /이용약관.*에 동의/ });
+const privacyCheckbox = () => screen.getByRole("checkbox", { name: /개인정보 수집·이용.*에 동의/ });
+const CONSENT_ERROR = "이용약관과 개인정보 수집·이용에 동의해주세요.";
 
 async function fillAndSubmit(
   username: string,
   email: string,
   password: string,
-  { confirm = password, birthDate = "2000-01-31" }: { confirm?: string; birthDate?: string } = {}
+  {
+    confirm = password,
+    birthDate = "2000-01-31",
+    terms = true,
+    privacy = true,
+  }: { confirm?: string; birthDate?: string; terms?: boolean; privacy?: boolean } = {}
 ) {
   await userEvent.type(screen.getByPlaceholderText(/^아이디/), username);
   await userEvent.type(screen.getByPlaceholderText("이메일"), email);
   await userEvent.type(passwordInput(), password);
   await userEvent.type(confirmInput(), confirm);
   fireEvent.change(birthInput(), { target: { value: birthDate } });
+  if (terms) await userEvent.click(termsCheckbox());
+  if (privacy) await userEvent.click(privacyCheckbox());
   await userEvent.click(screen.getByRole("button", { name: "회원가입" }));
 }
 
 describe("RegisterForm", () => {
-  it("성공: 아이디/이메일/비밀번호/생년월일을 {username, email, password, birthDate}로만 요청하고 로그인 페이지로 이동한다", async () => {
+  it("성공: 아이디/이메일/비밀번호/생년월일/동의 두 항목만 요청하고 로그인 페이지로 이동한다", async () => {
     mockFetchOnce(201, {});
     render(<RegisterForm />);
 
@@ -59,7 +69,110 @@ describe("RegisterForm", () => {
       email: "user01@example.com",
       password: "pass1234!",
       birthDate: "2000-01-31",
+      termsAgreed: true,
+      privacyAgreed: true,
     });
+  });
+
+  it("성공: 동의 체크박스 두 개는 처음에 해제돼 있고, 라벨 링크는 새 탭으로 열리며 /terms, /privacy를 가리킨다", () => {
+    render(<RegisterForm />);
+
+    expect(termsCheckbox()).not.toBeChecked();
+    expect(privacyCheckbox()).not.toBeChecked();
+    // The sr-only hint is part of the name; whitespace before it may collapse depending on the engine.
+    expect(termsCheckbox()).toHaveAccessibleName(/^\(필수\) 이용약관\s*\(새 창\)에 동의합니다$/);
+    expect(privacyCheckbox()).toHaveAccessibleName(/^\(필수\) 개인정보 수집·이용\s*\(새 창\)에 동의합니다$/);
+    const terms = screen.getByRole("link", { name: /^이용약관\s*\(새 창\)$/ });
+    const privacy = screen.getByRole("link", { name: /^개인정보 수집·이용\s*\(새 창\)$/ });
+    expect(terms).toHaveAttribute("href", "/terms");
+    expect(privacy).toHaveAttribute("href", "/privacy");
+    for (const link of [terms, privacy]) {
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    }
+    expect(screen.queryByRole("checkbox", { name: /전체 동의/ })).not.toBeInTheDocument();
+  });
+
+  it("실패: 두 동의 모두 체크하지 않으면 role=alert로 안내하고 요청을 보내지 않는다", async () => {
+    mockFetchOnce(201, {});
+    render(<RegisterForm />);
+
+    await fillAndSubmit("user_01", "user01@example.com", "pass1234!", { terms: false, privacy: false });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(CONSENT_ERROR);
+    expect(termsCheckbox()).toHaveAttribute("aria-invalid", "true");
+    expect(privacyCheckbox()).toHaveAttribute("aria-invalid", "true");
+    expect(termsCheckbox()).toHaveAccessibleDescription(CONSENT_ERROR);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("실패: 이용약관만 체크하거나 개인정보만 체크해도 요청을 보내지 않고, 빠진 쪽만 invalid로 표시한다", async () => {
+    mockFetchOnce(201, {});
+    render(<RegisterForm />);
+
+    await fillAndSubmit("user_01", "user01@example.com", "pass1234!", { privacy: false });
+    expect(await screen.findByRole("alert")).toHaveTextContent(CONSENT_ERROR);
+    expect(termsCheckbox()).toHaveAttribute("aria-invalid", "false");
+    expect(privacyCheckbox()).toHaveAttribute("aria-invalid", "true");
+
+    await userEvent.click(privacyCheckbox());
+    await userEvent.click(termsCheckbox());
+    await userEvent.click(screen.getByRole("button", { name: "회원가입" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(CONSENT_ERROR);
+    expect(termsCheckbox()).toHaveAttribute("aria-invalid", "true");
+    expect(privacyCheckbox()).toHaveAttribute("aria-invalid", "false");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("성공: 동의 체크박스는 size-4 이상이다", () => {
+    render(<RegisterForm />);
+
+    expect(termsCheckbox()).toHaveClass("size-4");
+    expect(privacyCheckbox()).toHaveClass("size-4");
+  });
+
+  it("실패: 제출이 막히면 첫 번째 문제 칸으로 포커스가 간다 (비밀번호 확인 → 생년월일 → 이용약관 → 개인정보)", async () => {
+    mockFetchOnce(201, {});
+    render(<RegisterForm />);
+
+    await fillAndSubmit("user_01", "user01@example.com", "pass1234!", { confirm: "x", birthDate: "2000-01-31", terms: false, privacy: false });
+    expect(confirmInput()).toHaveFocus();
+    await userEvent.clear(confirmInput());
+    await userEvent.type(confirmInput(), "pass1234!");
+
+    await userEvent.click(screen.getByRole("button", { name: "회원가입" }));
+    expect(termsCheckbox()).toHaveFocus();
+
+    await userEvent.click(termsCheckbox());
+    await userEvent.click(screen.getByRole("button", { name: "회원가입" }));
+    expect(privacyCheckbox()).toHaveFocus();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("실패: 만 14세 미만이면 생년월일 칸으로 포커스가 간다", async () => {
+    mockFetchOnce(201, {});
+    render(<RegisterForm />);
+    const recent = `${new Date().getFullYear() - 5}-01-01`;
+
+    await fillAndSubmit("user_01", "user01@example.com", "pass1234!", { birthDate: recent });
+
+    expect(birthInput()).toHaveFocus();
+  });
+
+  it("성공: 안내가 뜬 뒤 두 항목을 모두 체크하면 안내가 사라지고 다시 제출하면 요청이 나간다", async () => {
+    mockFetchOnce(201, {});
+    render(<RegisterForm />);
+    await fillAndSubmit("user_01", "user01@example.com", "pass1234!", { terms: false, privacy: false });
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+
+    await userEvent.click(termsCheckbox());
+    await userEvent.click(privacyCheckbox());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "회원가입" }));
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/login"));
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("성공: 생년월일 입력칸은 date 타입·필수·bday 자동완성이고 min=1900-01-01이며 max는 없다", () => {

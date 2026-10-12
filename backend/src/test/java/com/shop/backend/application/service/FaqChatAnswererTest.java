@@ -16,21 +16,21 @@ class FaqChatAnswererTest {
 
     @Test
     void 성공_키워드가_맞으면_해당_답변을_반환한다() {
-        assertTrue(answerer.answer("택배 언제 오나요").answer().contains("2~3일"));
+        assertTrue(answerer.answer("택배 언제 오나요").answer().contains("상품과 지역에 따라"));
     }
 
     @Test
     void 성공_점수가_높은_항목이_이긴다() {
         // 교환(1) vs 결제+카드(2)
-        assertTrue(answerer.answer("교환 결제 카드").answer().contains("신용카드"));
+        assertTrue(answerer.answer("교환 결제 카드").answer().contains("준비 중"));
     }
 
     @Test
     void 성공_동점이면_먼저_선언된_항목이_이긴다() {
         // 배송(1) vs 환불(1) -> 배송이 먼저 선언됨
-        assertTrue(answerer.answer("배송 환불").answer().contains("2~3일"));
+        assertTrue(answerer.answer("배송 환불").answer().contains("상품과 지역에 따라"));
         // 순서를 바꿔 입력해도 선언 순서가 기준이다
-        assertTrue(answerer.answer("환불 배송").answer().contains("2~3일"));
+        assertTrue(answerer.answer("환불 배송").answer().contains("상품과 지역에 따라"));
     }
 
     @Test
@@ -55,6 +55,64 @@ class FaqChatAnswererTest {
     }
 
     @Test
+    void 성공_배송비_질문은_확정된_배송비와_무료_기준을_안내한다() {
+        for (String m : List.of("배송비 얼마예요?", "배송비는 얼마인가요", "배송 기간이 궁금해요")) {
+            assertTrue(answerer.answer(m).answer().contains("배송비는 3,500원이고, 5만 원 이상 주문하면 무료예요."), m);
+        }
+    }
+
+    @Test
+    void 성공_배송_답변에_근거_없는_배송_일정_약속이_없다() {
+        String answer = answerer.answer("배송 언제 와요").answer();
+        assertTrue(answer.contains("배송 기간은 상품과 지역에 따라 달라요."));
+        assertFalse(answer.contains("2~3일"));
+        assertFalse(answer.contains("주문 내역"));
+    }
+
+    @Test
+    void 성공_환불_질문은_확정된_청약철회_정책을_안내한다() {
+        String answer = answerer.answer("환불하고 싶어요").answer();
+        assertTrue(answer.contains("수령 후 7일 이내"));
+        assertTrue(answer.contains("왕복 배송비는 구매자가 부담해요"));
+        assertTrue(answer.contains("수령 후 3개월 이내(또는 안 날부터 30일 이내) 무상으로 처리해요"));
+        assertTrue(answer.contains("교환·환불 안내 페이지"));
+    }
+
+    @Test
+    void 성공_환불할_때_왕복_배송비_질문은_배송비_답변이_아니라_환불_답변으로_간다() {
+        for (String m : List.of("환불할 때 왕복 배송비 누가 내요?", "교환하면 왕복 배송비는 누가 부담하나요")) {
+            String answer = answerer.answer(m).answer();
+            assertTrue(answer.contains("왕복 배송비는 구매자가 부담해요"), m);
+            assertFalse(answer.contains("3,500원"), m);
+        }
+    }
+
+    @Test
+    void 성공_배송비_질문은_왕복_키워드가_없으면_계속_배송비_답변이다() {
+        for (String m : List.of("배송비 얼마예요?", "무료배송 기준이 궁금해요")) {
+            assertTrue(answerer.answer(m).answer().contains("3,500원"), m);
+        }
+    }
+
+    @Test
+    void 성공_주문_취소_기능이_없어서_취소_질문은_환불_답변으로_가지_않는다() {
+        assertTrue(answerer.answer("주문 취소하고 싶어요").answer().startsWith("잘 이해하지 못했어요"));
+    }
+
+    @Test
+    void 성공_가입_답변은_만_14세_조건과_약관_동의를_안내한다() {
+        String answer = answerer.answer("회원가입은 어떻게 하나요?").answer();
+        assertTrue(answer.contains("만 14세") && answer.contains("동의"));
+    }
+
+    @Test
+    void 성공_결제_질문은_결제_기능이_없다고_솔직하게_답한다() {
+        String answer = answerer.answer("카드 결제 되나요").answer();
+        assertTrue(answer.contains("온라인 결제 기능이 없어요"));
+        assertFalse(answer.contains("무통장입금은"));
+    }
+
+    @Test
     void 성공_도움말은_추천질문_5개를_반환한다() {
         assertEquals(5, answerer.answer("도움말").suggestions().size());
     }
@@ -71,16 +129,16 @@ class FaqChatAnswererTest {
     @Test
     void 성공_모든_추천질문은_의도한_항목으로_되돌아온다() {
         Map<String, String> expectedSnippet = new LinkedHashMap<>();
-        expectedSnippet.put("배송은 얼마나 걸려요?", "2~3일");
+        expectedSnippet.put("배송비와 배송 기간은 어떻게 되나요?", "상품과 지역에 따라");
         expectedSnippet.put("교환·환불은 어떻게 하나요?", "7일 이내");
-        expectedSnippet.put("결제 수단은 무엇이 있나요?", "신용카드");
+        expectedSnippet.put("결제 수단은 무엇이 있나요?", "준비 중");
         expectedSnippet.put("회원가입·로그인은 어떻게 하나요?", "회원가입 메뉴");
         expectedSnippet.put("로그인을 5회 실패하면 어떻게 되나요?", "5분간 막혀요");
         expectedSnippet.put("재고가 없는 상품은 언제 입고되나요?", "품절된 상품");
 
         // 도움말(5개 제한)에는 재고 질문이 없지만 다른 답변의 추천질문에는 나온다.
         List<String> fromGreeting = answerer.answer("도움말").suggestions();
-        List<String> fromShipping = answerer.answer("배송은 얼마나 걸려요?").suggestions();
+        List<String> fromShipping = answerer.answer("배송비와 배송 기간은 어떻게 되나요?").suggestions();
         assertTrue(fromShipping.contains("재고가 없는 상품은 언제 입고되나요?"));
         for (String s : fromGreeting) assertTrue(expectedSnippet.containsKey(s), s);
         for (String s : fromShipping) assertTrue(expectedSnippet.containsKey(s), s);
@@ -101,7 +159,7 @@ class FaqChatAnswererTest {
     @Test
     void 성공_인사말이_섞여도_실제_질문으로_라우팅된다() {
         assertTrue(answerer.answer("안녕하세요 환불하고 싶어요").answer().contains("7일 이내"));
-        assertTrue(answerer.answer("배송 시작했나요?").answer().contains("2~3일"));
+        assertTrue(answerer.answer("배송 시작했나요?").answer().contains("상품과 지역에 따라"));
         assertTrue(answerer.answer("하이힐 재고 있나요").answer().contains("품절된 상품"));
     }
 
@@ -128,7 +186,7 @@ class FaqChatAnswererTest {
         String nfd = java.text.Normalizer.normalize("배송", java.text.Normalizer.Form.NFD);
         assertFalse("배송".equals(nfd));
         assertEquals(answerer.answer("배송"), answerer.answer(nfd));
-        assertTrue(answerer.answer(nfd).answer().contains("2~3일"));
+        assertTrue(answerer.answer(nfd).answer().contains("상품과 지역에 따라"));
     }
 
     @Test
