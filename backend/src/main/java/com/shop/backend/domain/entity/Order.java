@@ -47,6 +47,10 @@ public class Order {
     @Column(name = "total_amount", nullable = false)
     private Integer totalAmount;
 
+    // Already included in totalAmount (items + fee); 0 for orders placed before V14.
+    @Column(name = "shipping_fee", nullable = false, updatable = false)
+    private Integer shippingFee;
+
     @Column(nullable = false, length = 20)
     private String status = STATUS_PAID;
 
@@ -61,7 +65,8 @@ public class Order {
     }
 
     public Order(String userId, String idempotencyKey, String requestHash,
-                 String customerName, String customerPhone, String customerAddress, Integer totalAmount) {
+                 String customerName, String customerPhone, String customerAddress, Integer totalAmount,
+                 Integer shippingFee) {
         this.userId = userId;
         this.idempotencyKey = idempotencyKey;
         this.requestHash = requestHash;
@@ -69,15 +74,12 @@ public class Order {
         this.customerPhone = customerPhone;
         this.customerAddress = customerAddress;
         this.totalAmount = totalAmount;
+        this.shippingFee = shippingFee;
     }
 
     public void addItem(OrderItem item) {
         items.add(item);
         item.assignOrder(this);
-    }
-
-    public void setTotalAmount(Integer totalAmount) {
-        this.totalAmount = totalAmount;
     }
 
     @PrePersist
@@ -120,6 +122,10 @@ public class Order {
 
     public Integer getTotalAmount() {
         return totalAmount;
+    }
+
+    public Integer getShippingFee() {
+        return shippingFee;
     }
 
     public String getStatus() {

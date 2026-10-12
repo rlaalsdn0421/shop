@@ -48,7 +48,7 @@ class OrderListIntegrationTest extends PostgresIntegrationTest {
 
     private void order(String id, String userId, Instant createdAt, Line... lines) {
         new TransactionTemplate(txManager).executeWithoutResult(s -> {
-            Order order = new Order(userId, null, null, "구매자", "010-0000-0000", "서울", 1000);
+            Order order = new Order(userId, null, null, "구매자", "010-0000-0000", "서울", 1000, 0);
             ReflectionTestUtils.setField(order, "id", id);
             ReflectionTestUtils.setField(order, "createdAt", createdAt);
             for (Line line : lines) {
@@ -337,7 +337,7 @@ class OrderListIntegrationTest extends PostgresIntegrationTest {
         order("ord01", me, T, new Line("p1", 1, 1000, null));
         order("ord02", me, T.plusSeconds(1)); // the 3-arg helper gives this order one default line; ord03 below has none
         new TransactionTemplate(txManager).executeWithoutResult(s -> {
-            Order empty = new Order(me, null, null, "구매자", "010-0000-0000", "서울", 0);
+            Order empty = new Order(me, null, null, "구매자", "010-0000-0000", "서울", 0, 0);
             ReflectionTestUtils.setField(empty, "id", "ord03");
             ReflectionTestUtils.setField(empty, "createdAt", T.plusSeconds(2));
             em.persist(empty);

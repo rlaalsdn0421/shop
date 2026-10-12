@@ -1,5 +1,6 @@
 package com.shop.backend.application.service;
 
+import com.shop.backend.domain.entity.ShippingPolicy;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
@@ -59,6 +60,22 @@ class FaqChatAnswererTest {
         for (String m : List.of("배송비 얼마예요?", "배송비는 얼마인가요", "배송 기간이 궁금해요")) {
             assertTrue(answerer.answer(m).answer().contains("배송비는 3,500원이고, 5만 원 이상 주문하면 무료예요."), m);
         }
+    }
+
+    @Test
+    void 성공_배송비_답변의_숫자는_ShippingPolicy_상수와_같고_문구는_만원_단위다() {
+        // 답변 문구가 "N만 원"이라 기준 금액은 1만 원 단위여야 하고, 상수가 바뀌면 이 테스트와 위 문구 테스트가 함께 깨진다
+        assertEquals(0, ShippingPolicy.FREE_THRESHOLD % 10_000);
+        String expected = String.format("배송비는 %,d원이고, %d만 원 이상 주문하면 무료예요.",
+                ShippingPolicy.FEE, ShippingPolicy.FREE_THRESHOLD / 10_000);
+        assertTrue(answerer.answer("배송비 얼마예요?").answer().contains(expected));
+    }
+
+    @Test
+    void 실패_배송비_답변이_ShippingPolicy와_다른_금액을_말하지_않는다() {
+        String answer = answerer.answer("배송비 얼마예요?").answer();
+        assertFalse(answer.contains("2,500원"));
+        assertFalse(answer.contains("3만 원"));
     }
 
     @Test

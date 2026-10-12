@@ -6,6 +6,7 @@ import com.shop.backend.domain.entity.OrderItem;
 import com.shop.backend.domain.entity.OrderLine;
 import com.shop.backend.domain.entity.OrderValidation;
 import com.shop.backend.domain.entity.Product;
+import com.shop.backend.domain.entity.ShippingPolicy;
 import com.shop.backend.domain.error.IdempotencyKeyReuseException;
 import com.shop.backend.domain.error.InsufficientStockException;
 import com.shop.backend.domain.error.ProductNotFoundException;
@@ -80,7 +81,9 @@ class OrderServiceTest {
 
         Order order = create(new OrderLine("p2", 3), new OrderLine("p1", 2));
 
-        assertThat(order.getTotalAmount()).isEqualTo(2 * 1500 + 3 * 700);
+        int itemsAmount = 2 * 1500 + 3 * 700; // 5,100 is under the free-shipping threshold
+        assertThat(order.getShippingFee()).isEqualTo(ShippingPolicy.FEE);
+        assertThat(order.getTotalAmount()).isEqualTo(itemsAmount + ShippingPolicy.FEE);
         assertThat(order.getItems()).extracting(i -> i.getPrice()).containsExactlyInAnyOrder(1500, 700);
     }
 
@@ -123,6 +126,64 @@ class OrderServiceTest {
         Order order = create(new OrderLine("p1", 500_000_000), new OrderLine("p1", 500_000_000));
 
         assertThat(order.getTotalAmount()).isEqualTo(2_000_000_000);
+        assertThat(order.getShippingFee()).isZero();
+    }
+
+    @Test
+    void 성공_상품_금액이_5만원_미만이면_배송비를_총액에_더한다() {
+        givenProducts(product("p1", 49_999, 10));
+        givenUpdatesSucceed();
+
+        Order order = create(new OrderLine("p1", 1));
+
+        assertThat(order.getShippingFee()).isEqualTo(3_500);
+        assertThat(order.getTotalAmount()).isEqualTo(53_499);
+    }
+
+    @Test
+    void 성공_상품_금액이_정확히_5만원이면_배송비가_무료다() {
+        givenProducts(product("p1", 50_000, 10));
+        givenUpdatesSucceed();
+
+        Order order = create(new OrderLine("p1", 1));
+
+        assertThat(order.getShippingFee()).isZero();
+        assertThat(order.getTotalAmount()).isEqualTo(50_000);
+    }
+
+    @Test
+    void 성공_여러_상품_합계가_49999이면_배송비를_받고_50000이면_받지_않는다() {
+        givenProducts(product("p1", 30_000, 10), product("p2", 19_999, 10), product("p3", 20_000, 10));
+        givenUpdatesSucceed();
+
+        Order under = create(new OrderLine("p1", 1), new OrderLine("p2", 1));
+        Order atThreshold = create(new OrderLine("p1", 1), new OrderLine("p3", 1));
+
+        assertThat(under.getShippingFee()).isEqualTo(3_500);
+        assertThat(under.getTotalAmount()).isEqualTo(53_499);
+        assertThat(atThreshold.getShippingFee()).isZero();
+        assertThat(atThreshold.getTotalAmount()).isEqualTo(50_000);
+    }
+
+    @Test
+    void 성공_배송비는_수량을_곱한_합계로_판단한다() {
+        givenProducts(product("p1", 25_000, 10));
+        givenUpdatesSucceed();
+
+        assertThat(create(new OrderLine("p1", 1)).getShippingFee()).isEqualTo(3_500);
+        assertThat(create(new OrderLine("p1", 2)).getShippingFee()).isZero();
+    }
+
+    @Test
+    void 실패_상품_금액이_int_최대값이면_그대로_계산되고_하나라도_더_넘으면_검증_오류다() {
+        // The fee is 0 at that size, so adding it can never overflow: only the items sum can.
+        givenProducts(product("p1", Integer.MAX_VALUE, 10));
+        givenUpdatesSucceed();
+
+        assertThat(create(new OrderLine("p1", 1)).getTotalAmount()).isEqualTo(Integer.MAX_VALUE);
+        assertThatThrownBy(() -> create(new OrderLine("p1", 2)))
+                .isInstanceOf(ValidationException.class)
+                .hasMessage("주문 금액이 너무 커요.");
     }
 
     @Test
@@ -182,7 +243,7 @@ class OrderServiceTest {
     private static final String HASH_SOURCE_NAME = "구매자";
 
     private Order existingOrder(String hashOfLines) {
-        Order existing = new Order(USER, KEY, hashOfLines, HASH_SOURCE_NAME, "010-0000-0000", "서울", 1000);
+        Order existing = new Order(USER, KEY, hashOfLines, HASH_SOURCE_NAME, "010-0000-0000", "서울", 1000, 0);
         ReflectionTestUtils.setField(existing, "id", "order-old");
         when(orderRepository.findByUserIdAndIdempotencyKey(USER, KEY)).thenReturn(Optional.of(existing));
         return existing;
@@ -211,6 +272,8 @@ class OrderServiceTest {
         Order order = create(new OrderLine("p1", 1), new OrderLine("p1", 1)); // same content, split differently
 
         assertThat(order).isSameAs(existing);
+        assertThat(order.getTotalAmount()).isEqualTo(1000); // replay returns the stored order: fee is not recomputed
+        assertThat(order.getShippingFee()).isZero();
         verifyNoInteractions(productRepository);
         verify(orderRepository, never()).save(any());
     }
@@ -251,7 +314,7 @@ class OrderServiceTest {
 
     @Test
     void 성공_주문은_주문자_본인_기준으로_조회하고_항목과_상품명을_미리_읽는다() {
-        Order order = new Order(USER, KEY, "h", "구매자", "010", "서울", 1000);
+        Order order = new Order(USER, KEY, "h", "구매자", "010", "서울", 1000, 0);
         OrderItem item = new OrderItem(product("p1", 1000, 10), 1, 1000);
         order.addItem(item);
         when(orderRepository.findByIdAndUserId("o1", USER)).thenReturn(Optional.of(order));
@@ -279,7 +342,7 @@ class OrderServiceTest {
     }
 
     private static Order listedOrder(String id, Instant createdAt) {
-        Order order = new Order(USER, "k-" + id, "h", "구매자", "010", "서울", 1000);
+        Order order = new Order(USER, "k-" + id, "h", "구매자", "010", "서울", 1000, 0);
         ReflectionTestUtils.setField(order, "id", id);
         ReflectionTestUtils.setField(order, "createdAt", createdAt);
         return order;

@@ -6,6 +6,7 @@ import com.shop.backend.domain.entity.OrderItem;
 import com.shop.backend.domain.entity.OrderLine;
 import com.shop.backend.domain.entity.OrderValidation;
 import com.shop.backend.domain.entity.Product;
+import com.shop.backend.domain.entity.ShippingPolicy;
 import com.shop.backend.domain.error.IdempotencyKeyReuseException;
 import com.shop.backend.domain.error.InsufficientStockException;
 import com.shop.backend.domain.error.ProductNotFoundException;
@@ -80,15 +81,19 @@ public class OrderService {
 
         // Pass 1, nothing locked yet: reject sold-out products early and make sure the amounts fit into an int.
         // The stock read here is advisory only (it can already be stale); the conditional UPDATE below decides.
-        int totalAmount = 0;
+        int itemsAmount = 0;
+        int shippingFee;
+        int totalAmount;
         try {
             for (Map.Entry<String, Integer> entry : sortedQuantities.entrySet()) {
                 Product product = productsById.get(entry.getKey());
                 if (product.getStock() < entry.getValue()) {
                     throw new InsufficientStockException(product.getName());
                 }
-                totalAmount = Math.addExact(totalAmount, Math.multiplyExact(product.getPrice(), entry.getValue()));
+                itemsAmount = Math.addExact(itemsAmount, Math.multiplyExact(product.getPrice(), entry.getValue()));
             }
+            shippingFee = ShippingPolicy.feeFor(itemsAmount);
+            totalAmount = Math.addExact(itemsAmount, shippingFee);
         } catch (ArithmeticException e) {
             throw new ValidationException("주문 금액이 너무 커요.");
         }
@@ -97,7 +102,8 @@ public class OrderService {
         // the new absolute value would lose concurrent orders (the V1 CHECK stock >= 0 is only the last-resort
         // backstop). A failed update throws, which rolls back the whole transaction (DomainException is a
         // RuntimeException), undoing the products already decremented.
-        Order order = new Order(userId, idempotencyKey, requestHash, customerName, customerPhone, customerAddress, totalAmount);
+        Order order = new Order(userId, idempotencyKey, requestHash, customerName, customerPhone, customerAddress, totalAmount,
+                shippingFee);
         for (Map.Entry<String, Integer> entry : sortedQuantities.entrySet()) {
             Product product = productsById.get(entry.getKey());
             int quantity = entry.getValue();
