@@ -7,6 +7,7 @@ import com.shop.backend.domain.error.IdempotencyKeyReuseException;
 import com.shop.backend.domain.error.InvalidCredentialsException;
 import com.shop.backend.domain.error.ProductNotFoundException;
 import com.shop.backend.domain.error.TooManyRequestsException;
+import com.shop.backend.domain.error.WithdrawalNotAllowedException;
 import com.shop.backend.presentation.dto.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import java.sql.SQLException;
@@ -26,9 +27,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
- * Business-rule violations map to 400, except a missing product (404), invalid credentials (401), a duplicate
- * review or a reused Idempotency-Key (409) and rate limiting (429); Spring picks the most specific handler, so
- * those take precedence over the DomainException one below. Lock timeouts and deadlocks map to 503.
+ * Business-rule violations map to 400, except a missing product (404), invalid credentials (401), a withdrawal by
+ * ADMIN/SELLER (403), a duplicate review or a reused Idempotency-Key (409) and rate limiting (429); Spring picks the
+ * most specific handler, so those take precedence over the DomainException one below. Lock timeouts and deadlocks
+ * map to 503.
  * Anything unexpected maps to 500 with a per-area message, matching the original API contract.
  */
 @RestControllerAdvice
@@ -59,6 +61,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(InvalidCredentialsException.class)
     public ResponseEntity<ErrorResponse> handleInvalidCredentials(InvalidCredentialsException ex) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ErrorResponse(ex.getMessage()));
+    }
+
+    @ExceptionHandler(WithdrawalNotAllowedException.class)
+    public ResponseEntity<ErrorResponse> handleWithdrawalNotAllowed(WithdrawalNotAllowedException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse(ex.getMessage()));
     }
 
     @ExceptionHandler(TooManyRequestsException.class)
@@ -135,7 +142,7 @@ public class GlobalExceptionHandler {
                 request.getRequestURI(), ex.getClass().getSimpleName(), sqlState);
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .header(HttpHeaders.RETRY_AFTER, "1")
-                .body(new ErrorResponse("주문이 몰려 처리하지 못했어요. 잠시 후 다시 시도해 주세요."));
+                .body(new ErrorResponse("요청이 몰려 처리하지 못했어요. 잠시 후 다시 시도해 주세요."));
     }
 
     @ExceptionHandler(Exception.class)

@@ -275,4 +275,17 @@ class UserValidationTest {
         assertThatThrownBy(() -> UserValidation.validateBirthDate(LocalDate.of(2012, 6, 17), la))
                 .isInstanceOf(ValidationException.class).hasMessage(BIRTH_UNDERAGE_MSG);
     }
+    @ParameterizedTest
+    @ValueSource(strings = {"deleted-abc@deleted.invalid", "x@DELETED.INVALID"})
+    void 실패_탈퇴_계정용_예약_이메일_도메인은_가입에_쓸_수_없다(String email) {
+        assertThatThrownBy(() -> UserValidation.validateRegistration(OK_USER, email, OK_PW))
+                .isInstanceOf(ValidationException.class)
+                .hasMessage("사용할 수 없는 이메일이에요.");
+    }
+
+    @Test
+    void 성공_예약_도메인과_비슷한_이메일은_통과한다() {
+        assertThatCode(() -> UserValidation.validateRegistration(OK_USER, "x@notdeleted.invalid", OK_PW))
+                .doesNotThrowAnyException();
+    }
 }

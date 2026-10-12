@@ -41,6 +41,10 @@ public class User {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    /** Set on withdrawal. The row is kept (orders must be retained) but anonymized and can no longer log in. */
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
     protected User() {
         // JPA
     }
@@ -65,6 +69,19 @@ public class User {
         if (createdAt == null) {
             createdAt = Instant.now();
         }
+    }
+
+    /** Anonymizes this account; the placeholder hash is not a BCrypt hash, so no password can ever match it. */
+    public void withdraw(Instant now) {
+        this.username = "deleted-" + id;
+        this.email = "deleted-" + id + "@" + UserValidation.WITHDRAWN_EMAIL_DOMAIN;
+        this.passwordHash = "!";
+        this.birthDate = null;
+        this.deletedAt = now;
+    }
+
+    public boolean isDeleted() {
+        return deletedAt != null;
     }
 
     public String getId() {
@@ -93,5 +110,9 @@ public class User {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public Instant getDeletedAt() {
+        return deletedAt;
     }
 }

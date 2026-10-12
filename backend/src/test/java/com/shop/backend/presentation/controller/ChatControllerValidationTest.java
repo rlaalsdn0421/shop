@@ -1,11 +1,13 @@
 package com.shop.backend.presentation.controller;
 
 import com.shop.backend.application.service.FaqChatAnswerer;
+import com.shop.backend.infrastructure.repository.UserRepository;
 import com.shop.backend.infrastructure.security.JwtService;
 import com.shop.backend.infrastructure.security.SecurityConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -22,6 +24,9 @@ class ChatControllerValidationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockBean
+    private UserRepository userRepository;
 
     private ResultActions send(String json) throws Exception {
         return mockMvc.perform(post("/api/chat").contentType("application/json").content(json));

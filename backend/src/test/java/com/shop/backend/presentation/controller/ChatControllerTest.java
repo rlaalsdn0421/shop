@@ -3,6 +3,7 @@ package com.shop.backend.presentation.controller;
 import com.shop.backend.application.service.ChatAnswer;
 import com.shop.backend.application.service.ChatAnswerer;
 import com.shop.backend.domain.error.ValidationException;
+import com.shop.backend.infrastructure.repository.UserRepository;
 import com.shop.backend.infrastructure.security.JwtService;
 import com.shop.backend.infrastructure.security.SecurityConfig;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,9 @@ class ChatControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockBean
+    private UserRepository userRepository;
 
     @MockBean
     private ChatAnswerer chatAnswerer;

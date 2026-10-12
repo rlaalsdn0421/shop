@@ -5,6 +5,7 @@ import com.shop.backend.domain.error.ValidationException;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 /** Business-rule validation for user registration. */
@@ -19,6 +20,9 @@ public final class UserValidation {
     private static final Pattern PW_LETTER = Pattern.compile("[A-Za-z]");
     private static final Pattern PW_DIGIT = Pattern.compile("[0-9]");
     private static final Pattern PW_SPECIAL = Pattern.compile("[!-/:-@\\[-`{-~]");
+
+    /** Reserved for the placeholder emails of withdrawn accounts, so nobody can register one. */
+    static final String WITHDRAWN_EMAIL_DOMAIN = "deleted.invalid";
 
     private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
     private static final LocalDate EARLIEST_BIRTH_DATE = LocalDate.of(1900, 1, 1);
@@ -47,6 +51,9 @@ public final class UserValidation {
         }
         if (email == null || email.length() > 200 || !EMAIL_PATTERN.matcher(email).matches()) {
             throw new ValidationException("이메일 형식이 올바르지 않습니다.");
+        }
+        if (email.toLowerCase(Locale.ROOT).endsWith("@" + WITHDRAWN_EMAIL_DOMAIN)) {
+            throw new ValidationException("사용할 수 없는 이메일이에요.");
         }
         if (password == null || password.length() < 8) {
             throw new ValidationException("비밀번호는 8자 이상이어야 합니다.");

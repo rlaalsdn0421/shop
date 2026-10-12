@@ -3,6 +3,7 @@ package com.shop.backend.presentation.controller;
 import com.shop.backend.application.service.ProductService;
 import com.shop.backend.domain.entity.Product;
 import com.shop.backend.domain.error.ValidationException;
+import com.shop.backend.infrastructure.repository.UserRepository;
 import com.shop.backend.infrastructure.security.JwtService;
 import com.shop.backend.infrastructure.security.SecurityConfig;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,9 @@ class AdminProductControllerTest {
     private MockMvc mockMvc;
 
     @MockBean
+    private UserRepository userRepository;
+
+    @MockBean
     private ProductService productService;
 
     @Test
@@ -54,14 +58,16 @@ class AdminProductControllerTest {
     @Test
     void 실패_인증없이_요청하면_401을_반환한다() throws Exception {
         mockMvc.perform(get("/api/admin/products"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_REQUIRED"));
     }
 
     @Test
     @WithMockUser(roles = "USER")
     void 실패_권한이_없으면_403을_반환한다() throws Exception {
         mockMvc.perform(get("/api/admin/products"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").doesNotExist());
     }
 
     @Test

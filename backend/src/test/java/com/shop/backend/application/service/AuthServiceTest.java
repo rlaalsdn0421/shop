@@ -233,4 +233,20 @@ class AuthServiceTest {
 
         verifyNoInteractions(userRepository, jwtService);
     }
+    @Test
+    void 실패_탈퇴한_계정은_비밀번호가_맞아도_더미_해시와_비교한_뒤_토큰_없이_자격_증명_예외() {
+        User user = new User("boss01", "boss01@example.com", "stored-hash", Role.USER, BIRTH);
+        org.springframework.test.util.ReflectionTestUtils.setField(user, "id", "user-1");
+        user.withdraw(Instant.parse("2026-06-01T00:00:00Z"));
+        when(userRepository.findByUsername("deleted-user-1")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches(anyString(), anyString())).thenReturn(true);
+
+        assertThatThrownBy(() -> authService.login("deleted-user-1", "pw-1234"))
+                .isInstanceOf(InvalidCredentialsException.class)
+                .hasMessage(BAD_CREDENTIALS);
+
+        verify(passwordEncoder).matches("pw-1234", DUMMY_HASH);
+        verify(passwordEncoder, never()).matches("pw-1234", "!");
+        verifyNoInteractions(jwtService);
+    }
 }
