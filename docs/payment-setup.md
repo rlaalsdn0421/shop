@@ -23,7 +23,13 @@ https://shop-backend-mklbqo55qa-as.a.run.app/api/payments/webhook
 
 ## 2. Cloud Shell: 시크릿 3개 만들기
 
-Cloud Shell(프로젝트 선택된 상태)에서 한 블록씩 실행한다. 값을 물으면 **붙여 넣고 Enter**(화면에는 안 보인다).
+Cloud Shell에서 한 블록씩 실행한다. 붙여넣기는 **`Ctrl + Shift + V`**(Mac은 `Cmd + V`)다. 값을 물으면 붙여 넣고 Enter.
+
+먼저 프로젝트를 선택한다(선택돼 있지 않으면 `Failed to find attribute [project]` 오류가 난다). 프로젝트 ID는 GitHub 저장소 변수 `GCP_PROJECT_ID`와 같은 값이다. `PROJECT_ID`를 글자 그대로 쓰지 말고 아래 실제 값을 쓴다. 확인 질문에는 영문 `y`.
+
+```bash
+gcloud config set project project-882f3f4e-3aec-4330-9b3
+```
 
 ```bash
 PROJECT=$(gcloud config get-value project)
@@ -32,16 +38,24 @@ SA=shop-backend@$PROJECT.iam.gserviceaccount.com
 echo "$PROJECT / $REGION / $SA"
 ```
 
+입력이 **보이는** `read -rp`를 쓴다(`-s`를 쓰면 붙여넣어도 화면에 안 나와서 됐는지 알 수 없다). 화면 공유 중이 아니면 문제없고, 채팅에는 붙이지 않는다. 이미 시크릿이 만들어져 `already exists`가 나면 `create` 대신 `gcloud secrets versions add 이름 --data-file=-`를 쓴다.
+
 ```bash
-read -rsp "포트원 API 시크릿: " V; echo
+read -rp "포트원 API 시크릿: " V
 printf %s "$V" | gcloud secrets create portone-api-secret --data-file=- --replication-policy=automatic
 unset V
 ```
 
 ```bash
-read -rsp "포트원 웹훅 시크릿(whsec_로 시작): " V; echo
+read -rp "포트원 웹훅 시크릿(whsec_로 시작): " V
 printf %s "$V" | gcloud secrets create portone-webhook-secret --data-file=- --replication-policy=automatic
 unset V
+```
+
+잘 들어갔는지 길이만 확인한다(값은 출력되지 않는다). 0이면 비어 있는 것이다.
+
+```bash
+for S in portone-api-secret portone-webhook-secret; do echo "$S: $(gcloud secrets versions access latest --secret=$S | wc -c)자"; done
 ```
 
 내부 토큰은 직접 만들 필요 없이 임의로 생성한다. 같은 값을 스케줄러에도 써야 해서 같은 블록 안에서 한 번에 처리한다(값은 화면에 출력하지 않는다).
