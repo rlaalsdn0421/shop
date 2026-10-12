@@ -1,5 +1,6 @@
 package com.shop.backend.application.service;
 
+import com.shop.backend.domain.entity.PolicyVersion;
 import com.shop.backend.domain.entity.Role;
 import com.shop.backend.domain.entity.User;
 import com.shop.backend.domain.error.DuplicateEmailException;
@@ -10,6 +11,7 @@ import com.shop.backend.infrastructure.repository.UserRepository;
 import com.shop.backend.infrastructure.security.JwtService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
@@ -60,7 +62,7 @@ class AuthServiceTest {
     void 성공_가입하면_아이디_이메일_해시된_비밀번호_USER_역할로_저장하고_저장된_엔티티를_돌려준다() {
         when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        User result = authService.register("user_01", "user01@example.com", "pass1234!", BIRTH);
+        User result = authService.register("user_01", "user01@example.com", "pass1234!", BIRTH, true, true);
 
         ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
         verify(userRepository).saveAndFlush(saved.capture());
@@ -76,7 +78,7 @@ class AuthServiceTest {
     void 실패_이미_있는_아이디면_이메일_검사와_저장_없이_중복_아이디_예외() {
         when(userRepository.existsByUsername("user_01")).thenReturn(true);
 
-        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", BIRTH))
+        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", BIRTH, true, true))
                 .isInstanceOf(DuplicateUsernameException.class)
                 .hasMessage("이미 사용 중인 아이디입니다.");
 
@@ -89,7 +91,7 @@ class AuthServiceTest {
     void 실패_이미_있는_이메일이면_저장_없이_중복_이메일_예외() {
         when(userRepository.existsByEmail("user01@example.com")).thenReturn(true);
 
-        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", BIRTH))
+        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", BIRTH, true, true))
                 .isInstanceOf(DuplicateEmailException.class)
                 .hasMessage("이미 사용 중인 이메일입니다.");
 
@@ -99,7 +101,7 @@ class AuthServiceTest {
 
     @Test
     void 실패_아이디_형식이_잘못되면_저장소를_전혀_호출하지_않고_검증_예외() {
-        assertThatThrownBy(() -> authService.register("Bob", "bob@example.com", "pass1234!", BIRTH))
+        assertThatThrownBy(() -> authService.register("Bob", "bob@example.com", "pass1234!", BIRTH, true, true))
                 .isInstanceOf(ValidationException.class);
 
         verifyNoInteractions(userRepository);
@@ -110,7 +112,7 @@ class AuthServiceTest {
         when(userRepository.saveAndFlush(any(User.class)))
                 .thenThrow(integrityViolation("duplicate key value violates unique constraint \"uq_users_username\""));
 
-        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", BIRTH))
+        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", BIRTH, true, true))
                 .isInstanceOf(DuplicateUsernameException.class);
     }
 
@@ -119,7 +121,7 @@ class AuthServiceTest {
         when(userRepository.saveAndFlush(any(User.class)))
                 .thenThrow(integrityViolation("duplicate key value violates unique constraint \"uq_users_email\""));
 
-        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", BIRTH))
+        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", BIRTH, true, true))
                 .isInstanceOf(DuplicateEmailException.class);
     }
 
@@ -128,7 +130,7 @@ class AuthServiceTest {
         DataIntegrityViolationException original = integrityViolation("null value in column \"role\"");
         when(userRepository.saveAndFlush(any(User.class))).thenThrow(original);
 
-        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", BIRTH))
+        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", BIRTH, true, true))
                 .isSameAs(original);
     }
 
@@ -136,7 +138,7 @@ class AuthServiceTest {
     void 성공_가입하면_생년월일이_저장된다() {
         when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        authService.register("user_01", "user01@example.com", "pass1234!", BIRTH);
+        authService.register("user_01", "user01@example.com", "pass1234!", BIRTH, true, true);
 
         ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
         verify(userRepository).saveAndFlush(saved.capture());
@@ -147,7 +149,7 @@ class AuthServiceTest {
     void 실패_만_14세_미만이면_저장소를_전혀_호출하지_않고_검증_예외() {
         LocalDate dayBefore14th = LocalDate.of(2012, 6, 16); // CLOCK = 2026-06-15 (Seoul 09:00)
 
-        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", dayBefore14th))
+        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", dayBefore14th, true, true))
                 .isInstanceOf(ValidationException.class)
                 .hasMessage("만 14세 이상만 가입할 수 있어요.");
 
@@ -156,7 +158,7 @@ class AuthServiceTest {
 
     @Test
     void 실패_생년월일이_없으면_저장소를_전혀_호출하지_않고_검증_예외() {
-        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", null))
+        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", null, true, true))
                 .isInstanceOf(ValidationException.class)
                 .hasMessage("생년월일을 입력해주세요.");
 
@@ -165,7 +167,48 @@ class AuthServiceTest {
 
     @Test
     void 실패_아이디와_생년월일이_모두_틀리면_아이디_메시지가_먼저다() {
-        assertThatThrownBy(() -> authService.register("Bob", "bob@example.com", "pass1234!", null))
+        assertThatThrownBy(() -> authService.register("Bob", "bob@example.com", "pass1234!", null, true, true))
+                .isInstanceOf(ValidationException.class)
+                .hasMessage("아이디는 영문 소문자, 숫자, 밑줄(_)로 4~20자여야 합니다.");
+
+        verifyNoInteractions(userRepository);
+    }
+
+    @Test
+    void 성공_가입하면_동의_시각은_주입된_시계_기준이고_정책_버전은_서버_상수로_저장된다() {
+        when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        authService.register("user_01", "user01@example.com", "pass1234!", BIRTH, true, true);
+
+        ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).saveAndFlush(saved.capture());
+        assertThat(saved.getValue().getTermsAgreedAt()).isEqualTo(CLOCK.instant());
+        assertThat(saved.getValue().getPrivacyAgreedAt()).isEqualTo(CLOCK.instant());
+        assertThat(saved.getValue().getPolicyVersion()).isEqualTo(PolicyVersion.CURRENT);
+    }
+
+    @ParameterizedTest
+    @CsvSource(value = {"true,false", "false,true", "null,true", "true,null", "null,null", "false,false"}, nullValues = "null")
+    void 실패_약관_동의가_하나라도_true가_아니면_저장소를_전혀_호출하지_않고_검증_예외(Boolean terms, Boolean privacy) {
+        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", BIRTH, terms, privacy))
+                .isInstanceOf(ValidationException.class)
+                .hasMessage("이용약관과 개인정보 수집·이용에 동의해주세요.");
+
+        verifyNoInteractions(userRepository);
+    }
+
+    @Test
+    void 실패_생년월일과_동의가_모두_틀리면_생년월일_메시지가_먼저다() {
+        assertThatThrownBy(() -> authService.register("user_01", "user01@example.com", "pass1234!", null, false, false))
+                .isInstanceOf(ValidationException.class)
+                .hasMessage("생년월일을 입력해주세요.");
+
+        verifyNoInteractions(userRepository);
+    }
+
+    @Test
+    void 실패_아이디와_동의가_모두_틀리면_아이디_메시지가_먼저다() {
+        assertThatThrownBy(() -> authService.register("Bob", "bob@example.com", "pass1234!", BIRTH, false, false))
                 .isInstanceOf(ValidationException.class)
                 .hasMessage("아이디는 영문 소문자, 숫자, 밑줄(_)로 4~20자여야 합니다.");
 

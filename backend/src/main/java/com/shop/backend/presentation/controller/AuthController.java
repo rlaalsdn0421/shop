@@ -31,7 +31,7 @@ public class AuthController {
         var attempt = rateLimiter.acquireRegister(clientIpResolver.resolve(httpRequest));
         try {
             var user = authService.register(request.username(), request.email(), request.password(),
-                    request.birthDate());
+                    request.birthDate(), request.termsAgreed(), request.privacyAgreed());
             return AuthDtos.RegisterResponse.from(user);
         } finally {
             // every register request counts, whatever its outcome (success, 400, unexpected error)

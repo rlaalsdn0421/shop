@@ -166,7 +166,7 @@ class UserWithdrawalIntegrationTest {
 
         assertAnonymized(a);
         assertAnonymized(b);
-        User again = authService.register("alice_01", "alice@example.com", PASSWORD, BIRTH);
+        User again = authService.register("alice_01", "alice@example.com", PASSWORD, BIRTH, true, true);
         assertThat(again.getId()).isNotEqualTo(a.getId());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE username = 'alice_01' AND deleted_at IS NULL", Integer.class))
                 .isEqualTo(1);
@@ -177,7 +177,7 @@ class UserWithdrawalIntegrationTest {
     void 실패_탈퇴하지_않은_계정의_아이디는_여전히_중복으로_가입이_거절된다() {
         member("alice_01", "alice@example.com", PASSWORD, Role.USER);
 
-        assertThatThrownBy(() -> authService.register("alice_01", "other@example.com", PASSWORD, BIRTH))
+        assertThatThrownBy(() -> authService.register("alice_01", "other@example.com", PASSWORD, BIRTH, true, true))
                 .isInstanceOf(com.shop.backend.domain.error.DuplicateUsernameException.class);
     }
 
@@ -548,13 +548,13 @@ class UserWithdrawalIntegrationTest {
 
     @Test
     void 실패_deleted_invalid_도메인_이메일로는_가입할_수_없고_비슷한_도메인은_가입된다() {
-        assertThatThrownBy(() -> authService.register("sneaky_01", "deleted-abc@deleted.invalid", PASSWORD, BIRTH))
+        assertThatThrownBy(() -> authService.register("sneaky_01", "deleted-abc@deleted.invalid", PASSWORD, BIRTH, true, true))
                 .isInstanceOf(ValidationException.class);
-        assertThatThrownBy(() -> authService.register("sneaky_02", "Someone@DELETED.INVALID", PASSWORD, BIRTH))
+        assertThatThrownBy(() -> authService.register("sneaky_02", "Someone@DELETED.INVALID", PASSWORD, BIRTH, true, true))
                 .isInstanceOf(ValidationException.class);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class)).isZero();
 
-        User ok = authService.register("fine_01", "fine@deleted.invalid.example.com", PASSWORD, BIRTH);
+        User ok = authService.register("fine_01", "fine@deleted.invalid.example.com", PASSWORD, BIRTH, true, true);
         assertThat(ok.getId()).isNotBlank();
     }
 }

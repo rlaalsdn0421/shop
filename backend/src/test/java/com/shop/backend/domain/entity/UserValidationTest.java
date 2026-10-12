@@ -3,6 +3,7 @@ package com.shop.backend.domain.entity;
 import com.shop.backend.domain.error.ValidationException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -26,6 +27,20 @@ class UserValidationTest {
     private static final String OK_USER = "user_01";
     private static final String OK_EMAIL = "user01@example.com";
     private static final String OK_PW = "pass1234!";
+
+    @Test
+    void 성공_두_동의가_모두_true이면_통과한다() {
+        assertThatCode(() -> UserValidation.validateConsent(true, true)).doesNotThrowAnyException();
+    }
+
+    @ParameterizedTest
+    @CsvSource(value = {"true,false", "false,true", "null,true", "true,null",
+            "null,null", "false,false"}, nullValues = "null")
+    void 실패_동의가_하나라도_true가_아니면_검증_예외(Boolean terms, Boolean privacy) {
+        assertThatThrownBy(() -> UserValidation.validateConsent(terms, privacy))
+                .isInstanceOf(ValidationException.class)
+                .hasMessage("이용약관과 개인정보 수집·이용에 동의해주세요.");
+    }
 
     @ParameterizedTest
     @ValueSource(strings = {"abcd", "abcdefghij0123456789", "a_1_", "user_01"})

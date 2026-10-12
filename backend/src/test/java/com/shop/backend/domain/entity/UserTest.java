@@ -33,6 +33,40 @@ class UserTest {
     }
 
     @Test
+    void 성공_동의를_기록하면_시각과_정책_버전이_저장된다() {
+        User user = member();
+        Instant at = Instant.parse("2026-10-12T01:00:00Z");
+
+        user.recordConsent(at, "2026-10-12");
+
+        assertThat(user.getTermsAgreedAt()).isEqualTo(at);
+        assertThat(user.getPrivacyAgreedAt()).isEqualTo(at);
+        assertThat(user.getPolicyVersion()).isEqualTo("2026-10-12");
+    }
+
+    @Test
+    void 성공_동의_기록이_없는_계정은_세_값이_모두_null이다() {
+        User user = member();
+
+        assertThat(user.getTermsAgreedAt()).isNull();
+        assertThat(user.getPrivacyAgreedAt()).isNull();
+        assertThat(user.getPolicyVersion()).isNull();
+    }
+
+    @Test
+    void 성공_탈퇴해도_동의_기록은_그대로_남는다() {
+        User user = member();
+        Instant at = Instant.parse("2026-10-12T01:00:00Z");
+        user.recordConsent(at, "2026-10-12");
+
+        user.withdraw(Instant.parse("2026-10-20T00:00:00Z"));
+
+        assertThat(user.getTermsAgreedAt()).isEqualTo(at);
+        assertThat(user.getPrivacyAgreedAt()).isEqualTo(at);
+        assertThat(user.getPolicyVersion()).isEqualTo("2026-10-12");
+    }
+
+    @Test
     void 성공_익명화한_아이디와_이메일은_컬럼_길이_안에_들어간다() {
         User user = member();
 
