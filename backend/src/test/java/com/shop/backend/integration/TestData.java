@@ -41,7 +41,7 @@ final class TestData {
     /** One order with a single line of {@code quantity} units; status is PAID or CANCELLED. */
     void sale(String productId, String status, int quantity, Instant orderCreatedAt) {
         tx.executeWithoutResult(s -> {
-            Order order = new Order(null, null, null, "구매자", "010-0000-0000", "서울", 1000 * quantity);
+            Order order = new Order(null, null, null, "구매자", "010-0000-0000", "서울", 1000 * quantity, 0);
             ReflectionTestUtils.setField(order, "status", status);
             ReflectionTestUtils.setField(order, "createdAt", orderCreatedAt);
             order.addItem(new OrderItem(em.getReference(Product.class, productId), quantity, 1000));

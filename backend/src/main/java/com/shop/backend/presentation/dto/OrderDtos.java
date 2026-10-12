@@ -42,11 +42,11 @@ public final class OrderDtos {
         }
     }
 
-    public record OrderView(String id, Integer totalAmount, String customerName, String customerPhone,
-                             String customerAddress, List<OrderItemView> items) {
+    public record OrderView(String id, Integer totalAmount, Integer shippingFee, String customerName,
+                             String customerPhone, String customerAddress, List<OrderItemView> items) {
         public static OrderView from(Order order) {
             List<OrderItemView> items = order.getItems().stream().map(OrderItemView::from).toList();
-            return new OrderView(order.getId(), order.getTotalAmount(), order.getCustomerName(),
+            return new OrderView(order.getId(), order.getTotalAmount(), order.getShippingFee(), order.getCustomerName(),
                     order.getCustomerPhone(), order.getCustomerAddress(), items);
         }
     }

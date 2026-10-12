@@ -38,7 +38,8 @@ CORS는 모든 `/api/**` 경로에 대해 `http://localhost:3000`(Next.js 프론
 
 - `POST /api/orders` — 주문 생성 (로그인 필수). `Idempotency-Key` 헤더(`[A-Za-z0-9_-]` 8~64자)가 필수이고, 같은 키로 같은 내용을 다시 보내면 새 주문 없이 기존 주문을 돌려줍니다(내용이 다르면 409).
 - `GET /api/orders?size=10&cursor=...` — 내 주문 목록 (로그인 필수, 본인 주문만). `size`는 1~50(기본 10), `cursor`는 이전 응답의 `nextCursor`(없으면 첫 페이지). 응답은 `{ orders: [{ id, createdAt, totalAmount, status, itemCount, firstItemName }], nextCursor }`이고 최신 주문부터(`created_at DESC, id DESC`) 키셋 방식으로 이어서 가져오며, `nextCursor`가 `null`이면 마지막 페이지입니다. `itemCount`는 주문 라인 수, `firstItemName`은 라인 금액이 가장 큰 상품의 이름입니다. `size`나 `cursor`가 올바르지 않으면 400.
-- `GET /api/orders/{id}` — 주문 상세 (로그인 필수, 본인 주문만. 없거나 남의 주문이면 404)
+- `GET /api/orders/{id}` — 주문 상세 (로그인 필수, 본인 주문만. 없거나 남의 주문이면 404). 응답에 `shippingFee`가 포함됩니다.
+- **배송비 규칙**: 상품 금액 합계가 50,000원 미만이면 배송비 3,500원, 50,000원 이상이면 무료(`ShippingPolicy`). 주문의 `totalAmount`는 상품 금액 + 배송비이고 `shippingFee`에 따로 저장됩니다(V14, 배송비 도입 전 주문은 0). 프론트 상수(`frontend/src/lib/constants.ts`)·FAQ 챗봇 문구와 함께 바꿔야 합니다.
 
 ### 리뷰
 

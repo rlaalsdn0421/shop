@@ -55,7 +55,7 @@ class OrderControllerTest {
     @Test
     @WithMockUser
     void 성공_주문을_생성한다() throws Exception {
-        Order order = new Order("user-1", "key-12345", "hash", "홍길동", "010-1234-5678", "서울시", 10000);
+        Order order = new Order("user-1", "key-12345", "hash", "홍길동", "010-1234-5678", "서울시", 13_500, 3_500);
         ReflectionTestUtils.setField(order, "id", "order-1");
         when(orderService.createOrder(any(), any(), any(), any(), any(), any())).thenReturn(order);
 
@@ -143,7 +143,7 @@ class OrderControllerTest {
     @Test
     @WithMockUser(username = "user-1")
     void 성공_로그인_사용자의_id와_요청_번호를_서비스에_넘긴다() throws Exception {
-        Order order = new Order("user-1", KEY, "hash", "홍길동", "010-1234-5678", "서울시", 10000);
+        Order order = new Order("user-1", KEY, "hash", "홍길동", "010-1234-5678", "서울시", 13_500, 3_500);
         ReflectionTestUtils.setField(order, "id", "order-1");
         when(orderService.createOrder(eq("user-1"), eq(KEY), any(), any(), any(), any())).thenReturn(order);
 
@@ -177,7 +177,7 @@ class OrderControllerTest {
     @WithMockUser(username = "user-1")
     void 성공_주문상세를_조회한다() throws Exception {
         Product product = new Product("티셔츠", "설명", 5000, "http://img/1", 5);
-        Order order = new Order("user-1", "key-12345", "hash", "홍길동", "010-1234-5678", "서울시", 10000);
+        Order order = new Order("user-1", "key-12345", "hash", "홍길동", "010-1234-5678", "서울시", 13_500, 3_500);
         OrderItem item = new OrderItem(product, 2, 5000);
         order.addItem(item);
         ReflectionTestUtils.setField(order, "id", "order-1");
@@ -186,10 +186,28 @@ class OrderControllerTest {
 
         mockMvc.perform(get("/api/orders/order-1"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalAmount").value(10000))
+                .andExpect(jsonPath("$.totalAmount").value(13500))
+                .andExpect(jsonPath("$.shippingFee").value(3500))
                 .andExpect(jsonPath("$.customerName").value("홍길동"))
                 .andExpect(jsonPath("$.items[0].productName").value("티셔츠"))
                 .andExpect(jsonPath("$.items[0].quantity").value(2));
+    }
+
+    @Test
+    @WithMockUser(username = "user-1")
+    void 성공_배송비가_무료이거나_배송비_도입_전_주문은_shippingFee가_0이다() throws Exception {
+        Product product = new Product("코트", "설명", 60000, "http://img/1", 5);
+        Order order = new Order("user-1", "key-12345", "hash", "홍길동", "010-1234-5678", "서울시", 60_000, 0);
+        OrderItem item = new OrderItem(product, 1, 60000);
+        order.addItem(item);
+        ReflectionTestUtils.setField(order, "id", "order-2");
+        ReflectionTestUtils.setField(item, "id", "item-2");
+        when(orderService.getOrder("order-2", "user-1")).thenReturn(Optional.of(order));
+
+        mockMvc.perform(get("/api/orders/order-2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalAmount").value(60000))
+                .andExpect(jsonPath("$.shippingFee").value(0));
     }
 
     @Test
@@ -218,7 +236,7 @@ class OrderControllerTest {
     @Test
     @WithMockUser(username = "user-1")
     void 성공_내_주문_목록을_응답_형태대로_반환한다() throws Exception {
-        Order order = new Order("user-1", KEY, "hash", "홍길동", "010-1234-5678", "서울시", 10000);
+        Order order = new Order("user-1", KEY, "hash", "홍길동", "010-1234-5678", "서울시", 13_500, 3_500);
         ReflectionTestUtils.setField(order, "id", "order-1");
         ReflectionTestUtils.setField(order, "createdAt", Instant.parse("2026-10-11T01:02:03.123456Z"));
         when(orderService.listMyOrders("user-1", 10, null)).thenReturn(new OrderService.OrderPage(
@@ -228,7 +246,7 @@ class OrderControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orders[0].id").value("order-1"))
                 .andExpect(jsonPath("$.orders[0].createdAt").value("2026-10-11T01:02:03.123456Z"))
-                .andExpect(jsonPath("$.orders[0].totalAmount").value(10000))
+                .andExpect(jsonPath("$.orders[0].totalAmount").value(13500))
                 .andExpect(jsonPath("$.orders[0].status").value("PAID"))
                 .andExpect(jsonPath("$.orders[0].itemCount").value(3))
                 .andExpect(jsonPath("$.orders[0].firstItemName").value("티셔츠"))

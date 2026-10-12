@@ -6,6 +6,9 @@ import Image from "next/image";
 import { useCart } from "@/cart/CartContext";
 import { useRequireRole } from "@/auth/AuthContext";
 import { type Attempt, readAttempt, saveAttempt, sha256Hex } from "@/lib/orderAttempt";
+import { FREE_SHIPPING_THRESHOLD } from "@/lib/constants";
+import { formatWon } from "@/lib/price";
+import { shippingFeeFor } from "@/lib/shipping";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080";
 const ORDER_TIMEOUT_MS = 20_000;
@@ -106,6 +109,7 @@ export function CartView() {
   if (items.length === 0) {
     return <p className="text-gray-600">장바구니가 비어있습니다.</p>;
   }
+  const shippingFee = shippingFeeFor(totalAmount);
 
   return (
     <div className="grid sm:grid-cols-3 gap-8">
@@ -150,7 +154,25 @@ export function CartView() {
       </div>
 
       <form onSubmit={handleCheckout} className="flex flex-col gap-3">
-        <p className="text-lg font-semibold">총 {totalAmount.toLocaleString()}원</p>
+        <dl className="flex flex-col gap-1 text-sm">
+          <div className="flex justify-between">
+            <dt>상품 금액</dt>
+            <dd>{formatWon(totalAmount)}</dd>
+          </div>
+          <div className="flex justify-between">
+            <dt>배송비</dt>
+            <dd>{shippingFee === 0 ? "무료" : formatWon(shippingFee)}</dd>
+          </div>
+          <div className="flex justify-between text-lg font-semibold border-t pt-2 mt-1">
+            <dt>총 주문금액</dt>
+            <dd>{formatWon(totalAmount + shippingFee)}</dd>
+          </div>
+        </dl>
+        {shippingFee > 0 && (
+          <p className="text-xs text-gray-600">
+            {formatWon(FREE_SHIPPING_THRESHOLD - totalAmount)} 더 담으면 배송비 무료
+          </p>
+        )}
         <label htmlFor="checkout-name" className="sr-only">이름</label>
         <input
           id="checkout-name"

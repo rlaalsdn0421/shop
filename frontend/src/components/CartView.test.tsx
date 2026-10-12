@@ -57,6 +57,55 @@ beforeEach(() => {
   push.mockClear();
 });
 
+function renderCartWith(price: number, quantity: number) {
+  localStorage.setItem(
+    "shop-cart",
+    JSON.stringify([{ productId: "p1", name: "린넨 셔츠", price, imageUrl: "https://example.com/a.jpg", quantity }])
+  );
+  return render(
+    <CartProvider>
+      <CartView />
+    </CartProvider>
+  );
+}
+
+const row = (label: string) => screen.getByText(label).closest("div")!;
+
+describe("CartView 요약 금액", () => {
+  it("성공: 50,000원 미만이면 배송비 3,500원을 더하고 무료까지 남은 금액을 안내한다", async () => {
+    renderCartWith(49999, 1);
+    expect(await screen.findByText("상품 금액")).toBeInTheDocument();
+    expect(row("상품 금액")).toHaveTextContent("49,999원");
+    expect(row("배송비")).toHaveTextContent("3,500원");
+    expect(row("총 주문금액")).toHaveTextContent("53,499원");
+    expect(screen.getByText("1원 더 담으면 배송비 무료")).toBeInTheDocument();
+  });
+
+  it("성공: 정확히 50,000원이면 배송비는 무료이고 안내 문구가 없다", async () => {
+    renderCartWith(25000, 2);
+    expect(await screen.findByText("상품 금액")).toBeInTheDocument();
+    expect(row("상품 금액")).toHaveTextContent("50,000원");
+    expect(row("배송비")).toHaveTextContent("무료");
+    expect(row("총 주문금액")).toHaveTextContent("50,000원");
+    expect(screen.queryByText(/더 담으면 배송비 무료/)).not.toBeInTheDocument();
+  });
+
+  it("성공: 50,000원을 넘으면 배송비는 무료다", async () => {
+    renderCartWith(50001, 1);
+    expect(await screen.findByText("상품 금액")).toBeInTheDocument();
+    expect(row("배송비")).toHaveTextContent("무료");
+    expect(row("총 주문금액")).toHaveTextContent("50,001원");
+  });
+
+  it("실패: 결제 기능이 없으므로 요약 라벨에 '결제'라는 말을 쓰지 않는다", async () => {
+    renderCartWith(8000, 1);
+    expect(await screen.findByText("총 주문금액")).toBeInTheDocument();
+    expect(screen.queryByText(/결제/)).not.toBeInTheDocument();
+    expect(row("총 주문금액")).toHaveTextContent("11,500원");
+    expect(screen.getByText("42,000원 더 담으면 배송비 무료")).toBeInTheDocument();
+  });
+});
+
 describe("CartView 주문 멱등 키", () => {
   it("성공: Idempotency-Key와 토큰을 보내고, 성공하면 장바구니를 비우고 이동한다", async () => {
     mockReplies({ status: 201, body: { orderId: "o1" } });

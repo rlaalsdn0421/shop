@@ -1,5 +1,6 @@
 package com.shop.backend.application.service;
 
+import com.shop.backend.domain.entity.ShippingPolicy;
 import org.springframework.stereotype.Service;
 
 import java.text.Normalizer;
@@ -36,10 +37,12 @@ public class FaqChatAnswerer implements ChatAnswerer {
             new Faq("도움말", List.of("도움말", "안녕", "하이", "hello", "시작"),
                     "안녕하세요! 무엇이 궁금하신가요? 아래 자주 묻는 질문을 눌러 보세요."),
             // "배송비" scores 2 with "배송", so a shipping-fee question beats the plain delivery wording.
-            // The 3,500 won fee and 50,000 won threshold are hardcoded here: change them together with
+            // The fee and threshold come from ShippingPolicy: change them together with
             // SHIPPING_FEE / FREE_SHIPPING_THRESHOLD in frontend/src/lib/constants.ts.
+            // shortcut: the threshold is worded as "N만 원", so it must stay a multiple of 10,000 (a unit test enforces it).
             new Faq("배송비와 배송 기간은 어떻게 되나요?", List.of("배송", "택배", "도착", "언제와", "배송비"),
-                    "배송비는 3,500원이고, 5만 원 이상 주문하면 무료예요. 배송 기간은 상품과 지역에 따라 달라요."),
+                    String.format(Locale.KOREA, "배송비는 %,d원이고, %d만 원 이상 주문하면 무료예요. 배송 기간은 상품과 지역에 따라 달라요.",
+                            ShippingPolicy.FEE, ShippingPolicy.FREE_THRESHOLD / 10_000)),
             // No order-cancel feature exists, so "취소" is not a keyword. "왕복"/"왕복배송비" lift a round-trip-shipping
             // question to 3 with "환불" (delivery only reaches 2 via "배송"+"배송비"); a tie would go to delivery.
             new Faq("교환·환불은 어떻게 하나요?", List.of("교환", "환불", "반품", "왕복", "왕복배송비"),

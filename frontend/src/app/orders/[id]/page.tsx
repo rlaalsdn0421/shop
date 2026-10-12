@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useAuth, useRequireRole } from "@/auth/AuthContext";
 import { getOrder, AuthError, type Order } from "@/lib/api";
+import { formatWon } from "@/lib/price";
 
 export default function OrderPage() {
   const { id } = useParams<{ id: string }>();
@@ -87,6 +88,9 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
     );
   }
 
+  // An older backend response has no shippingFee; anything but a positive number counts as free.
+  const shippingFee = typeof order.shippingFee === "number" && order.shippingFee > 0 ? order.shippingFee : 0;
+
   return (
     <div className="max-w-lg mx-auto flex flex-col gap-6">
       <div>
@@ -105,10 +109,20 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
         ))}
       </div>
 
-      <div className="flex justify-between font-semibold border-t pt-4">
-        <span>총 주문금액</span>
-        <span>{order.totalAmount.toLocaleString()}원</span>
-      </div>
+      <dl className="flex flex-col gap-1 text-sm border-t pt-4">
+        <div className="flex justify-between">
+          <dt>상품 금액</dt>
+          <dd>{formatWon(order.totalAmount - shippingFee)}</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt>배송비</dt>
+          <dd>{shippingFee === 0 ? "무료" : formatWon(shippingFee)}</dd>
+        </div>
+        <div className="flex justify-between font-semibold text-base border-t pt-2 mt-1">
+          <dt>총 주문금액</dt>
+          <dd>{formatWon(order.totalAmount)}</dd>
+        </div>
+      </dl>
 
       <div className="border-t pt-4 text-sm text-gray-600 flex flex-col gap-1">
         <p>받는 사람: {order.customerName}</p>

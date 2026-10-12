@@ -205,7 +205,7 @@ class OrderStockConcurrencyIntegrationTest extends PostgresIntegrationTest {
         order(line("pB", 3), line("pA", 2));
         jdbc.update("UPDATE products SET price = 99999"); // later price changes must not touch the snapshot
 
-        assertThat(jdbc.queryForObject("SELECT total_amount FROM orders", Integer.class)).isEqualTo(2 * 1500 + 3 * 700);
+        assertThat(jdbc.queryForObject("SELECT total_amount FROM orders", Integer.class)).isEqualTo(2 * 1500 + 3 * 700 + 3500); // items 5,100 < 50,000: shipping fee 3,500 included
         assertThat(jdbc.queryForObject("SELECT price FROM order_items WHERE product_id = 'pA'", Integer.class)).isEqualTo(1500);
         assertThat(jdbc.queryForObject("SELECT quantity FROM order_items WHERE product_id = 'pA'", Integer.class)).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT price FROM order_items WHERE product_id = 'pB'", Integer.class)).isEqualTo(700);
