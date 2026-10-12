@@ -70,7 +70,7 @@ public class AuthService {
             throw new InvalidCredentialsException();
         }
         User user = userRepository.findByUsername(username).orElse(null);
-        if (user == null) {
+        if (user == null || user.isDeleted()) {
             passwordEncoder.matches(password, dummyHash);
             throw new InvalidCredentialsException();
         }

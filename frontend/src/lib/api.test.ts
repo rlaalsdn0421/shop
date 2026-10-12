@@ -8,7 +8,9 @@ import {
   listMyOrders,
   listReviews,
   askChat,
+  withdrawAccount,
   AuthError,
+  WithdrawError,
 } from "./api";
 
 function mockFetchOnce(status: number, body: unknown) {
@@ -298,5 +300,65 @@ describe("listBestProducts", () => {
   it("실패: 네트워크 오류는 그대로 예외로 전달된다", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("network")));
     await expect(listBestProducts("realtime")).rejects.toThrow("network");
+  });
+});
+
+describe("withdrawAccount", () => {
+  function stubReply(status: number, json: () => Promise<unknown>) {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: status >= 200 && status < 300, status, json });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("성공: DELETE /api/users/me 에 토큰과 비밀번호를 보내고 204면 끝난다", async () => {
+    const fetchMock = stubReply(204, async () => {
+      throw new Error("no body");
+    });
+    await expect(withdrawAccount("fake-token", "pw-1234")).resolves.toBeUndefined();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(new URL(String(url)).pathname).toBe("/api/users/me");
+    expect(init.method).toBe("DELETE");
+    expect(init.headers).toMatchObject({ Authorization: "Bearer fake-token", "Content-Type": "application/json" });
+    expect(JSON.parse(init.body)).toEqual({ password: "pw-1234" });
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("실패: 401은 AuthError가 아닌 WithdrawError(status 401)로 서버 문구를 담는다", async () => {
+    stubReply(401, async () => ({ error: "아이디 또는 비밀번호가 올바르지 않습니다." }));
+    const err = await withdrawAccount("t", "bad").catch((e) => e);
+    expect(err).toBeInstanceOf(WithdrawError);
+    expect(err).not.toBeInstanceOf(AuthError);
+    expect(err.status).toBe(401);
+    expect(err.message).toBe("아이디 또는 비밀번호가 올바르지 않습니다.");
+  });
+
+  it("성공: 응답 본문의 code를 WithdrawError.code에 담고, 없으면 undefined다", async () => {
+    stubReply(401, async () => ({ error: "인증이 필요합니다.", code: "AUTH_REQUIRED" }));
+    await expect(withdrawAccount("t", "p")).rejects.toMatchObject({ status: 401, code: "AUTH_REQUIRED" });
+    stubReply(401, async () => ({ error: "아이디 또는 비밀번호가 올바르지 않습니다." }));
+    const err = await withdrawAccount("t", "p").catch((e) => e);
+    expect(err.code).toBeUndefined();
+  });
+
+  it("실패: 403/429/500은 각 status를 가진 WithdrawError다", async () => {
+    for (const status of [403, 429, 500]) {
+      stubReply(status, async () => ({ error: "x" }));
+      await expect(withdrawAccount("t", "p")).rejects.toMatchObject({ status });
+    }
+  });
+
+  it("실패: 응답이 JSON이 아니어도 기본 문구로 WithdrawError를 던진다", async () => {
+    stubReply(502, async () => {
+      throw new SyntaxError("not json");
+    });
+    await expect(withdrawAccount("t", "p")).rejects.toMatchObject({
+      status: 502,
+      message: "회원 탈퇴에 실패했습니다.",
+    });
+  });
+
+  it("실패: 네트워크 오류는 그대로 전달된다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("network")));
+    await expect(withdrawAccount("t", "p")).rejects.toThrow("network");
   });
 });

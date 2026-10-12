@@ -40,7 +40,16 @@ export function Header() {
                     주문내역
                   </Link>
                 </li>
-                <li className="text-neutral-500">{session.username}</li>
+                <li className="text-neutral-500">
+                  {/* Only customers can withdraw, so only they get the account page. */}
+                  {session.role === "USER" ? (
+                    <Link href="/account" aria-label={`내 정보 (${session.username})`} className={utilityClass}>
+                      {session.username}
+                    </Link>
+                  ) : (
+                    session.username
+                  )}
+                </li>
                 <li>
                   <button
                     onClick={() => {

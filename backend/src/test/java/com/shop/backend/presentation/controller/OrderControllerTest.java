@@ -6,6 +6,7 @@ import com.shop.backend.domain.entity.OrderItem;
 import com.shop.backend.domain.entity.Product;
 import com.shop.backend.domain.error.IdempotencyKeyReuseException;
 import com.shop.backend.domain.error.ValidationException;
+import com.shop.backend.infrastructure.repository.UserRepository;
 import com.shop.backend.infrastructure.security.JwtService;
 import com.shop.backend.infrastructure.security.SecurityConfig;
 import org.junit.jupiter.api.Test;
@@ -42,6 +43,9 @@ class OrderControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockBean
+    private UserRepository userRepository;
 
     private static final String KEY = "key-12345";
 
@@ -114,7 +118,7 @@ class OrderControllerTest {
         mockMvc.perform(post("/api/orders").header("Idempotency-Key", KEY).contentType("application/json").content(ORDER_BODY))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(header().string("Retry-After", "1"))
-                .andExpect(jsonPath("$.error").value("주문이 몰려 처리하지 못했어요. 잠시 후 다시 시도해 주세요."));
+                .andExpect(jsonPath("$.error").value("요청이 몰려 처리하지 못했어요. 잠시 후 다시 시도해 주세요."));
     }
 
     @Test

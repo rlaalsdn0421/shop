@@ -6,6 +6,17 @@ export class AuthError extends Error {
   }
 }
 
+// Failed account withdrawal. Separate from AuthError on purpose: a 401 here means "wrong password", not "session expired".
+export class WithdrawError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly code?: string
+  ) {
+    super(message);
+  }
+}
+
 export type Product = {
   id: string;
   name: string;
@@ -168,6 +179,22 @@ export async function listMyOrders(token: string, cursor?: string | null): Promi
   const data = await res.json().catch(() => null);
   if (!res.ok || !Array.isArray(data?.orders)) throw new Error("주문 내역을 불러오지 못했습니다.");
   return { orders: data.orders, nextCursor: data.nextCursor ?? null };
+}
+
+export async function withdrawAccount(token: string, password: string): Promise<void> {
+  const res = await apiFetch("/api/users/me", {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ password }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (res.ok) return;
+  const data = await res.json().catch(() => null);
+  throw new WithdrawError(
+    res.status,
+    (typeof data?.error === "string" && data.error) || "회원 탈퇴에 실패했습니다.",
+    typeof data?.code === "string" ? data.code : undefined
+  );
 }
 
 export async function listReviews(productId: string): Promise<ReviewList | null> {

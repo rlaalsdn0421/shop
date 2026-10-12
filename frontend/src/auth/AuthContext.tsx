@@ -77,19 +77,21 @@ export function useAuth() {
 // session, or the session's role isn't allowed. Returns the session so
 // callers can render nothing until `ready` (avoids a flash of protected
 // content before the redirect fires).
-export function useRequireRole(allowed: Role[]) {
+// Pass enabled=false while the caller navigates somewhere else itself (e.g. after account withdrawal),
+// so this redirect cannot override it.
+export function useRequireRole(allowed: Role[], enabled = true) {
   const { session, ready } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || !enabled) return;
     if (!session || !allowed.includes(session.role)) {
       router.replace("/login");
     }
     // `allowed` intentionally excluded: callers pass a fresh array literal
     // each render, which would otherwise retrigger this effect every time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, session, router]);
+  }, [ready, session, router, enabled]);
 
   return { session, ready };
 }

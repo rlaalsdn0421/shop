@@ -1,5 +1,6 @@
 package com.shop.backend.infrastructure.security;
 
+import com.shop.backend.infrastructure.repository.UserRepository;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -33,9 +34,11 @@ public class SecurityConfig {
     private String[] allowedOrigins;
 
     private final JwtService jwtService;
+    private final UserRepository userRepository;
 
-    public SecurityConfig(JwtService jwtService) {
+    public SecurityConfig(JwtService jwtService, UserRepository userRepository) {
         this.jwtService = jwtService;
+        this.userRepository = userRepository;
     }
 
     @Bean
@@ -55,13 +58,15 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/orders").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/orders/**").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/products/*/reviews").authenticated()
+                        .requestMatchers(HttpMethod.DELETE, "/api/users/me").authenticated()
                         .anyRequest().permitAll())
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint((request, response, ex) ->
-                                writeJsonError(response, HttpServletResponse.SC_UNAUTHORIZED, "인증이 필요합니다."))
+                                writeJsonError(response, HttpServletResponse.SC_UNAUTHORIZED, "인증이 필요합니다.",
+                                        "AUTH_REQUIRED"))
                         .accessDeniedHandler((request, response, ex) ->
                                 writeJsonError(response, HttpServletResponse.SC_FORBIDDEN, "접근 권한이 없습니다.")))
-                .addFilterBefore(new JwtAuthFilter(jwtService), UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(new JwtAuthFilter(jwtService, userRepository), UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 
@@ -70,11 +75,18 @@ public class SecurityConfig {
      * presentation-layer dependency from infrastructure (these run in the security filter chain,
      * before/outside MVC's exception handling).
      */
-    private static void writeJsonError(HttpServletResponse response, int status, String message) throws IOException {
+    static void writeJsonError(HttpServletResponse response, int status, String message) throws IOException {
+        writeJsonError(response, status, message, null);
+    }
+
+    /** {@code code} (machine-readable, e.g. AUTH_REQUIRED) is added to the body when not null. */
+    static void writeJsonError(HttpServletResponse response, int status, String message, String code)
+            throws IOException {
         response.setStatus(status);
         response.setContentType("application/json");
         response.setCharacterEncoding("UTF-8");
-        response.getWriter().write("{\"error\":\"" + message + "\"}");
+        String codeField = code == null ? "" : ",\"code\":\"" + code + "\"";
+        response.getWriter().write("{\"error\":\"" + message + "\"" + codeField + "}");
     }
 
     private CorsConfigurationSource corsConfigurationSource() {

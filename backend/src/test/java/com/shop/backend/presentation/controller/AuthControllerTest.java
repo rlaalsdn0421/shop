@@ -9,6 +9,7 @@ import com.shop.backend.domain.error.DuplicateUsernameException;
 import com.shop.backend.domain.error.InvalidCredentialsException;
 import com.shop.backend.domain.error.TooManyRequestsException;
 import com.shop.backend.domain.error.ValidationException;
+import com.shop.backend.infrastructure.repository.UserRepository;
 import com.shop.backend.infrastructure.security.JwtService;
 import com.shop.backend.infrastructure.security.SecurityConfig;
 import com.shop.backend.presentation.web.ClientIpResolver;
@@ -58,6 +59,9 @@ class AuthControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockBean
+    private UserRepository userRepository;
 
     @MockBean
     private AuthService authService;

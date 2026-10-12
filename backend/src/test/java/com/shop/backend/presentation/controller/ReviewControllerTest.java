@@ -6,6 +6,7 @@ import com.shop.backend.domain.entity.Product;
 import com.shop.backend.domain.entity.Review;
 import com.shop.backend.domain.error.ProductNotFoundException;
 import com.shop.backend.domain.error.ValidationException;
+import com.shop.backend.infrastructure.repository.UserRepository;
 import com.shop.backend.infrastructure.security.JwtService;
 import com.shop.backend.infrastructure.security.SecurityConfig;
 import com.shop.backend.domain.entity.Role;
@@ -39,6 +40,9 @@ class ReviewControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockBean
+    private UserRepository userRepository;
 
     @Autowired
     private JwtService jwtService;
@@ -111,7 +115,8 @@ class ReviewControllerTest {
     void 실패_로그인_없이_리뷰를_쓰면_401이고_서비스는_호출되지_않는다() throws Exception {
         mockMvc.perform(post("/api/products/p1/reviews").contentType("application/json").content(BODY))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.error").value("인증이 필요합니다."));
+                .andExpect(jsonPath("$.error").value("인증이 필요합니다."))
+                .andExpect(jsonPath("$.code").value("AUTH_REQUIRED"));
 
         verifyNoInteractions(reviewService);
     }
@@ -139,6 +144,7 @@ class ReviewControllerTest {
         Product product = new Product("티셔츠", "설명", 10000, "http://img/1", 5);
         Review review = new Review(product, "user-123", "홍길동", 5, "좋아요");
         ReflectionTestUtils.setField(review, "id", "review-1");
+        when(userRepository.existsByIdAndDeletedAtIsNull("user-123")).thenReturn(true);
         when(reviewService.createReview("p1", "user-123", "홍길동", 5, "좋아요")).thenReturn(review);
 
         mockMvc.perform(post("/api/products/p1/reviews")
@@ -149,6 +155,20 @@ class ReviewControllerTest {
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("user-123"))));
 
         verify(reviewService).createReview("p1", "user-123", "홍길동", 5, "좋아요");
+    }
+
+    @Test
+    void 실패_탈퇴한_사용자의_유효한_토큰으로는_리뷰를_쓸_수_없고_401이다() throws Exception {
+        User user = new User("someone", "a@example.test", "hash", Role.USER, java.time.LocalDate.of(2000, 1, 1));
+        ReflectionTestUtils.setField(user, "id", "user-123");
+        when(userRepository.existsByIdAndDeletedAtIsNull("user-123")).thenReturn(false);
+
+        mockMvc.perform(post("/api/products/p1/reviews")
+                        .header("Authorization", "Bearer " + jwtService.generateToken(user))
+                        .contentType("application/json").content(BODY))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(reviewService);
     }
 
     @Test

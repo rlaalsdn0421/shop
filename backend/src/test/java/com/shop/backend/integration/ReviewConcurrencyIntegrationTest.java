@@ -4,6 +4,7 @@ import com.shop.backend.application.service.ReviewService;
 import com.shop.backend.domain.error.DuplicateReviewException;
 import com.shop.backend.infrastructure.repository.ReviewRepository;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -76,7 +77,8 @@ class ReviewConcurrencyIntegrationTest extends PostgresIntegrationTest {
     void 성공_사전_검사가_모두_통과해도_유니크_인덱스가_하나만_저장되게_막는다() throws Exception {
         ReviewRepository blind = mock(ReviewRepository.class, delegatesTo(reviewRepository));
         doReturn(false).when(blind).existsByProductIdAndUserId(anyString(), anyString());
-        ReviewService indexOnly = new ReviewService(productRepository, blind);
+        ReviewService indexOnly = new ReviewService(productRepository, blind, userRepository, em);
+        TransactionTemplate tx = new TransactionTemplate(txManager); // a hand-built service has no @Transactional proxy
 
         for (int round = 0; round < 5; round++) {
             jdbc.execute("TRUNCATE order_items, reviews, orders, products, users CASCADE");
@@ -91,7 +93,7 @@ class ReviewConcurrencyIntegrationTest extends PostgresIntegrationTest {
                     futures.add(pool.submit(() -> {
                         startTogether.await(10, TimeUnit.SECONDS);
                         try {
-                            return indexOnly.createReview("p1", userId, "작성자", 5, "사전 검사 없이 동시에");
+                            return tx.execute(s -> indexOnly.createReview("p1", userId, "작성자", 5, "사전 검사 없이 동시에"));
                         } catch (DuplicateReviewException ex) {
                             return ex;
                         }

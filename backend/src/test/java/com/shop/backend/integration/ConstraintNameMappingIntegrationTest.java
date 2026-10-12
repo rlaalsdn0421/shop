@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.time.LocalDate;
@@ -108,9 +109,10 @@ class ConstraintNameMappingIntegrationTest extends PostgresIntegrationTest {
 
         ReviewRepository blind = mock(ReviewRepository.class, delegatesTo(reviewRepository));
         doReturn(false).when(blind).existsByProductIdAndUserId("p1", userId);
-        ReviewService blindService = new ReviewService(productRepository, blind);
+        ReviewService blindService = new ReviewService(productRepository, blind, userRepository, em);
 
-        assertThatThrownBy(() -> blindService.createReview("p1", userId, "작성자", 4, "또 씀"))
+        assertThatThrownBy(() -> new TransactionTemplate(txManager).execute(
+                s -> blindService.createReview("p1", userId, "작성자", 4, "또 씀")))
                 .isInstanceOf(DuplicateReviewException.class);
         assertThat(reviewRepository.count()).isEqualTo(1);
     }

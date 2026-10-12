@@ -4,6 +4,7 @@ import com.shop.backend.application.service.ProductService;
 import com.shop.backend.domain.entity.BestPeriod;
 import com.shop.backend.domain.entity.Product;
 import com.shop.backend.domain.entity.ProductSort;
+import com.shop.backend.infrastructure.repository.UserRepository;
 import com.shop.backend.infrastructure.security.JwtService;
 import com.shop.backend.infrastructure.security.SecurityConfig;
 import org.junit.jupiter.api.Test;
@@ -40,6 +41,9 @@ class ProductControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockBean
+    private UserRepository userRepository;
 
     @MockBean
     private ProductService productService;

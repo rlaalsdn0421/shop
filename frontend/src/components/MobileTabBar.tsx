@@ -54,6 +54,17 @@ export function MobileTabBar() {
             주문내역
           </Link>
         )}
+        {session?.role === "USER" && (
+          <Link
+            href="/account"
+            className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[11px] ${
+              pathname === "/account" ? "text-white" : ""
+            }`}
+          >
+            <span className="text-base">⚙️</span>
+            내 정보
+          </Link>
+        )}
         {session ? (
           <button
             onClick={() => {
