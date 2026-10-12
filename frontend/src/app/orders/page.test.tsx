@@ -46,8 +46,9 @@ describe("주문내역 페이지", () => {
     expect(link).toHaveTextContent("주문번호 00000001");
     expect(link).not.toHaveTextContent("aaaa");
     expect(link).toHaveTextContent("2026. 10. 11.");
-    // The status is not a fact until payment exists, so it must not be shown.
+    // The raw status code is never shown, only its label.
     expect(screen.queryByText(/PAID/)).not.toBeInTheDocument();
+    expect(link).toHaveTextContent("결제 완료");
     const [url, init] = vi.mocked(fetch).mock.calls[0];
     expect(String(url)).toMatch(/\/api\/orders\?size=10$/);
     expect(init?.headers).toMatchObject({ Authorization: "Bearer fake-token" });
@@ -351,5 +352,47 @@ describe("주문내역 페이지", () => {
     expect(await screen.findByText("상품2")).toBeInTheDocument();
     await act(async () => pending["Bearer fake-token"](reply(200, { orders: [order(1)], nextCursor: null })));
     expect(screen.queryByText("상품1")).not.toBeInTheDocument();
+  });
+});
+
+describe("주문내역 결제 상태", () => {
+  const soon = () => new Date(Date.now() + 7 * 60_000 + 5_000).toISOString();
+  const show = async (orders: object[]) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(reply(200, { orders, nextCursor: null })));
+    render(<OrdersPage />);
+    await screen.findByRole("link", { name: /^상품1/ });
+  };
+
+  it("성공: 상태별 문구를 카드 안에 보인다", async () => {
+    await show([
+      order(1, { status: "PENDING_PAYMENT", expiresAt: soon() }),
+      order(2, { status: "EXPIRED" }),
+      order(3, { status: "PAYMENT_REVIEW" }),
+    ]);
+    expect(screen.getByRole("link", { name: /^상품1/ })).toHaveTextContent("결제 대기");
+    expect(screen.getByRole("link", { name: /상품2/ })).toHaveTextContent("주문 만료(결제하지 않아 취소됨)");
+    expect(screen.getByRole("link", { name: /상품3/ })).toHaveTextContent("확인 중(결제 확인 후 취소·환불을 안내해 드려요)");
+  });
+
+  it("성공: 결제 대기이고 기한이 남았으면 남은 시간이 붙은 결제하기 링크가 주문 상세로 간다", async () => {
+    await show([order(1, { status: "PENDING_PAYMENT", expiresAt: soon() })]);
+    expect(screen.getByRole("link", { name: "결제하기 (남은 시간 8분) - 상품1" })).toHaveAttribute(
+      "href",
+      "/orders/00000001-aaaa-bbbb-cccc-ddddeeeeffff"
+    );
+  });
+
+  it("실패: 기한이 지난 대기 주문, 결제 완료 주문에는 결제하기 링크가 없다", async () => {
+    await show([
+      order(1, { status: "PENDING_PAYMENT", expiresAt: new Date(Date.now() - 1000).toISOString() }),
+      order(2, { status: "PAID", expiresAt: soon() }),
+      order(3, { status: "PENDING_PAYMENT", expiresAt: null }),
+    ]);
+    expect(screen.queryByRole("link", { name: /결제하기/ })).not.toBeInTheDocument();
+  });
+
+  it("실패: 모르는 상태 코드는 문구를 만들어 내지 않고 그대로 숨긴다", async () => {
+    await show([order(1, { status: "SOMETHING_NEW" })]);
+    expect(screen.queryByText(/SOMETHING_NEW/)).not.toBeInTheDocument();
   });
 });

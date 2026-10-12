@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useAuth, useRequireRole } from "@/auth/AuthContext";
 import { listMyOrders, AuthError, type OrderSummary } from "@/lib/api";
 import { formatKoreanDate } from "@/lib/date";
+import { remainingLabel, statusLabel } from "@/lib/payment";
 import { formatWon } from "@/lib/price";
+import { useNow } from "@/lib/useNow";
 
 export default function OrdersPage() {
   const { session, ready } = useRequireRole(["ADMIN", "SELLER", "USER"]);
@@ -17,6 +19,7 @@ export default function OrdersPage() {
 
 function OrderList({ token }: { token: string }) {
   const { logout } = useAuth();
+  const now = useNow();
   // null = first page still loading.
   const [orders, setOrders] = useState<OrderSummary[] | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -138,26 +141,40 @@ function OrderList({ token }: { token: string }) {
     body = (
       <>
         <ul ref={listRef} tabIndex={-1} className="flex flex-col gap-3 outline-none">
-          {orders.map((o) => (
-            <li key={o.id}>
-              {/* DOM order is name, price, then date/number so the accessible name starts with the product; `order-first` keeps the date row on top visually. */}
-              <Link
-                href={`/orders/${o.id}`}
-                data-order-id={o.id}
-                className="flex flex-col border rounded p-4 hover:bg-gray-50"
-              >
-                <div className="font-medium">
-                  {o.firstItemName}
-                  {o.itemCount > 1 ? ` 외 ${o.itemCount - 1}건` : ""}
-                </div>
-                <div className="mt-1 text-sm">{formatWon(o.totalAmount)}</div>
-                <div className="order-first mb-2 flex justify-between text-xs text-gray-500">
-                  <span>{formatKoreanDate(o.createdAt)}</span>
-                  <span>주문번호 {o.id.slice(0, 8)}</span>
-                </div>
-              </Link>
-            </li>
-          ))}
+          {orders.map((o) => {
+            const remaining = o.status === "PENDING_PAYMENT" ? remainingLabel(o.expiresAt, now) : null;
+            return (
+              <li key={o.id}>
+                {/* DOM order is name, price, then date/number so the accessible name starts with the product; `order-first` keeps the date row on top visually. */}
+                <Link
+                  href={`/orders/${o.id}`}
+                  data-order-id={o.id}
+                  className="flex flex-col border rounded p-4 hover:bg-gray-50"
+                >
+                  <div className="font-medium">
+                    {o.firstItemName}
+                    {o.itemCount > 1 ? ` 외 ${o.itemCount - 1}건` : ""}
+                  </div>
+                  <div className="mt-1 text-sm">{formatWon(o.totalAmount)}</div>
+                  {statusLabel(o.status) && <div className="mt-1 text-xs text-gray-600">{statusLabel(o.status)}</div>}
+                  <div className="order-first mb-2 flex justify-between text-xs text-gray-500">
+                    <span>{formatKoreanDate(o.createdAt)}</span>
+                    <span>주문번호 {o.id.slice(0, 8)}</span>
+                  </div>
+                </Link>
+                {/* A sibling link, not a button inside the card link; payment itself happens on the detail page. */}
+                {remaining && (
+                  <Link
+                  href={`/orders/${o.id}`}
+                  aria-label={`결제하기 (남은 시간 ${remaining}) - ${o.firstItemName}`}
+                  className="mt-1 inline-block text-sm underline"
+                >
+                    결제하기 (남은 시간 {remaining})
+                  </Link>
+                )}
+              </li>
+            );
+          })}
         </ul>
         {moreFailed && (
           <p role="alert" className="text-sm text-red-600">

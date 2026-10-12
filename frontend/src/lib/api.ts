@@ -17,6 +17,25 @@ export class WithdrawError extends Error {
   }
 }
 
+// Failed payment confirmation. `message` is already a short Korean sentence for the known server codes.
+export class PaymentError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly code?: string
+  ) {
+    super(message);
+  }
+}
+
+const PAYMENT_ERROR_MESSAGES: Record<string, string> = {
+  PAYMENT_NOT_CONFIRMED: "아직 결제가 확인되지 않았어요. 잠시 뒤 다시 확인해 주세요.",
+  PAYMENT_AMOUNT_MISMATCH: "결제 금액이 주문 금액과 달라 확인이 필요해요. 고객센터로 문의해 주세요.",
+  PAYMENT_NEEDS_REVIEW: "결제는 확인됐지만 재고 문제로 주문을 확정하지 못했어요. 확인 후 취소·환불을 안내해 드릴게요.",
+  PAYMENT_PROVIDER_UNAVAILABLE: "결제 확인이 지연되고 있어요. 잠시 뒤 다시 확인해 주세요.",
+  PAYMENT_NOT_CONFIGURED: "결제 준비 중이에요. 잠시 후 다시 시도해 주세요.",
+};
+
 export type Product = {
   id: string;
   name: string;
@@ -57,6 +76,10 @@ export type Order = {
   id: string;
   totalAmount: number; // includes shippingFee
   shippingFee: number; // an older backend response may omit it; treat as 0
+  // Optional on purpose: an older backend does not send the payment fields yet.
+  status?: string;
+  expiresAt?: string | null;
+  paidAt?: string | null;
   customerName: string;
   customerPhone: string;
   customerAddress: string;
@@ -68,6 +91,7 @@ export type OrderSummary = {
   createdAt: string;
   totalAmount: number;
   status: string;
+  expiresAt?: string | null;
   itemCount: number;
   firstItemName: string;
 };
@@ -168,6 +192,25 @@ export async function getOrder(id: string, token: string): Promise<Order | null>
   if (res.status === 404) return null;
   if (!res.ok) throw new Error("주문 정보를 불러오지 못했습니다.");
   return res.json();
+}
+
+// Returns the order status the server confirmed. 401/403 is a session problem (AuthError), anything else a PaymentError.
+export async function completeOrderPayment(id: string, token: string): Promise<string> {
+  const res = await apiFetch(`/api/orders/${encodeURIComponent(id)}/payment/complete`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (res.status === 401 || res.status === 403) throw new AuthError();
+  const data = await res.json().catch(() => null);
+  if (res.ok && typeof data?.status === "string") return data.status;
+  const code = typeof data?.code === "string" ? data.code : undefined;
+  const serverMessage = typeof data?.error === "string" ? data.error : typeof data?.message === "string" ? data.message : null;
+  throw new PaymentError(
+    res.status,
+    (code && PAYMENT_ERROR_MESSAGES[code]) || serverMessage || "결제 확인에 실패했어요. 잠시 뒤 다시 확인해 주세요.",
+    code
+  );
 }
 
 export async function listMyOrders(token: string, cursor?: string | null): Promise<OrderSummaryPage> {

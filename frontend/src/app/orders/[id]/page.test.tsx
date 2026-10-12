@@ -14,6 +14,8 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(mocks.query),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }));
+vi.mock("@/cart/CartContext", () => ({ useCart: () => ({ clear: vi.fn() }) }));
+vi.mock("@portone/browser-sdk/v2", () => ({ requestPayment: vi.fn() }));
 vi.mock("@/auth/AuthContext", () => ({
   useRequireRole: () => mocks.auth,
   useAuth: () => ({ logout: mocks.logout }),

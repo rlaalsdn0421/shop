@@ -22,10 +22,13 @@ describe("이용약관 페이지", () => {
     expect(screen.getByText(/배송비는 3,500원이며, 주문 금액이 50,000원 이상이면 무료/)).toBeInTheDocument();
   });
 
-  it("성공: 결제 기능이 아직 없다는 사실을 숨기지 않는다", () => {
+  it("성공: 결제수단, 20분 만료, 카드번호 미저장을 알린다", () => {
     render(<TermsPage />);
 
-    expect(screen.getByText(/현재 서비스에는 온라인 결제 기능이 없습니다\(준비 중\)/)).toBeInTheDocument();
+    expect(screen.getByText(/카드와 간편결제\(카카오페이, 네이버페이, 토스페이\)/)).toBeInTheDocument();
+    expect(screen.getByText(/카드번호를 저장하지 않습니다/)).toBeInTheDocument();
+    expect(screen.getByText(/20분 안에 결제하지 않으면 주문이 자동으로 취소/)).toBeInTheDocument();
+    expect(screen.queryByText(/온라인 결제 기능이 없습니다/)).not.toBeInTheDocument();
     expect(screen.queryByText(/서비스 내 안내에 따릅니다/)).not.toBeInTheDocument();
   });
 
