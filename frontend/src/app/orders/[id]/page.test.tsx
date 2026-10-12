@@ -48,6 +48,38 @@ beforeEach(() => {
   mocks.auth = { session: { token: "fake-token", role: "USER", username: "buyer" }, ready: true };
 });
 
+const row = (label: string) => screen.getByText(label).closest("div")!;
+
+describe("주문 금액 요약", () => {
+  it("성공: 배송비가 있으면 상품 금액(총액-배송비)·배송비·총 주문금액을 보인다", async () => {
+    mockFetch(200, { ...order, totalAmount: 19500, shippingFee: 3500 });
+    render(<OrderComplete />);
+    expect(await screen.findByText("총 주문금액")).toBeInTheDocument();
+    expect(row("상품 금액")).toHaveTextContent("16,000원");
+    expect(row("배송비")).toHaveTextContent("3,500원");
+    expect(row("총 주문금액")).toHaveTextContent("19,500원");
+  });
+
+  it("성공: 배송비가 0이면 '무료'로 보인다", async () => {
+    mockFetch(200, { ...order, totalAmount: 60000, shippingFee: 0 });
+    render(<OrderComplete />);
+    expect(await screen.findByText("총 주문금액")).toBeInTheDocument();
+    expect(row("상품 금액")).toHaveTextContent("60,000원");
+    expect(row("배송비")).toHaveTextContent("무료");
+    expect(row("총 주문금액")).toHaveTextContent("60,000원");
+  });
+
+  it("실패: 응답에 shippingFee가 없어도(구버전) 0으로 보고 총액을 그대로 보인다", async () => {
+    mockFetch(200, order);
+    render(<OrderComplete />);
+    expect(await screen.findByText("총 주문금액")).toBeInTheDocument();
+    expect(row("상품 금액")).toHaveTextContent("16,000원");
+    expect(row("배송비")).toHaveTextContent("무료");
+    expect(row("총 주문금액")).toHaveTextContent("16,000원");
+    expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
+  });
+});
+
 describe("주문 완료 페이지", () => {
   it("성공: 토큰을 Authorization 헤더로 보내고 주문 내용을 보여준다", async () => {
     mockFetch(200, order);

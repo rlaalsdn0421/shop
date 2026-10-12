@@ -55,7 +55,8 @@ export type OrderItem = {
 
 export type Order = {
   id: string;
-  totalAmount: number;
+  totalAmount: number; // includes shippingFee
+  shippingFee: number; // an older backend response may omit it; treat as 0
   customerName: string;
   customerPhone: string;
   customerAddress: string;
