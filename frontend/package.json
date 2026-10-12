@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@portone/browser-sdk": "0.1.13",
     "next": "16.3.5",
     "react": "19.2.8",
     "react-dom": "19.2.8"

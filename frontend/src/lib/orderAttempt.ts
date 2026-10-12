@@ -1,13 +1,16 @@
 const ATTEMPT_STORAGE_KEY = "shop-order-attempt";
 
-// Only a random key and a SHA-256 hash of the order content are persisted, never the name, phone or address.
-export type Attempt = { key: string; fingerprintHash: string };
+// Only a random key, a SHA-256 hash of the order content and the created order's id are persisted, never the name, phone or address.
+// orderId is unknown (undefined) until the server answered, and in entries written before it existed.
+export type Attempt = { key: string; fingerprintHash: string; orderId?: string };
 
 // sessionStorage keeps the key across a reload; it can throw (blocked, quota), so every access is guarded.
 export function readAttempt(): Attempt | null {
   try {
     const a = JSON.parse(sessionStorage.getItem(ATTEMPT_STORAGE_KEY) ?? "null");
-    if (typeof a?.key === "string" && typeof a?.fingerprintHash === "string") return a;
+    if (typeof a?.key === "string" && typeof a?.fingerprintHash === "string") {
+      return { key: a.key, fingerprintHash: a.fingerprintHash, ...(typeof a.orderId === "string" ? { orderId: a.orderId } : {}) };
+    }
     // Entries from before the hash change hold the plain fingerprint; do not leave personal data behind.
     if (a) sessionStorage.removeItem(ATTEMPT_STORAGE_KEY);
     return null;
@@ -26,6 +29,11 @@ export function saveAttempt(attempt: Attempt | null) {
 }
 
 export const clearOrderAttempt = () => saveAttempt(null);
+
+// True only when the stored attempt is known to have created this order; an entry without orderId is unknown and never matches.
+export function attemptIsFor(orderId: string) {
+  return readAttempt()?.orderId?.toLowerCase() === orderId.toLowerCase();
+}
 
 // Null when SubtleCrypto is unavailable (e.g. a non-secure context); the caller then keeps the attempt in memory only.
 export async function sha256Hex(text: string): Promise<string | null> {

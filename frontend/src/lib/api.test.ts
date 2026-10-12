@@ -9,7 +9,9 @@ import {
   listReviews,
   askChat,
   withdrawAccount,
+  completeOrderPayment,
   AuthError,
+  PaymentError,
   WithdrawError,
 } from "./api";
 
@@ -360,5 +362,66 @@ describe("withdrawAccount", () => {
   it("실패: 네트워크 오류는 그대로 전달된다", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("network")));
     await expect(withdrawAccount("t", "p")).rejects.toThrow("network");
+  });
+});
+
+describe("completeOrderPayment", () => {
+  function stubReply(status: number, json: () => Promise<unknown>) {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: status >= 200 && status < 300, status, json });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("성공: POST /api/orders/{id}/payment/complete 에 토큰을 보내고 서버가 확인한 status를 돌려준다", async () => {
+    const fetchMock = stubReply(200, async () => ({ status: "PAID" }));
+    await expect(completeOrderPayment("a/b", "fake-token")).resolves.toBe("PAID");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(new URL(String(url)).pathname).toBe("/api/orders/a%2Fb/payment/complete");
+    expect(init.method).toBe("POST");
+    expect(init.headers).toMatchObject({ Authorization: "Bearer fake-token" });
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("실패: 401/403은 AuthError다", async () => {
+    for (const status of [401, 403]) {
+      stubReply(status, async () => ({}));
+      await expect(completeOrderPayment("o1", "t")).rejects.toBeInstanceOf(AuthError);
+    }
+  });
+
+  it.each([
+    ["PAYMENT_NOT_CONFIRMED", 409, "아직 결제가 확인되지 않았어요. 잠시 뒤 다시 확인해 주세요."],
+    ["PAYMENT_AMOUNT_MISMATCH", 409, "결제 금액이 주문 금액과 달라 확인이 필요해요. 고객센터로 문의해 주세요."],
+    ["PAYMENT_NEEDS_REVIEW", 409, "결제는 확인됐지만 재고 문제로 주문을 확정하지 못했어요. 확인 후 취소·환불을 안내해 드릴게요."],
+    ["PAYMENT_PROVIDER_UNAVAILABLE", 503, "결제 확인이 지연되고 있어요. 잠시 뒤 다시 확인해 주세요."],
+    ["PAYMENT_NOT_CONFIGURED", 503, "결제 준비 중이에요. 잠시 후 다시 시도해 주세요."],
+  ])("실패: %s 는 PaymentError(code)와 한국어 문구다", async (code, status, message) => {
+    stubReply(status, async () => ({ error: "raw", code }));
+    await expect(completeOrderPayment("o1", "t")).rejects.toMatchObject({ status, code, message });
+    await expect(completeOrderPayment("o1", "t")).rejects.toBeInstanceOf(PaymentError);
+  });
+
+  it("실패: 알 수 없는 코드는 서버 문구(error, 없으면 message)를, 둘 다 없으면 기본 문구를 쓴다", async () => {
+    stubReply(404, async () => ({ error: "주문을 찾을 수 없습니다." }));
+    await expect(completeOrderPayment("o1", "t")).rejects.toMatchObject({ status: 404, message: "주문을 찾을 수 없습니다." });
+    stubReply(409, async () => ({ message: "서버 메시지", code: "SOMETHING_ELSE" }));
+    await expect(completeOrderPayment("o1", "t")).rejects.toMatchObject({ message: "서버 메시지", code: "SOMETHING_ELSE" });
+    stubReply(502, async () => {
+      throw new SyntaxError("not json");
+    });
+    await expect(completeOrderPayment("o1", "t")).rejects.toMatchObject({
+      status: 502,
+      message: "결제 확인에 실패했어요. 잠시 뒤 다시 확인해 주세요.",
+    });
+  });
+
+  it("실패: 200인데 status가 없으면 성공으로 다루지 않는다", async () => {
+    stubReply(200, async () => ({}));
+    await expect(completeOrderPayment("o1", "t")).rejects.toBeInstanceOf(PaymentError);
+  });
+
+  it("실패: 네트워크 오류는 그대로 전달된다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("network")));
+    await expect(completeOrderPayment("o1", "t")).rejects.toThrow("network");
   });
 });

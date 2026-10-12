@@ -14,10 +14,13 @@ import com.shop.backend.domain.error.ValidationException;
 import com.shop.backend.infrastructure.repository.OrderRepository;
 import com.shop.backend.infrastructure.repository.ProductRepository;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -32,11 +35,14 @@ public class OrderService {
     private final OrderRepository orderRepository;
 
     private final EntityManager em;
+    private final Clock clock;
 
-    public OrderService(ProductRepository productRepository, OrderRepository orderRepository, EntityManager em) {
+    public OrderService(ProductRepository productRepository, OrderRepository orderRepository, EntityManager em,
+                        Clock clock) {
         this.productRepository = productRepository;
         this.orderRepository = orderRepository;
         this.em = em;
+        this.clock = clock;
     }
 
     @Transactional
@@ -62,7 +68,24 @@ public class OrderService {
             if (!requestHash.equals(existing.get().getRequestHash())) {
                 throw new IdempotencyKeyReuseException();
             }
-            return existing.get(); // replay: no stock change, nothing saved
+            Order replay = existing.get();
+            Instant now = Instant.now(clock);
+            if (Order.STATUS_PENDING_PAYMENT.equals(replay.getStatus()) && replay.getExpiresAt() != null
+                    && replay.getExpiresAt().isBefore(now)) {
+                // Overdue but the sweeper has not run yet: the client would keep replaying a dead order, so expire it
+                // here (the client sees EXPIRED and re-keys). Lock order: advisory lock (held), this order row, products
+                // by id. Lock first, THEN re-read: the copy loaded above may predate a payment that committed while we
+                // waited for the lock, and expiring a just-paid order would wrongly return its stock. (refresh(entity,
+                // lockMode) is not enough: Hibernate 6 reads first with a plain SELECT and only then locks.)
+                em.lock(replay, LockModeType.PESSIMISTIC_WRITE);
+                em.refresh(replay);
+                if (replay.expire(now)) {
+                    PaymentTransactions.restoreStock(productRepository, replay);
+                }
+            }
+            // otherwise a replay changes no stock and saves nothing; the current status is returned as is
+            replay.getItems().forEach(item -> item.getProduct().getName()); // orderName() is read outside the tx
+            return replay;
         }
 
         List<Product> products = productRepository.findAllByIdIn(List.copyOf(quantityByProductId.keySet()));
@@ -103,7 +126,7 @@ public class OrderService {
         // backstop). A failed update throws, which rolls back the whole transaction (DomainException is a
         // RuntimeException), undoing the products already decremented.
         Order order = new Order(userId, idempotencyKey, requestHash, customerName, customerPhone, customerAddress, totalAmount,
-                shippingFee);
+                shippingFee, Instant.now(clock));
         for (Map.Entry<String, Integer> entry : sortedQuantities.entrySet()) {
             Product product = productsById.get(entry.getKey());
             int quantity = entry.getValue();

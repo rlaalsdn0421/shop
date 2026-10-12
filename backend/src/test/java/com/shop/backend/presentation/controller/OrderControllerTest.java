@@ -73,6 +73,46 @@ class OrderControllerTest {
     }
 
     @Test
+    @WithMockUser
+    void 성공_주문_생성_응답에_결제에_필요한_값이_들어_있다() throws Exception {
+        Instant now = Instant.parse("2026-06-15T12:00:00Z");
+        Order order = new Order("user-1", "key-12345", "hash", "홍길동", "010-1234-5678", "서울시", 13_500, 3_500, now);
+        ReflectionTestUtils.setField(order, "id", "order-1");
+        when(orderService.createOrder(any(), any(), any(), any(), any(), any())).thenReturn(order);
+
+        mockMvc.perform(post("/api/orders")
+                        .header("Idempotency-Key", KEY)
+                        .contentType("application/json")
+                        .content("""
+                                {"customerName":"홍길동","customerPhone":"010-1234-5678","customerAddress":"서울시",
+                                 "items":[{"productId":"p1","quantity":2}]}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.orderId").value("order-1"))
+                .andExpect(jsonPath("$.id").value("order-1"))
+                .andExpect(jsonPath("$.status").value("PENDING_PAYMENT"))
+                .andExpect(jsonPath("$.totalAmount").value(13_500))
+                .andExpect(jsonPath("$.orderName").value("주문"))
+                .andExpect(jsonPath("$.expiresAt").value("2026-06-15T12:20:00Z"));
+    }
+
+    @Test
+    @WithMockUser
+    void 성공_주문_조회에_상태와_만료_결제_시각이_들어_있다() throws Exception {
+        Instant now = Instant.parse("2026-06-15T12:00:00Z");
+        Order order = new Order("user-1", "key-12345", "hash", "홍길동", "010-1234-5678", "서울시", 13_500, 3_500, now);
+        ReflectionTestUtils.setField(order, "id", "order-1");
+        order.markPaid(now.plusSeconds(60), "tx-1");
+        when(orderService.getOrder(any(), any())).thenReturn(Optional.of(order));
+
+        mockMvc.perform(get("/api/orders/order-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PAID"))
+                .andExpect(jsonPath("$.expiresAt").value("2026-06-15T12:20:00Z"))
+                .andExpect(jsonPath("$.paidAt").value("2026-06-15T12:01:00Z"));
+    }
+
+    @Test
     void 실패_인증없이_주문하면_401을_반환한다() throws Exception {
         String body = """
                 {"customerName":"홍길동","customerPhone":"010-1234-5678","customerAddress":"서울시",
@@ -247,7 +287,9 @@ class OrderControllerTest {
                 .andExpect(jsonPath("$.orders[0].id").value("order-1"))
                 .andExpect(jsonPath("$.orders[0].createdAt").value("2026-10-11T01:02:03.123456Z"))
                 .andExpect(jsonPath("$.orders[0].totalAmount").value(13500))
-                .andExpect(jsonPath("$.orders[0].status").value("PAID"))
+                .andExpect(jsonPath("$.orders[0].status").value("PENDING_PAYMENT")) // a new order waits for payment
+                .andExpect(jsonPath("$.orders[0].expiresAt").value(nullValue())) // 8-arg fixture constructor: no deadline
+                .andExpect(jsonPath("$.orders[0].paidAt").value(nullValue()))
                 .andExpect(jsonPath("$.orders[0].itemCount").value(3))
                 .andExpect(jsonPath("$.orders[0].firstItemName").value("티셔츠"))
                 .andExpect(jsonPath("$.orders[0].customerAddress").doesNotExist())

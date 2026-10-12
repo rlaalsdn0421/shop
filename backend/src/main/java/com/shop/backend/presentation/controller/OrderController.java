@@ -34,7 +34,7 @@ public class OrderController {
         // JwtAuthFilter sets the user id as the principal (its name); SecurityConfig guarantees it is present
         var order = orderService.createOrder(authentication.getName(), idempotencyKey,
                 request.customerName(), request.customerPhone(), request.customerAddress(), lines);
-        return new OrderDtos.OrderIdResponse(order.getId());
+        return OrderDtos.OrderIdResponse.from(order);
     }
 
     @GetMapping

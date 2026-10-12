@@ -23,7 +23,7 @@ class FaqChatAnswererTest {
     @Test
     void 성공_점수가_높은_항목이_이긴다() {
         // 교환(1) vs 결제+카드(2)
-        assertTrue(answerer.answer("교환 결제 카드").answer().contains("준비 중"));
+        assertTrue(answerer.answer("교환 결제 카드").answer().contains("20분 안에 결제"));
     }
 
     @Test
@@ -123,9 +123,9 @@ class FaqChatAnswererTest {
     }
 
     @Test
-    void 성공_결제_질문은_결제_기능이_없다고_솔직하게_답한다() {
+    void 성공_결제_질문은_결제수단과_20분_제한을_안내한다() {
         String answer = answerer.answer("카드 결제 되나요").answer();
-        assertTrue(answer.contains("온라인 결제 기능이 없어요"));
+        assertTrue(answer.contains("카카오페이") && answer.contains("20분 안에 결제"));
         assertFalse(answer.contains("무통장입금은"));
     }
 
@@ -148,7 +148,7 @@ class FaqChatAnswererTest {
         Map<String, String> expectedSnippet = new LinkedHashMap<>();
         expectedSnippet.put("배송비와 배송 기간은 어떻게 되나요?", "상품과 지역에 따라");
         expectedSnippet.put("교환·환불은 어떻게 하나요?", "7일 이내");
-        expectedSnippet.put("결제 수단은 무엇이 있나요?", "준비 중");
+        expectedSnippet.put("결제 수단은 무엇이 있나요?", "20분 안에 결제");
         expectedSnippet.put("회원가입·로그인은 어떻게 하나요?", "회원가입 메뉴");
         expectedSnippet.put("로그인을 5회 실패하면 어떻게 되나요?", "5분간 막혀요");
         expectedSnippet.put("재고가 없는 상품은 언제 입고되나요?", "품절된 상품");

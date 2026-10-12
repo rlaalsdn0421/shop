@@ -41,6 +41,13 @@ CORS는 모든 `/api/**` 경로에 대해 `http://localhost:3000`(Next.js 프론
 - `GET /api/orders/{id}` — 주문 상세 (로그인 필수, 본인 주문만. 없거나 남의 주문이면 404). 응답에 `shippingFee`가 포함됩니다.
 - **배송비 규칙**: 상품 금액 합계가 50,000원 미만이면 배송비 3,500원, 50,000원 이상이면 무료(`ShippingPolicy`). 주문의 `totalAmount`는 상품 금액 + 배송비이고 `shippingFee`에 따로 저장됩니다(V14, 배송비 도입 전 주문은 0). 프론트 상수(`frontend/src/lib/constants.ts`)·FAQ 챗봇 문구와 함께 바꿔야 합니다.
 
+### 결제 (포트원 V2)
+
+새 주문은 `PENDING_PAYMENT`로 시작해 재고를 20분간 잡아 두고, 서버가 포트원에서 결제와 금액을 직접 확인하면 `PAID`가 됩니다(안 하면 `EXPIRED`로 정리, 만료 뒤 결제는 `PAYMENT_REVIEW`). 설계 전체(상태, 흐름, API, 웹훅 서명, 운영 설정)는 [`docs/payment-design.md`](../docs/payment-design.md)를 보세요.
+
+- `POST /api/orders/{id}/payment/complete` (로그인, 본인 주문만), `POST /api/payments/webhook` (서명 검증), `POST /api/internal/orders/expire-pending` (`X-Internal-Token`).
+- 환경변수(값은 저장소에 두지 않습니다): `PORTONE_API_SECRET`, `PORTONE_WEBHOOK_SECRET`, `PORTONE_STORE_ID`, `PORTONE_API_BASE`(기본 `https://api.portone.io`), `PORTONE_ALLOW_TEST_CHANNEL`(기본 `false`: LIVE 채널 결제만 인정, 테스트 채널 시험 때만 `true`), `INTERNAL_TOKEN`(32자 이상). 비어 있으면 결제 API는 503 `PAYMENT_NOT_CONFIGURED`, 내부 정리 API는 404(토큰이 32자보다 짧아도 404)입니다.
+
 ### 리뷰
 
 - `GET /api/products/{id}/reviews` — `{ averageRating, reviewCount, reviews[] }` 반환, 최신 리뷰 순, 리뷰가 없으면 `averageRating`은 `null`. 상품이 없으면 404.

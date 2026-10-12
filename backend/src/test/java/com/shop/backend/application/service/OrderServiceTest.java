@@ -14,6 +14,7 @@ import com.shop.backend.domain.error.ValidationException;
 import com.shop.backend.infrastructure.repository.OrderRepository;
 import com.shop.backend.infrastructure.repository.ProductRepository;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Answers;
@@ -23,7 +24,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -52,6 +55,8 @@ class OrderServiceTest {
     private OrderRepository orderRepository;
     private static final String USER = "user-1";
     private static final String KEY = "key-12345";
+    private static final Instant NOW = Instant.parse("2026-06-15T12:00:00Z");
+    private static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
     private final EntityManager em = mock(EntityManager.class, Answers.RETURNS_DEEP_STUBS);
 
     private static Product product(String id, int price, int stock) {
@@ -61,7 +66,7 @@ class OrderServiceTest {
     }
 
     private Order create(OrderLine... lines) {
-        return new OrderService(productRepository, orderRepository, em)
+        return new OrderService(productRepository, orderRepository, em, CLOCK)
                 .createOrder(USER, KEY, "구매자", "010-0000-0000", "서울", List.of(lines));
     }
 
@@ -85,6 +90,18 @@ class OrderServiceTest {
         assertThat(order.getShippingFee()).isEqualTo(ShippingPolicy.FEE);
         assertThat(order.getTotalAmount()).isEqualTo(itemsAmount + ShippingPolicy.FEE);
         assertThat(order.getItems()).extracting(i -> i.getPrice()).containsExactlyInAnyOrder(1500, 700);
+    }
+
+    @Test
+    void 성공_새_주문은_결제_대기로_시작하고_20분_뒤에_만료된다() {
+        givenProducts(product("p1", 1000, 10));
+        givenUpdatesSucceed();
+
+        Order order = create(new OrderLine("p1", 1));
+
+        assertThat(order.getStatus()).isEqualTo(Order.STATUS_PENDING_PAYMENT);
+        assertThat(order.getExpiresAt()).isEqualTo(NOW.plusSeconds(20 * 60));
+        assertThat(order.getPaidAt()).isNull();
     }
 
     @Test
@@ -253,6 +270,60 @@ class OrderServiceTest {
         return OrderValidation.requestHash("구매자", "010-0000-0000", "서울", Map.of(productId, quantity));
     }
 
+    /** A replayable order with lines pB then pA (2 units each), created at {@code created}, status as given. */
+    private Order replayOrder(String status, Instant created) {
+        Order existing = new Order(USER, KEY, hashOf("p1", 1), HASH_SOURCE_NAME, "010-0000-0000", "서울", 2000, 0, created);
+        ReflectionTestUtils.setField(existing, "id", "order-old");
+        ReflectionTestUtils.setField(existing, "status", status);
+        existing.addItem(new OrderItem(product("pB", 1000, 5), 2, 1000));
+        existing.addItem(new OrderItem(product("pA", 1000, 5), 2, 1000));
+        when(orderRepository.findByUserIdAndIdempotencyKey(USER, KEY)).thenReturn(Optional.of(existing));
+        return existing;
+    }
+
+    @Test
+    void 성공_기한이_지난_대기_주문을_같은_키로_다시_보내면_그_자리에서_만료시키고_재고를_상품_id_순으로_돌려준다() {
+        Order existing = replayOrder(Order.STATUS_PENDING_PAYMENT, NOW.minusSeconds(21 * 60));
+
+        Order replay = create(new OrderLine("p1", 1));
+
+        assertThat(replay).isSameAs(existing);
+        assertThat(replay.getStatus()).isEqualTo(Order.STATUS_EXPIRED);
+        InOrder inOrder = inOrder(em, productRepository);
+        inOrder.verify(em).lock(existing, LockModeType.PESSIMISTIC_WRITE); // lock the row, THEN re-read it, then the products
+        inOrder.verify(em).refresh(existing);
+        inOrder.verify(productRepository).incrementStock("pA", 2);
+        inOrder.verify(productRepository).incrementStock("pB", 2);
+        verify(productRepository, never()).decrementStockIfAvailable(anyString(), anyInt());
+        verify(orderRepository, never()).save(any(Order.class));
+    }
+
+    @Test
+    void 성공_기한_전이거나_이미_결제_만료된_주문의_재생은_아무것도_바꾸지_않는다() {
+        Order fresh = replayOrder(Order.STATUS_PENDING_PAYMENT, NOW.minusSeconds(10 * 60));
+        assertThat(create(new OrderLine("p1", 1)).getStatus()).isEqualTo(Order.STATUS_PENDING_PAYMENT);
+
+        for (String status : List.of(Order.STATUS_PAID, Order.STATUS_EXPIRED, Order.STATUS_PAYMENT_REVIEW)) {
+            Order overdue = replayOrder(status, NOW.minusSeconds(60 * 60));
+            assertThat(create(new OrderLine("p1", 1))).isSameAs(overdue);
+            assertThat(overdue.getStatus()).isEqualTo(status);
+        }
+
+        assertThat(fresh.getStatus()).isEqualTo(Order.STATUS_PENDING_PAYMENT);
+        verify(em, never()).lock(any(Object.class), any(LockModeType.class));
+        verify(em, never()).refresh(any(Object.class));
+        verify(productRepository, never()).incrementStock(anyString(), anyInt());
+    }
+
+    @Test
+    void 성공_정확히_기한_시각의_재생은_아직_만료가_아니다() {
+        replayOrder(Order.STATUS_PENDING_PAYMENT, NOW.minusSeconds(20 * 60)); // expiresAt == now
+
+        assertThat(create(new OrderLine("p1", 1)).getStatus()).isEqualTo(Order.STATUS_PENDING_PAYMENT);
+
+        verify(productRepository, never()).incrementStock(anyString(), anyInt());
+    }
+
     @Test
     void 성공_주문자와_요청_번호와_해시를_주문에_저장한다() {
         givenProducts(product("p1", 1000, 10));
@@ -303,7 +374,7 @@ class OrderServiceTest {
 
     @Test
     void 실패_요청_번호가_올바르지_않으면_DB에_아무것도_하지_않는다() {
-        OrderService service = new OrderService(productRepository, orderRepository, em);
+        OrderService service = new OrderService(productRepository, orderRepository, em, CLOCK);
 
         assertThatThrownBy(() -> service.createOrder(USER, null, "구매자", "010", "서울", List.of(new OrderLine("p1", 1))))
                 .isInstanceOf(ValidationException.class)
@@ -319,20 +390,20 @@ class OrderServiceTest {
         order.addItem(item);
         when(orderRepository.findByIdAndUserId("o1", USER)).thenReturn(Optional.of(order));
 
-        assertThat(new OrderService(productRepository, orderRepository, em).getOrder("o1", USER)).containsSame(order);
+        assertThat(new OrderService(productRepository, orderRepository, em, CLOCK).getOrder("o1", USER)).containsSame(order);
     }
 
     @Test
     void 실패_남의_주문이거나_없거나_주문자_없는_옛_주문이면_빈_결과다() {
         when(orderRepository.findByIdAndUserId("o1", "someone-else")).thenReturn(Optional.empty());
 
-        assertThat(new OrderService(productRepository, orderRepository, em).getOrder("o1", "someone-else")).isEmpty();
+        assertThat(new OrderService(productRepository, orderRepository, em, CLOCK).getOrder("o1", "someone-else")).isEmpty();
         verify(orderRepository, never()).findById(any());
     }
 
     @Test
     void 실패_주문자가_null이거나_비어_있으면_조회하지_않고_빈_결과다() {
-        OrderService service = new OrderService(productRepository, orderRepository, em);
+        OrderService service = new OrderService(productRepository, orderRepository, em, CLOCK);
 
         assertThat(service.getOrder("o1", null)).isEmpty();
         assertThat(service.getOrder("o1", "")).isEmpty();
@@ -357,7 +428,7 @@ class OrderServiceTest {
     }
 
     private OrderService service() {
-        return new OrderService(productRepository, orderRepository, em);
+        return new OrderService(productRepository, orderRepository, em, CLOCK);
     }
 
     @Test
