@@ -19,7 +19,9 @@
 - `PAID → CANCELING → CANCELLED` (고객 취소 또는 콘솔 취소 웹훅)
 - `PAID → SHIPPED → DELIVERED`
 - `SHIPPED|DELIVERED → CANCELING → REFUNDED` (관리자 환불, 4절). 약관의 "수령 후 7일"은 화면 경고로만 알리고, 관리자 환불은 7일이 지나도 판매자 재량으로 할 수 있다(하자 등).
-- `CANCELING`에서 포트원 취소가 실패하면 직전 상태(`PAID` 또는 `SHIPPED`/`DELIVERED`)로 되돌린다(`cancel_from` 컬럼에 직전 상태를 저장).
+- `CANCELING`에서 포트원 취소가 실패하면 직전 상태(`PAID` 또는 `SHIPPED`/`DELIVERED`)로 되돌린다(`cancel_from` 컬럼에 직전 상태를 저장). 단 5xx·타임아웃처럼 취소가 실제로 됐는지 알 수 없는 경우는 되돌리지 않고 `CANCELING`에 둔다. `CANCELING`이면 `cancel_from`이 반드시 있어야 한다(CHECK).
+- **결제 확정은 배송·취소 상태를 되돌리지 않는다**: `PENDING_PAYMENT`/`EXPIRED`만 `PAID`로 갈 수 있다. `complete` API와 `Transaction.Paid` 웹훅(재전송 포함)이 `CANCELING`/`CANCELLED`/`SHIPPED`/`DELIVERED`/`REFUNDED` 주문을 만나면 포트원을 부르지 않고 현재 상태를 그대로 돌려준다. (이걸 막지 않으면 고객이 배송된 주문을 다시 `PAID`로 만든 뒤 직접 취소해 전액 환불받을 수 있다.)
+- **막힌 `CANCELING` 구제**: 고객이 같은 취소를 다시 요청하면 이어서 처리하고(`cancel_from=PAID`), 관리자는 `POST /api/admin/orders/{id}/refund`로 `CANCELING`(출신 무관)을 이어서 처리할 수 있다. 일반 `PAID` 주문은 관리자 환불 대상이 아니다. 자동 정리 잡은 이번에 만들지 않는다.
 - 새 컬럼(모두 NULL 허용): `shipped_at`, `delivered_at`, `cancelled_at`, `cancel_from VARCHAR(20)`, `cancel_reason VARCHAR(200)`. `orders_status_valid` CHECK에 새 상태를 추가한다(lock_timeout 5s, 기존 행은 이미 허용 값이라 통과).
 - 판매 순위는 `PAID`, `SHIPPED`, `DELIVERED`만 센다(취소·환불 제외). 지금 `PAID`만 세는 쿼리를 찾아 맞춘다.
 
@@ -34,7 +36,7 @@
 ## 3. 웹훅 `Transaction.Cancelled` / `PartialCancelled`
 
 - 서명 검증은 기존과 같다. `Transaction.Cancelled`(전액 취소)가 오면 포트원에서 결제를 다시 조회해 `status == "CANCELLED"`이고 `id`가 주문 id일 때만 반영한다(웹훅 본문은 믿지 않는다).
-- 주문이 `PAID`/`CANCELING`이면 `CANCELLED`로(재고 복구), `SHIPPED`/`DELIVERED`면 `REFUNDED`로(재고 복구 없음) 바꾼다. 이미 `CANCELLED`/`REFUNDED`면 아무것도 안 한다(멱등). `PENDING_PAYMENT`/`EXPIRED`는 상태를 바꾸지 않고 INFO 로그만 남긴다. `PAYMENT_REVIEW`는 운영자가 콘솔에서 취소한 경우라 `CANCELLED`로 마무리하되 재고는 이미 안 잡혀 있으므로 복구하지 않는다.
+- 주문이 `PAID`이거나 `cancel_from=PAID`인 `CANCELING`이면 `CANCELLED`로(재고 복구), `SHIPPED`/`DELIVERED`이거나 `cancel_from`이 그 둘인 `CANCELING`이면 `REFUNDED`로(재고 복구 없음) 바꾼다. 판매자 환불 진행 중에 웹훅이 와도 반품 재고를 잘못 복구하지 않도록 `cancel_from`으로 가른다. 이미 `CANCELLED`/`REFUNDED`면 아무것도 안 한다(멱등). `PENDING_PAYMENT`/`EXPIRED`는 상태를 바꾸지 않고 INFO 로그만 남긴다. `PAYMENT_REVIEW`는 운영자가 콘솔에서 취소한 경우라 `CANCELLED`로 마무리하되 재고는 이미 안 잡혀 있으므로 복구하지 않는다.
 - `PartialCancelled`는 우리 정책에 없는 상태라 **ERROR 로그만** 남기고 주문은 그대로 둔다(운영자가 확인).
 
 ## 4. 관리자·판매자 API (`ADMIN`, `SELLER`)
