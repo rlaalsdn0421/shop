@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import OrderComplete from "./page";
 
@@ -39,6 +39,12 @@ function mockApi(gets: unknown[], cancel: unknown = reply(200, { status: "CANCEL
   );
 }
 const cancelCalls = () => vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST");
+// Two clicks inside one act(): React cannot re-render (and disable the button) in between, so only a real lock stops the second.
+const clickTwice = (el: HTMLElement) =>
+  act(async () => {
+    fireEvent.click(el);
+    fireEvent.click(el);
+  });
 const openPanel = async () => userEvent.click(await screen.findByRole("button", { name: "주문 취소" }));
 const confirm = () => userEvent.click(screen.getByRole("button", { name: "주문 취소 확정" }));
 
@@ -246,15 +252,113 @@ describe("주문 취소 흐름", () => {
     );
     render(<OrderComplete />);
     await openPanel();
-    const button = screen.getByRole("button", { name: "주문 취소 확정" });
-    await userEvent.dblClick(button);
+    await clickTwice(screen.getByRole("button", { name: "주문 취소 확정" }));
 
+    // Both clicks landed before React re-rendered, so only the ref lock can stop the second request.
+    expect(cancelCalls()).toHaveLength(1);
     expect(await screen.findByRole("button", { name: "취소 처리 중..." })).toBeDisabled();
     expect(screen.getByRole("button", { name: "돌아가기" })).toBeDisabled();
-    expect(cancelCalls()).toHaveLength(1);
     finish(reply(200, { status: "CANCELLED" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "취소 처리 중..." })).not.toBeInTheDocument());
     expect(cancelCalls()).toHaveLength(1);
+  });
+
+  it("성공: 취소 처리 중 주문의 '취소 이어서 처리'는 같은 취소 요청을 다시 보내고 취소 완료가 된다", async () => {
+    mockApi([{ ...order, status: "CANCELING" }, { ...order, status: "CANCELLED" }], reply(200, { status: "CANCELLED" }));
+    render(<OrderComplete />);
+    await userEvent.click(await screen.findByRole("button", { name: "취소 이어서 처리" }));
+
+    expect(await screen.findByText("주문 상태: 주문 취소됨(환불 완료)")).toBeInTheDocument();
+    expect(cancelCalls()).toHaveLength(1);
+    expect(String(cancelCalls()[0][0])).toMatch(/\/api\/orders\/o1\/cancel$/);
+    expect(JSON.parse(String(cancelCalls()[0][1]?.body))).toEqual({});
+    expect(screen.queryByRole("button", { name: "취소 이어서 처리" })).not.toBeInTheDocument();
+  });
+
+  it("실패: 판매자 환불이 진행 중이라 409면 배송 안내 문구를 보이고 다시 누를 수 있다", async () => {
+    mockApi([{ ...order, status: "CANCELING" }], reply(409, { error: "raw", code: "ORDER_NOT_CANCELLABLE" }));
+    render(<OrderComplete />);
+    await userEvent.click(await screen.findByRole("button", { name: "취소 이어서 처리" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("배송이 시작되어 바로 취소할 수 없어요");
+    expect(await screen.findByRole("button", { name: "취소 이어서 처리" })).toBeEnabled();
+  });
+
+  it("실패: 이어서 처리를 두 번 눌러도 요청은 한 번이다", async () => {
+    let finish!: (v: unknown) => void;
+    mockApi([{ ...order, status: "CANCELING" }], new Promise((r) => (finish = r)));
+    render(<OrderComplete />);
+    await clickTwice(await screen.findByRole("button", { name: "취소 이어서 처리" }));
+
+    expect(cancelCalls()).toHaveLength(1);
+    expect(await screen.findByRole("button", { name: "취소 처리 중..." })).toBeDisabled();
+    finish(reply(200, { status: "CANCELING" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "취소 처리 중..." })).not.toBeInTheDocument());
+    expect(cancelCalls()).toHaveLength(1);
+  });
+
+  it("성공: 취소가 됐는데 다시 불러오기가 실패해도 화면은 취소 완료 상태로 남고 안내만 보인다", async () => {
+    let gets = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method === "POST") return reply(200, { status: "CANCELLED" });
+        if (gets++ === 0) return reply(200, order);
+        return reply(500);
+      })
+    );
+    render(<OrderComplete />);
+    await openPanel();
+    await confirm();
+
+    expect(await screen.findByText(/최신 상태를 불러오지 못했어요/)).toBeInTheDocument();
+    expect(screen.getByText("주문 상태: 주문 취소됨(환불 완료)")).toBeInTheDocument();
+    expect(screen.queryByText("주문은 접수되었을 수 있어요. 잠시 후 다시 확인해 주세요.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("성공: 안내의 '상태 다시 확인'을 누르면 다시 불러오고 안내가 사라진다", async () => {
+    let gets = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method === "POST") return reply(200, { status: "CANCELLED" });
+        gets++;
+        return gets === 1 ? reply(200, order) : gets === 2 ? reply(500) : reply(200, { ...order, status: "CANCELLED", cancelledAt: "2026-10-13T03:00:00Z" });
+      })
+    );
+    render(<OrderComplete />);
+    await openPanel();
+    await confirm();
+    await userEvent.click(await screen.findByRole("button", { name: "상태 다시 확인" }));
+
+    expect(await screen.findByText("취소 2026. 10. 13.")).toBeInTheDocument();
+    expect(screen.queryByText(/최신 상태를 불러오지 못했어요/)).not.toBeInTheDocument();
+  });
+
+  it("실패: 취소와 상관없는 첫 불러오기 실패는 지금처럼 접수 경고 화면이다", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => reply(500)));
+    render(<OrderComplete />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("주문은 접수되었을 수 있어요");
+    expect(screen.queryByText(/최신 상태를 불러오지 못했어요/)).not.toBeInTheDocument();
+  });
+
+  it("성공: 확인 패널이 열리면 사유 입력으로 포커스가 가고, 돌아가기를 누르면 주문 취소 버튼으로 돌아온다", async () => {
+    mockApi([order]);
+    render(<OrderComplete />);
+    await openPanel();
+    expect(screen.getByLabelText("취소 사유 (선택)")).toHaveFocus();
+    await userEvent.click(screen.getByRole("button", { name: "돌아가기" }));
+    expect(screen.getByRole("button", { name: "주문 취소" })).toHaveFocus();
+  });
+
+  it("성공: 취소가 실패해 패널이 닫히면 주문 취소 버튼으로 포커스가 돌아온다", async () => {
+    mockApi([order], reply(503, { code: "CANCEL_PROVIDER_UNAVAILABLE" }));
+    render(<OrderComplete />);
+    await openPanel();
+    await confirm();
+    await screen.findByRole("alert");
+    expect(await screen.findByRole("button", { name: "주문 취소" })).toHaveFocus();
   });
 
   it("실패: 취소 중 401이면 로그아웃하고 오류 문구는 보이지 않는다", async () => {

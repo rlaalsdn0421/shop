@@ -1,10 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { FAKE_PAYMENT_ENV, clearPaymentEnv, stubPaymentEnv } from "@/test-utils/paymentEnv";
 
 vi.mock("@portone/browser-sdk/v2", () => ({ requestPayment: vi.fn() }));
 
 import * as PortOne from "@portone/browser-sdk/v2";
-import { getPaymentConfig, orderNameFor, payOrder, remainingLabel, statusLabel, type PayMethodId } from "./payment";
+import {
+  confirmPayment,
+  getPaymentConfig,
+  orderNameFor,
+  payOrder,
+  remainingLabel,
+  statusLabel,
+  type PayMethodId,
+} from "./payment";
 
 const requestPayment = vi.mocked(PortOne.requestPayment);
 
@@ -95,6 +103,26 @@ describe("getPaymentConfig", () => {
   it("실패: 채널 키가 하나도 없으면 상점 ID가 있어도 준비되지 않은 것이다", () => {
     stubPaymentEnv({ NEXT_PUBLIC_PORTONE_STORE_ID: "store-test-0000" });
     expect(getPaymentConfig()).toEqual({ ready: false });
+  });
+});
+
+describe("confirmPayment", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const stubStatus = (status: number, body: unknown) =>
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: status < 300, status, json: async () => body }));
+
+  it("성공: PAID, SHIPPED, DELIVERED 응답은 모두 결제된 것으로 보고 서버 상태를 함께 돌려준다", async () => {
+    for (const status of ["PAID", "SHIPPED", "DELIVERED"]) {
+      stubStatus(200, { status });
+      await expect(confirmPayment("o1", "t")).resolves.toEqual({ kind: "paid", status });
+    }
+  });
+
+  it("실패: 그 밖의 상태는 확인되지 않은 것으로 다룬다", async () => {
+    for (const status of ["PENDING_PAYMENT", "CANCELLED", "REFUNDED", "EXPIRED", "PAYMENT_REVIEW"]) {
+      stubStatus(200, { status });
+      await expect(confirmPayment("o1", "t")).resolves.toMatchObject({ kind: "unconfirmed" });
+    }
   });
 });
 

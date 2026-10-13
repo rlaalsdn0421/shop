@@ -29,6 +29,7 @@ const FILTERS = [
   { label: "취소·환불", status: CANCEL_FILTERS[0].status },
 ];
 const inCancelTab = (status: string) => CANCEL_FILTERS.some((f) => f.status === status);
+const RESUME_HINT = "취소 처리를 이어서 진행합니다";
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const LOAD_FAILED = "주문 목록을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.";
 
@@ -55,7 +56,12 @@ function AdminOrderList({ token }: { token: string }) {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [rowError, setRowError] = useState<Record<string, string>>({});
   const [refundFor, setRefundFor] = useState<string | null>(null);
-  const [reason, setReason] = useState("");
+  // One reason per order, so finishing a refund on one row never touches what is typed on another.
+  const [reasons, setReasons] = useState<Record<string, string>>({});
+  // List-level message (e.g. a state conflict that forced a reload) and the polite announcement of finished actions.
+  const [notice, setNotice] = useState("");
+  const [announce, setAnnounce] = useState("");
+  const prevRefundFor = useRef<string | null>(null);
   // Which filter/reload the list currently shows, so a late "more" response for an old one is dropped.
   const listKey = useRef("");
   const moreLock = useRef(false);
@@ -84,14 +90,26 @@ function AdminOrderList({ token }: { token: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, status, attempt]);
 
+  // Focus follows the refund form: into the reason field when it opens, back to the row's button when it closes.
+  useEffect(() => {
+    const prev = prevRefundFor.current;
+    prevRefundFor.current = refundFor;
+    if (refundFor) document.getElementById(`refund-reason-${refundFor}`)?.focus();
+    else if (prev) document.getElementById(`refund-open-${prev}`)?.focus();
+  }, [refundFor]);
+
   function reload(nextStatus: string) {
     setOrders(null);
     setNextCursor(null);
     setFailed(false);
     setMoreFailed(false);
+    // A "more" request still in flight belongs to the old list; its result is dropped, so it must not keep the button locked.
+    moreLock.current = false;
+    setLoadingMore(false);
     setRowError({});
+    setNotice("");
     setRefundFor(null);
-    setReason("");
+    setReasons({});
     setStatus(nextStatus);
     setAttempt((a) => a + 1);
   }
@@ -105,33 +123,44 @@ function AdminOrderList({ token }: { token: string }) {
     try {
       const page = await listAdminOrders(token, status, nextCursor);
       if (g !== listKey.current) return;
-      // Keep the list as is and only append orders we do not already show.
-      const seen = new Set((orders ?? []).map((o) => o.id));
-      setOrders([...(orders ?? []), ...page.orders.filter((o) => !seen.has(o.id))]);
+      // Appending to the latest list (not a copy from when the click happened) keeps rows an action changed meanwhile.
+      setOrders((prev) => {
+        const seen = new Set((prev ?? []).map((o) => o.id));
+        return [...(prev ?? []), ...page.orders.filter((o) => !seen.has(o.id))];
+      });
       setNextCursor(page.nextCursor);
     } catch (e) {
       if (g !== listKey.current) return;
       if (e instanceof AuthError) logout();
       else setMoreFailed(true);
     } finally {
-      moreLock.current = false;
-      setLoadingMore(false);
+      // After a reload the lock was already released and may belong to a newer request.
+      if (g === listKey.current) {
+        moreLock.current = false;
+        setLoadingMore(false);
+      }
     }
   }
 
-  // Runs one row action; returns true when the server accepted it. The row takes its new status from the response.
-  async function act(o: AdminOrder, call: () => Promise<string>, patch: Partial<AdminOrder> = {}) {
+  // Runs one row action; returns true when the server accepted it. The row takes its new status from the response;
+  // dates such as shippedAt come with the next load rather than from this device's clock.
+  async function act(o: AdminOrder, call: () => Promise<string>) {
     if (rowLocks.current.has(o.id)) return false;
     rowLocks.current.add(o.id);
     setBusy((b) => ({ ...b, [o.id]: true }));
     setRowError((r) => ({ ...r, [o.id]: "" }));
     try {
       const newStatus = await call();
-      setOrders((list) => list?.map((x) => (x.id === o.id ? { ...x, ...patch, status: newStatus } : x)) ?? list);
+      setOrders((list) => list?.map((x) => (x.id === o.id ? { ...x, status: newStatus } : x)) ?? list);
+      setAnnounce(`주문 ${o.id.slice(0, 8)}: ${statusLabel(newStatus) || newStatus}`);
       return true;
     } catch (e) {
       if (e instanceof AuthError) logout();
-      else {
+      else if (e instanceof OrderActionError && e.code === "INVALID_ORDER_STATE") {
+        // Someone else changed the order; the list is stale, so show the current one.
+        reload(status);
+        setNotice("주문 상태가 바뀌어 처리하지 못했어요. 목록을 새로 불러왔어요.");
+      } else {
         const message =
           e instanceof OrderActionError ? e.message : "요청 결과를 확인하지 못했어요. 목록을 새로고침해 확인해 주세요.";
         setRowError((r) => ({ ...r, [o.id]: message }));
@@ -143,16 +172,28 @@ function AdminOrderList({ token }: { token: string }) {
     }
   }
 
+  function openRefund(o: AdminOrder) {
+    setRefundFor(o.id);
+    // A stuck cancel is resumed through the same call; the hint is only a starting text, the reason stays required and editable.
+    setReasons((r) => ({ ...r, [o.id]: o.status === "CANCELING" ? RESUME_HINT : "" }));
+    setRowError((r) => ({ ...r, [o.id]: "" }));
+  }
+
   async function submitRefund(e: FormEvent, o: AdminOrder) {
     e.preventDefault();
-    const trimmed = reason.trim();
+    const trimmed = (reasons[o.id] ?? "").trim();
     if (!trimmed) {
       setRowError((r) => ({ ...r, [o.id]: "환불 사유를 입력해 주세요." }));
       return;
     }
     if (await act(o, () => refundOrder(o.id, token, trimmed))) {
-      setRefundFor(null);
-      setReason("");
+      // Only close the form if it is still this order's; the admin may have opened another row meanwhile.
+      setRefundFor((cur) => (cur === o.id ? null : cur));
+      setReasons((r) => {
+        const next = { ...r };
+        delete next[o.id];
+        return next;
+      });
     }
   }
 
@@ -181,7 +222,9 @@ function AdminOrderList({ token }: { token: string }) {
             const isBusy = !!busy[o.id];
             const deliveredAt = o.deliveredAt ? new Date(o.deliveredAt).getTime() : NaN;
             const late = now - deliveredAt > SEVEN_DAYS_MS;
-            const canRefund = o.status === "SHIPPED" || o.status === "DELIVERED";
+            // A cancel stuck at the provider (CANCELING) is finished through the same refund call.
+            const resuming = o.status === "CANCELING";
+            const canRefund = o.status === "SHIPPED" || o.status === "DELIVERED" || resuming;
             return (
               <li key={o.id} className="border rounded p-4 flex flex-col gap-2 text-sm">
                 <div className="flex justify-between text-xs text-gray-500">
@@ -212,9 +255,9 @@ function AdminOrderList({ token }: { token: string }) {
                 <div className="flex gap-2">
                   {o.status === "PAID" && (
                     <button
-                      onClick={() => act(o, () => shipOrder(o.id, token), { shippedAt: new Date().toISOString() })}
+                      onClick={() => act(o, () => shipOrder(o.id, token))}
                       disabled={isBusy}
-                      aria-label={`배송 시작 - 주문 ${short}`}
+                      aria-label={`${isBusy ? "처리 중 " : ""}배송 시작 - 주문 ${short}`}
                       className="bg-black text-white rounded px-3 py-1 disabled:opacity-50"
                     >
                       {isBusy ? "처리 중..." : "배송 시작"}
@@ -222,9 +265,9 @@ function AdminOrderList({ token }: { token: string }) {
                   )}
                   {o.status === "SHIPPED" && (
                     <button
-                      onClick={() => act(o, () => deliverOrder(o.id, token), { deliveredAt: new Date().toISOString() })}
+                      onClick={() => act(o, () => deliverOrder(o.id, token))}
                       disabled={isBusy}
-                      aria-label={`배송 완료 처리 - 주문 ${short}`}
+                      aria-label={`${isBusy ? "처리 중 " : ""}배송 완료 처리 - 주문 ${short}`}
                       className="bg-black text-white rounded px-3 py-1 disabled:opacity-50"
                     >
                       {isBusy ? "처리 중..." : "배송 완료"}
@@ -232,31 +275,33 @@ function AdminOrderList({ token }: { token: string }) {
                   )}
                   {canRefund && refundFor !== o.id && (
                     <button
-                      onClick={() => {
-                        setRefundFor(o.id);
-                        setReason("");
-                        setRowError((r) => ({ ...r, [o.id]: "" }));
-                      }}
+                      id={`refund-open-${o.id}`}
+                      onClick={() => openRefund(o)}
                       disabled={isBusy}
-                      aria-label={`환불 - 주문 ${short}`}
+                      aria-label={`${isBusy ? "처리 중 " : ""}${resuming ? "취소 이어서 처리" : "환불"} - 주문 ${short}`}
                       className="border rounded px-3 py-1 disabled:opacity-50"
                     >
-                      환불
+                      {resuming ? "취소 이어서 처리" : "환불"}
                     </button>
                   )}
                 </div>
+                {isBusy && <p className="text-gray-500">처리 중...</p>}
 
                 {canRefund && refundFor === o.id && (
                   <form noValidate onSubmit={(e) => submitRefund(e, o)} className="flex flex-col gap-2 border-t pt-2">
                     {o.status === "DELIVERED" && late && (
                       <p className="text-amber-700">수령 후 7일이 지났어요. 판매자 재량으로 환불할 수 있어요</p>
                     )}
-                    <p>결제 금액 전액을 환불해요. 되돌릴 수 없어요.</p>
+                    <p>
+                      {resuming
+                        ? "멈춰 있는 취소를 이어서 처리해요. 결제 금액 전액이 환불돼요."
+                        : "결제 금액 전액을 환불해요. 되돌릴 수 없어요."}
+                    </p>
                     <label htmlFor={`refund-reason-${o.id}`}>환불 사유</label>
                     <input
                       id={`refund-reason-${o.id}`}
-                      value={reason}
-                      onChange={(e) => setReason(e.target.value)}
+                      value={reasons[o.id] ?? ""}
+                      onChange={(e) => setReasons((r) => ({ ...r, [o.id]: e.target.value }))}
                       maxLength={200}
                       required
                       aria-required="true"
@@ -267,10 +312,10 @@ function AdminOrderList({ token }: { token: string }) {
                       <button
                         type="submit"
                         disabled={isBusy}
-                        aria-label={`환불 확정 - 주문 ${short}`}
+                        aria-label={`${isBusy ? "환불 처리 중 " : ""}${resuming ? "이어서 처리 확정" : "환불 확정"} - 주문 ${short}`}
                         className="bg-black text-white rounded px-3 py-1 disabled:opacity-50"
                       >
-                        {isBusy ? "환불 처리 중..." : "환불 확정"}
+                        {isBusy ? "환불 처리 중..." : resuming ? "이어서 처리 확정" : "환불 확정"}
                       </button>
                       <button
                         type="button"
@@ -319,6 +364,12 @@ function AdminOrderList({ token }: { token: string }) {
           새로고침
         </button>
       </div>
+      <p role="status" className="sr-only">{announce}</p>
+      {notice && (
+        <p role="alert" className="text-sm text-red-600">
+          {notice}
+        </p>
+      )}
       <div role="group" aria-label="주문 상태" className="flex flex-wrap gap-2">
         {FILTERS.map((f) => {
           const pressed = f.label === "취소·환불" ? inCancelTab(status) : f.status === status;

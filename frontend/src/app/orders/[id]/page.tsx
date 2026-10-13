@@ -69,6 +69,12 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState("");
   const cancelLock = useRef(false);
+  // The next refetch follows a cancel request: if it fails we keep the order we already show instead of the error page.
+  const quietRefetch = useRef(false);
+  const [staleNote, setStaleNote] = useState(false);
+  const reasonRef = useRef<HTMLTextAreaElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelWasOpen = useRef(false);
   // Runs once per mount (also under StrictMode's double effect) so the redirect result is confirmed only once.
   const returnHandled = useRef<Promise<void> | null>(null);
 
@@ -78,7 +84,7 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
       setUnconfirmed(false);
       setJustPaid(true);
       // Show the server-confirmed status right away so the pay block cannot reappear while the refetch is in flight.
-      setOrder((o) => (o ? { ...o, status: "PAID" } : o));
+      setOrder((o) => (o ? { ...o, status: result.status ?? "PAID" } : o));
       setAttempt((a) => a + 1);
     } else if (result.kind === "failed") setPayError(result.message);
     else if (result.kind === "unconfirmed") {
@@ -104,6 +110,8 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
   useEffect(() => {
     // Ignore a response that arrives after unmount or a retry.
     let cancelled = false;
+    const quiet = quietRefetch.current;
+    quietRefetch.current = false;
     // Without a redirect result the order is requested right away, in the same tick as before.
     (returned.paymentId ? handleReturn().then(() => getOrder(id, token)) : getOrder(id, token))
       .then((o) => {
@@ -112,6 +120,7 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
         if (o && String(o.id).toLowerCase() !== id.toLowerCase()) setFailed(true);
         else {
           setOrder(o);
+          setStaleNote(false);
           if (o && o.status !== "PENDING_PAYMENT") {
             // Nothing is left to confirm, so an earlier error would only be stale.
             setPayError("");
@@ -128,6 +137,7 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
         if (cancelled) return;
         // An expired or invalid token: logging out makes useRequireRole send the user to /login.
         if (e instanceof AuthError) logout();
+        else if (quiet) setStaleNote(true);
         else setFailed(true);
       });
     return () => {
@@ -147,6 +157,13 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
     window.addEventListener("pageshow", onShow);
     return () => window.removeEventListener("pageshow", onShow);
   }, []);
+
+  // Focus follows the confirm panel: into the reason field when it opens, back to its button when it closes.
+  useEffect(() => {
+    if (cancelOpen) reasonRef.current?.focus();
+    else if (panelWasOpen.current) triggerRef.current?.focus();
+    panelWasOpen.current = cancelOpen;
+  }, [cancelOpen]);
 
   function retry() {
     setFailed(false);
@@ -215,6 +232,7 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
       setCancelling(false);
     }
     // The server decides the final state (cancel time, or what a failed request left behind), so always read it back.
+    quietRefetch.current = true;
     setAttempt((a) => a + 1);
   }
 
@@ -264,6 +282,14 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
         {order.shippedAt && <p className="text-sm text-gray-600 mt-1">배송 시작 {formatKoreanDate(order.shippedAt)}</p>}
         {order.deliveredAt && <p className="text-sm text-gray-600 mt-1">배송 완료 {formatKoreanDate(order.deliveredAt)}</p>}
         {order.cancelledAt && <p className="text-sm text-gray-600 mt-1">취소 {formatKoreanDate(order.cancelledAt)}</p>}
+        {staleNote && (
+          <div role="status" className="flex items-center gap-2 text-sm text-gray-600 mt-1">
+            <span>최신 상태를 불러오지 못했어요. 화면의 상태가 오래됐을 수 있어요.</span>
+            <button onClick={() => setAttempt((a) => a + 1)} className="border rounded px-2 py-0.5">
+              상태 다시 확인
+            </button>
+          </div>
+        )}
       </div>
 
       {showCartNotice && (
@@ -341,6 +367,7 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
               </label>
               <textarea
                 id="cancel-reason"
+                ref={reasonRef}
                 value={cancelReason}
                 onChange={(e) => setCancelReason(e.target.value)}
                 maxLength={200}
@@ -367,6 +394,7 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
             </>
           ) : (
             <button
+              ref={triggerRef}
               onClick={() => {
                 setCancelError("");
                 setCancelOpen(true);
@@ -386,9 +414,22 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
       {order.status === "CANCELING" && (
         <div className="flex flex-col items-start gap-2 border-t pt-4 text-sm">
           <p>취소 처리 중이에요. 잠시 뒤 다시 확인해 주세요.</p>
-          <button onClick={() => setAttempt((a) => a + 1)} className="border rounded px-3 py-1">
-            새로고침
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => setAttempt((a) => a + 1)} className="border rounded px-3 py-1">
+              새로고침
+            </button>
+            {/* The server resumes a stuck cancel; a seller refund in progress answers 409, which is shown below. */}
+            <button
+              onClick={() => {
+                setCancelError("");
+                void cancel();
+              }}
+              disabled={cancelling}
+              className="border rounded px-3 py-1 disabled:opacity-50"
+            >
+              {cancelling ? "취소 처리 중..." : "취소 이어서 처리"}
+            </button>
+          </div>
         </div>
       )}
       {(order.status === "SHIPPED" || order.status === "DELIVERED") && (

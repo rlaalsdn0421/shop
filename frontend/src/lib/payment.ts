@@ -55,7 +55,8 @@ export function remainingLabel(expiresAt: string | null | undefined, now: number
 }
 
 export type PayResult =
-  | { kind: "paid" }
+  // `status` is what the server reported: PAID, or later (SHIPPED/DELIVERED) when the order already moved on.
+  | { kind: "paid"; status?: string }
   // The browser is leaving for the payment page; the result arrives on the redirect URL.
   | { kind: "redirected" }
   // Cancelled or failed before any money moved: the order stays payable.
@@ -67,7 +68,8 @@ export type PayResult =
 export async function confirmPayment(orderId: string, token: string): Promise<PayResult> {
   try {
     const status = await completeOrderPayment(orderId, token);
-    if (status === "PAID") return { kind: "paid" };
+    // An order already shipped or delivered was paid too; the backend answers with its current status instead of re-confirming.
+    if (status === "PAID" || status === "SHIPPED" || status === "DELIVERED") return { kind: "paid", status };
     return { kind: "unconfirmed", message: "결제 상태를 확인하지 못했어요. 주문내역에서 다시 확인해 주세요." };
   } catch (e) {
     if (e instanceof AuthError) throw e;
