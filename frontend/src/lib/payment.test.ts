@@ -3,7 +3,66 @@ import { FAKE_PAYMENT_ENV, clearPaymentEnv, stubPaymentEnv } from "@/test-utils/
 
 vi.mock("@portone/browser-sdk/v2", () => ({ requestPayment: vi.fn() }));
 
-import { getPaymentConfig, orderNameFor, remainingLabel, statusLabel } from "./payment";
+import * as PortOne from "@portone/browser-sdk/v2";
+import { getPaymentConfig, orderNameFor, payOrder, remainingLabel, statusLabel, type PayMethodId } from "./payment";
+
+const requestPayment = vi.mocked(PortOne.requestPayment);
+
+describe("payOrder", () => {
+  const pay = (id: PayMethodId, phone = "010-0000-0000") =>
+    payOrder({
+      orderId: "o1",
+      orderName: "셔츠",
+      totalAmount: 1000,
+      method: { id, label: id, channelKey: "channel-test" },
+      storeId: "store-test-0000",
+      customer: { name: "홍길동", phone },
+      token: "fake-token",
+    });
+  const sent = () => requestPayment.mock.calls[0][0] as unknown as Record<string, unknown>;
+
+  beforeEach(() => {
+    requestPayment.mockReset();
+  });
+
+  it("성공: 연락처는 숫자만 보낸다", async () => {
+    requestPayment.mockResolvedValue(undefined);
+    await pay("CARD", "+82 (10) 0000-0000");
+    expect(sent().customer).toEqual({ fullName: "홍길동", phoneNumber: "821000000000" });
+  });
+
+  it("실패: 숫자가 없는 연락처는 phoneNumber를 빼고 이름만 보낸다", async () => {
+    requestPayment.mockResolvedValue(undefined);
+    await pay("CARD", "asd");
+    expect(sent().customer).toEqual({ fullName: "홍길동" });
+  });
+
+  it.each(["NAVERPAY", "TOSSPAY"] as const)("성공: %s 는 availablePayMethods CARD를 보낸다", async (id) => {
+    requestPayment.mockResolvedValue(undefined);
+    await pay(id);
+    expect(sent().easyPay).toEqual({ easyPayProvider: id, availablePayMethods: ["CARD"] });
+  });
+
+  it("실패: 카카오페이는 availablePayMethods를 보내지 않고 카드는 easyPay가 없다", async () => {
+    requestPayment.mockResolvedValue(undefined);
+    await pay("KAKAOPAY");
+    expect(sent().easyPay).toEqual({ easyPayProvider: "KAKAOPAY" });
+    requestPayment.mockClear();
+    await pay("CARD");
+    expect(sent()).not.toHaveProperty("easyPay");
+  });
+
+  it("실패: SDK가 던지면 오류를 콘솔에 남기고 일반 문구를 돌려준다", async () => {
+    const thrown = new Error("phoneNumber 필드가 NON_EMPTY_STRING 조건을 만족하지 않습니다");
+    requestPayment.mockRejectedValue(thrown);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const result = await pay("CARD");
+    expect(result).toEqual({ kind: "failed", message: "결제창을 열지 못했어요. 잠시 후 다시 시도해 주세요." });
+    expect(log).toHaveBeenCalledWith("[payment] requestPayment threw", thrown);
+    expect(JSON.stringify(log.mock.calls)).not.toContain("fake-token");
+    log.mockRestore();
+  });
+});
 
 beforeEach(() => {
   vi.unstubAllEnvs();

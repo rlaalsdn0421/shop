@@ -149,7 +149,7 @@ describe("결제하기 동작", () => {
       payMethod: "EASY_PAY",
       easyPay: { easyPayProvider: "KAKAOPAY" },
       redirectUrl: `${window.location.origin}/orders/o1`,
-      customer: { fullName: "홍길동", phoneNumber: "010-0000-0000" },
+      customer: { fullName: "홍길동", phoneNumber: "01000000000" },
     });
     expect(await screen.findByText("주문 상태: 결제 완료")).toBeInTheDocument();
     expect(completeCalls()).toHaveLength(1);
