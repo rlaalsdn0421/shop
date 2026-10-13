@@ -5,12 +5,13 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useCart } from "@/cart/CartContext";
-import { useRequireRole } from "@/auth/AuthContext";
+import { useAuth, useRequireRole } from "@/auth/AuthContext";
 import { PaymentMethodSelect } from "@/components/PaymentMethodSelect";
 import { AuthError } from "@/lib/api";
 import { type Attempt, readAttempt, saveAttempt, sha256Hex } from "@/lib/orderAttempt";
 import { FREE_SHIPPING_THRESHOLD } from "@/lib/constants";
 import { formatWon } from "@/lib/price";
+import { isValidPhone } from "@/lib/phone";
 import { shippingFeeFor } from "@/lib/shipping";
 import {
   PAYMENT_NOT_READY,
@@ -28,6 +29,7 @@ const ORDER_TIMEOUT_MS = 20_000;
 export function CartView() {
   const { items, setQuantity, remove, totalAmount, clear } = useCart();
   const { session, ready } = useRequireRole(["ADMIN", "SELLER", "USER"]);
+  const { logout } = useAuth();
   const router = useRouter();
   const [form, setForm] = useState({ name: "", phone: "", address: "" });
   const [error, setError] = useState("");
@@ -73,6 +75,10 @@ export function CartView() {
     }
     if (!form.name.trim() || !form.phone.trim() || !form.address.trim()) {
       setError("이름, 연락처, 주소를 모두 입력해주세요.");
+      return;
+    }
+    if (!isValidPhone(form.phone.trim())) {
+      setError("연락처는 숫자 9~15자리로 입력해 주세요.");
       return;
     }
 
@@ -130,6 +136,12 @@ export function CartView() {
           attempt.current = { ...attempt.current, orderId };
           if (hash) saveAttempt(attempt.current);
           redirected = await continueToPayment(orderId, data, session.token, method);
+          return;
+        }
+        if (res.status === 401 || res.status === 403) {
+          // Not a definitive refusal of the order: the stored attempt stays so a retry after login reuses the key.
+          setError("로그인이 만료되었어요. 다시 로그인해 주세요.");
+          logout({ keepOrderAttempt: true });
           return;
         }
         const serverMessage = typeof data?.error === "string" ? data.error : null;

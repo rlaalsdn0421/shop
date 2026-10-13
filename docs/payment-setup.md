@@ -3,7 +3,7 @@
 설계는 [payment-design.md](payment-design.md). 이 문서는 **사용자가 직접 하는 설정**만 순서대로 적는다.
 채널은 포트원 콘솔에서 만든 `shop_test`(나이스페이먼츠, `nice_v2`) **하나**로 시작한다.
 
-> **비밀값 규칙**: API 시크릿, 웹훅 시크릿, 내부 토큰은 **채팅·문서·깃에 붙이지 않는다.** 아래 Cloud Shell 명령의 숨김 입력(`read -s`)으로만 넣는다.
+> **비밀값 규칙**: API 시크릿, 웹훅 시크릿, 내부 토큰은 **채팅·문서·깃에 붙이지 않는다.** 아래 Cloud Shell 명령의 화면에 보이는 입력(`read -rp`)으로만 넣는다. 화면 공유·녹화 중에는 실행하지 않는다.
 > 상점 ID와 채널 키는 공개값(브라우저에 그대로 들어가는 값)이라 괜찮다.
 
 ## 1. 포트원 콘솔에서 확인할 값
@@ -25,10 +25,10 @@ https://shop-backend-mklbqo55qa-as.a.run.app/api/payments/webhook
 
 Cloud Shell에서 한 블록씩 실행한다. 붙여넣기는 **`Ctrl + Shift + V`**(Mac은 `Cmd + V`)다. 값을 물으면 붙여 넣고 Enter.
 
-먼저 프로젝트를 선택한다(선택돼 있지 않으면 `Failed to find attribute [project]` 오류가 난다). 프로젝트 ID는 GitHub 저장소 변수 `GCP_PROJECT_ID`와 같은 값이다. `PROJECT_ID`를 글자 그대로 쓰지 말고 아래 실제 값을 쓴다. 확인 질문에는 영문 `y`.
+먼저 프로젝트를 선택한다(선택돼 있지 않으면 `Failed to find attribute [project]` 오류가 난다). 프로젝트 ID는 GitHub 저장소 변수 `GCP_PROJECT_ID`와 같은 값이다. 아래 `GCP_PROJECT_ID`를 그 실제 값으로 바꿔서 실행한다. 확인 질문에는 영문 `y`.
 
 ```bash
-gcloud config set project project-882f3f4e-3aec-4330-9b3
+gcloud config set project GCP_PROJECT_ID
 ```
 
 ```bash

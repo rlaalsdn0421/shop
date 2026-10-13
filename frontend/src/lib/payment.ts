@@ -1,5 +1,6 @@
 import * as PortOne from "@portone/browser-sdk/v2";
 import { AuthError, PaymentError, completeOrderPayment } from "./api";
+import { phoneDigits } from "./phone";
 
 // PortOne ids are public values set in Vercel (inlined at build time). Read at call time so tests can stub them.
 const clean = (value: string | undefined) => (value ?? "").trim();
@@ -82,6 +83,7 @@ export type PayRequest = {
 
 export async function payOrder(req: PayRequest): Promise<PayResult> {
   let response;
+  const phone = phoneDigits(req.customer.phone);
   try {
     response = await PortOne.requestPayment({
       storeId: req.storeId,
@@ -91,11 +93,22 @@ export async function payOrder(req: PayRequest): Promise<PayResult> {
       totalAmount: req.totalAmount,
       currency: "KRW",
       payMethod: req.method.id === "CARD" ? "CARD" : "EASY_PAY",
-      ...(req.method.id === "CARD" ? {} : { easyPay: { easyPayProvider: req.method.id } }),
+      ...(req.method.id === "CARD"
+        ? {}
+        : {
+            easyPay: {
+              easyPayProvider: req.method.id,
+              // Nice V2 requires the rendered payment method for these two providers.
+              ...(req.method.id === "NAVERPAY" || req.method.id === "TOSSPAY" ? { availablePayMethods: ["CARD" as const] } : {}),
+            },
+          }),
       redirectUrl: `${window.location.origin}/orders/${encodeURIComponent(req.orderId)}`,
-      customer: { fullName: req.customer.name, phoneNumber: req.customer.phone },
+      // The SDK throws on a phone number without digits, so it is sent digits-only and left out when empty.
+      customer: { fullName: req.customer.name, ...(phone ? { phoneNumber: phone } : {}) },
     });
-  } catch {
+  } catch (error) {
+    // Only the thrown error, never the token or customer data.
+    console.error("[payment] requestPayment threw", error);
     return { kind: "failed", message: "결제창을 열지 못했어요. 잠시 후 다시 시도해 주세요." };
   }
   if (!response) return { kind: "redirected" };

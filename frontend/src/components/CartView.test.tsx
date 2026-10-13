@@ -9,11 +9,13 @@ const requestPayment = vi.hoisted(() => vi.fn());
 vi.mock("@portone/browser-sdk/v2", () => ({ requestPayment }));
 
 const push = vi.fn();
+const logout = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, replace: vi.fn(), refresh: vi.fn() }),
 }));
 vi.mock("@/auth/AuthContext", () => ({
   useRequireRole: () => ({ session: { token: "fake-token", role: "USER", username: "buyer" }, ready: true }),
+  useAuth: () => ({ logout }),
 }));
 
 type Reply = { status: number; body?: unknown; json?: () => Promise<unknown> } | Error;
@@ -65,6 +67,7 @@ beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
   push.mockClear();
+  logout.mockClear();
 });
 
 function renderCartWith(price: number, quantity: number) {
@@ -372,6 +375,63 @@ describe("CartView 주문 멱등 키", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("이름, 연락처, 주소를 모두 입력해주세요.");
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it.each(["abc", "12345678", "1".repeat(16), "010.0000.0000", "010-0000-0000x", "01+00000000"])(
+    "실패: 연락처 %s 는 요청하지 않고 안내 문구를 보인다",
+    async (phone) => {
+      mockReplies({ status: 201, body: PAID_ORDER });
+      await renderCart();
+      await userEvent.clear(screen.getByLabelText("연락처"));
+      await userEvent.type(screen.getByLabelText("연락처"), phone);
+      await submit();
+      expect(await screen.findByRole("alert")).toHaveTextContent("연락처는 숫자 9~15자리로 입력해 주세요.");
+      expect(fetch).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(["010-0000-0000", "01000000000", "+82 10 0000 0000", "(02) 000-0000", "1".repeat(15), "123456789"])(
+    "성공: 연락처 %s 는 주문 요청까지 간다",
+    async (phone) => {
+      mockReplies({ status: 201, body: PAID_ORDER });
+      await renderCart();
+      await userEvent.clear(screen.getByLabelText("연락처"));
+      await userEvent.type(screen.getByLabelText("연락처"), phone);
+      await submit();
+      await waitFor(() => expect(push).toHaveBeenCalledWith("/orders/o1?placed=1"));
+      expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body)).customerPhone).toBe(phone);
+    }
+  );
+
+  it.each([401, 403])("실패: 주문 요청이 %i 이면 만료 안내를 보이고 로그아웃하며 저장된 시도는 지우지 않는다", async (status) => {
+    mockReplies({ status, body: { error: "인증이 필요합니다." } });
+    await renderCart();
+    await submit();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("로그인이 만료되었어요. 다시 로그인해 주세요.");
+    expect(alert).not.toHaveTextContent("인증이 필요합니다.");
+    expect(logout).toHaveBeenCalledTimes(1);
+    expect(logout).toHaveBeenCalledWith({ keepOrderAttempt: true });
+    expect(sessionStorage.getItem("shop-order-attempt")).not.toBeNull();
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("성공: 401 뒤 다시 눌러도 같은 키로 보낸다", async () => {
+    mockReplies({ status: 401, body: { error: "인증이 필요합니다." } }, { status: 201, body: PAID_ORDER });
+    await renderCart();
+    await submit();
+    await screen.findByRole("alert");
+    await submit();
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    expect(keys()[1]).toBe(keys()[0]);
+  });
+
+  it("실패: 400은 로그아웃하지 않고 서버 메시지를 보인다", async () => {
+    mockReplies({ status: 400, body: { error: "재고가 부족합니다." } });
+    await renderCart();
+    await submit();
+    expect(await screen.findByRole("alert")).toHaveTextContent("재고가 부족합니다.");
+    expect(logout).not.toHaveBeenCalled();
+  });
 });
 
 const PENDING_ORDER = { ...PAID_ORDER, status: "PENDING_PAYMENT", expiresAt: "2099-01-01T00:00:00Z" };
@@ -425,9 +485,9 @@ describe("CartView 결제", () => {
       totalAmount: 11500,
       currency: "KRW",
       payMethod: "EASY_PAY",
-      easyPay: { easyPayProvider: "TOSSPAY" },
+      easyPay: { easyPayProvider: "TOSSPAY", availablePayMethods: ["CARD"] },
       redirectUrl: `${window.location.origin}/orders/o1`,
-      customer: { fullName: "홍길동", phoneNumber: "010-0000-0000" },
+      customer: { fullName: "홍길동", phoneNumber: "01000000000" },
     });
     expect(completeCalls()).toHaveLength(1);
     expect(completeCalls()[0][1]?.headers).toMatchObject({ Authorization: "Bearer fake-token" });

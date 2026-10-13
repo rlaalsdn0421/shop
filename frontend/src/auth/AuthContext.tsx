@@ -17,7 +17,7 @@ type AuthContextValue = {
   session: Session | null;
   ready: boolean;
   login: (token: string, username: string, role: Role) => void;
-  logout: () => void;
+  logout: (options?: { keepOrderAttempt?: boolean }) => void;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -57,9 +57,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession({ token, username, role, expiresAt: Date.now() + TOKEN_TTL_MS });
   }
 
-  function logout() {
+  function logout(options?: { keepOrderAttempt?: boolean }) {
     // The stored order retry key belongs to this login; withdrawal also goes through here.
-    clearOrderAttempt();
+    // A caller mid order-retry (expired token after an in-flight order POST) passes keepOrderAttempt
+    // so a retry after re-login can still reuse the idempotency key.
+    if (!options?.keepOrderAttempt) clearOrderAttempt();
     setSession(null);
   }
 
