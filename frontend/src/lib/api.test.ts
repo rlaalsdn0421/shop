@@ -10,6 +10,12 @@ import {
   askChat,
   withdrawAccount,
   completeOrderPayment,
+  cancelOrder,
+  listAdminOrders,
+  shipOrder,
+  deliverOrder,
+  refundOrder,
+  OrderActionError,
   AuthError,
   PaymentError,
   WithdrawError,
@@ -423,5 +429,144 @@ describe("completeOrderPayment", () => {
   it("실패: 네트워크 오류는 그대로 전달된다", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("network")));
     await expect(completeOrderPayment("o1", "t")).rejects.toThrow("network");
+  });
+});
+
+function stubJson(status: number, body: unknown) {
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => {
+      if (body === undefined) throw new SyntaxError("not json");
+      return body;
+    },
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+describe("cancelOrder", () => {
+  it("성공: POST /api/orders/{id}/cancel 에 토큰과 사유를 보내고 status를 돌려준다", async () => {
+    const fetchMock = stubJson(200, { status: "CANCELLED" });
+    await expect(cancelOrder("a/b", "fake-token", "  단순 변심  ")).resolves.toBe("CANCELLED");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(new URL(String(url)).pathname).toBe("/api/orders/a%2Fb/cancel");
+    expect(init.method).toBe("POST");
+    expect(init.headers).toMatchObject({ Authorization: "Bearer fake-token" });
+    expect(JSON.parse(init.body)).toEqual({ reason: "단순 변심" });
+    expect(init.signal).toHaveProperty("aborted", false);
+  });
+
+  it("성공: 사유가 비어 있으면 reason 없이 빈 본문 객체를 보낸다", async () => {
+    const fetchMock = stubJson(200, { status: "CANCELING" });
+    await expect(cancelOrder("o1", "t", "   ")).resolves.toBe("CANCELING");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({});
+  });
+
+  it("실패: 401과 403은 AuthError다", async () => {
+    for (const status of [401, 403]) {
+      stubJson(status, {});
+      await expect(cancelOrder("o1", "t")).rejects.toBeInstanceOf(AuthError);
+    }
+  });
+
+  it.each([
+    ["ORDER_NOT_CANCELLABLE", 409, "배송이 시작되어 바로 취소할 수 없어요. 교환·환불은 연락처로 신청해 주세요."],
+    ["CANCEL_PROVIDER_UNAVAILABLE", 503, "취소 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요."],
+    ["PAYMENT_NOT_CONFIGURED", 503, "취소 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요."],
+  ])("실패: %s 는 OrderActionError(code)와 한국어 문구다", async (code, status, message) => {
+    stubJson(status, { error: "raw", code });
+    await expect(cancelOrder("o1", "t")).rejects.toMatchObject({ status, code, message });
+    await expect(cancelOrder("o1", "t")).rejects.toBeInstanceOf(OrderActionError);
+  });
+
+  it("실패: 404와 알 수 없는 오류, JSON이 아닌 응답은 기본 문구다", async () => {
+    stubJson(404, { error: "x" });
+    await expect(cancelOrder("o1", "t")).rejects.toMatchObject({ status: 404, message: "주문을 찾을 수 없어요." });
+    stubJson(500, undefined);
+    await expect(cancelOrder("o1", "t")).rejects.toMatchObject({
+      status: 500,
+      message: "요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요.",
+    });
+  });
+
+  it("실패: 200인데 status가 없으면 성공으로 다루지 않는다", async () => {
+    stubJson(200, {});
+    await expect(cancelOrder("o1", "t")).rejects.toBeInstanceOf(OrderActionError);
+  });
+});
+
+describe("listAdminOrders", () => {
+  const page = { orders: [{ id: "o1" }], nextCursor: "c2" };
+
+  it("성공: 상태와 cursor를 쿼리로 보내고 토큰을 싣는다", async () => {
+    const fetchMock = stubJson(200, page);
+    await expect(listAdminOrders("fake-token", "PAID", "c1")).resolves.toEqual(page);
+    const [url, init] = fetchMock.mock.calls[0];
+    const u = new URL(String(url));
+    expect(u.pathname).toBe("/api/admin/orders");
+    expect(u.searchParams.get("status")).toBe("PAID");
+    expect(u.searchParams.get("cursor")).toBe("c1");
+    expect(u.searchParams.get("size")).toBe("20");
+    expect(init.headers).toMatchObject({ Authorization: "Bearer fake-token" });
+  });
+
+  it("성공: 상태가 비면 status 없이 요청하고 nextCursor가 없으면 null이다", async () => {
+    const fetchMock = stubJson(200, { orders: [] });
+    await expect(listAdminOrders("t", "")).resolves.toEqual({ orders: [], nextCursor: null });
+    const u = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(u.searchParams.has("status")).toBe(false);
+    expect(u.searchParams.has("cursor")).toBe(false);
+  });
+
+  it("실패: 401/403은 AuthError, 그 밖의 오류와 잘못된 본문은 일반 예외다", async () => {
+    stubJson(403, {});
+    await expect(listAdminOrders("t")).rejects.toBeInstanceOf(AuthError);
+    stubJson(500, {});
+    await expect(listAdminOrders("t")).rejects.toThrow("주문 목록을 불러오지 못했습니다.");
+    stubJson(200, { orders: "x" });
+    await expect(listAdminOrders("t")).rejects.toThrow("주문 목록을 불러오지 못했습니다.");
+  });
+});
+
+describe("shipOrder / deliverOrder / refundOrder", () => {
+  it("성공: ship과 deliver는 본문 없이 POST하고 status를 돌려준다", async () => {
+    const ship = stubJson(200, { status: "SHIPPED" });
+    await expect(shipOrder("a/b", "fake-token")).resolves.toBe("SHIPPED");
+    const [url, init] = ship.mock.calls[0];
+    expect(new URL(String(url)).pathname).toBe("/api/admin/orders/a%2Fb/ship");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBeUndefined();
+    expect(init.headers).toMatchObject({ Authorization: "Bearer fake-token" });
+
+    const deliver = stubJson(200, { status: "DELIVERED" });
+    await expect(deliverOrder("o1", "t")).resolves.toBe("DELIVERED");
+    expect(new URL(String(deliver.mock.calls[0][0])).pathname).toBe("/api/admin/orders/o1/deliver");
+  });
+
+  it("성공: refund는 reason을 본문으로 보낸다", async () => {
+    const fetchMock = stubJson(200, { status: "REFUNDED" });
+    await expect(refundOrder("o1", "t", "하자")).resolves.toBe("REFUNDED");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(new URL(String(url)).pathname).toBe("/api/admin/orders/o1/refund");
+    expect(JSON.parse(init.body)).toEqual({ reason: "하자" });
+  });
+
+  it("실패: 401/403은 AuthError, 409 INVALID_ORDER_STATE와 404는 한국어 OrderActionError다", async () => {
+    stubJson(401, {});
+    await expect(shipOrder("o1", "t")).rejects.toBeInstanceOf(AuthError);
+    stubJson(409, { error: "raw", code: "INVALID_ORDER_STATE" });
+    await expect(deliverOrder("o1", "t")).rejects.toMatchObject({
+      status: 409,
+      code: "INVALID_ORDER_STATE",
+      message: "주문 상태가 바뀌어 처리할 수 없어요. 목록을 새로고침해 확인해 주세요.",
+    });
+    stubJson(404, { error: "x" });
+    await expect(refundOrder("o1", "t", "r")).rejects.toMatchObject({ status: 404, message: "주문을 찾을 수 없어요." });
+  });
+
+  it("실패: 네트워크 오류는 그대로 전달된다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("network")));
+    await expect(shipOrder("o1", "t")).rejects.toThrow("network");
   });
 });

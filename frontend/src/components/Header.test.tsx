@@ -125,6 +125,19 @@ describe("Header", () => {
       "/admin/products"
     );
   });
+
+  it("성공: 관리자에게는 주문 관리 링크가 /admin/orders로 보인다", async () => {
+    saveSession("ADMIN");
+    renderHeader();
+    expect(await screen.findByRole("link", { name: "주문 관리" })).toHaveAttribute("href", "/admin/orders");
+  });
+
+  it("실패: 일반 회원과 비로그인에게는 주문 관리 링크가 없다", async () => {
+    saveSession("USER");
+    renderHeader();
+    await screen.findByText("user01");
+    expect(screen.queryByRole("link", { name: "주문 관리" })).not.toBeInTheDocument();
+  });
 });
 
 describe("Header 더보기", () => {

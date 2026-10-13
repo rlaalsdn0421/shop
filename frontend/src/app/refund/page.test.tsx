@@ -18,6 +18,26 @@ describe("교환·환불·배송 안내 페이지", () => {
     expect(screen.getByText(/판매자가 부담합니다\(무상 처리\)/)).toBeInTheDocument();
   });
 
+  it("성공: 배송 전 직접 전액 취소(배송비 포함)와 배송 후 연락처 신청, 승인 취소 환불을 안내하고 환불 일수는 약속하지 않는다", () => {
+    render(<RefundPage />);
+
+    expect(screen.getByRole("heading", { name: /주문 취소와 환불 방법/ })).toBeInTheDocument();
+    expect(
+      screen.getByText("배송이 시작되기 전에는 주문내역의 주문 상세 화면에서 직접 주문을 취소할 수 있으며, 배송비를 포함한 결제 금액 전액을 환불받습니다.")
+    ).toBeInTheDocument();
+    expect(screen.getByText("배송이 시작된 뒤의 교환·환불은 안내된 연락처로 신청해 주세요.")).toBeInTheDocument();
+    expect(
+      screen.getByText("환불은 결제하신 원래 결제수단으로 돌려드리며, 카드 결제는 카드 승인 취소로 처리됩니다. 카드사에 따라 환불이 반영되기까지 며칠 걸릴 수 있습니다.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/\d+(영업)?일 (이내|안)에 환불/)).not.toBeInTheDocument();
+  });
+
+  it("실패: 배송 후 취소를 직접 할 수 있다고 안내하지 않는다", () => {
+    render(<RefundPage />);
+
+    expect(screen.queryByText(/배송이 시작된 뒤.*직접/)).not.toBeInTheDocument();
+  });
+
   it("성공: 배송비 3,500원과 50,000원 이상 무료를 안내하고 배송 기간 숫자는 약속하지 않는다", () => {
     render(<RefundPage />);
 

@@ -27,6 +27,11 @@ export const PAYMENT_NOT_READY = "결제 준비 중이에요. 준비가 끝나�
 const STATUS_LABELS: Record<string, string> = {
   PENDING_PAYMENT: "결제 대기",
   PAID: "결제 완료",
+  CANCELING: "취소 처리 중",
+  CANCELLED: "주문 취소됨(환불 완료)",
+  SHIPPED: "배송 중",
+  DELIVERED: "배송 완료",
+  REFUNDED: "환불 완료",
   EXPIRED: "주문 만료(결제하지 않아 취소됨)",
   PAYMENT_REVIEW: "확인 중(결제 확인 후 취소·환불을 안내해 드려요)",
 };

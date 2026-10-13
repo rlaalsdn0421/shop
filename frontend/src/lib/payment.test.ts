@@ -45,8 +45,18 @@ describe("statusLabel", () => {
     expect(statusLabel("PAID")).toBe("결제 완료");
   });
 
+  it("성공: 취소·배송·환불 상태도 한국어 문구로 바꾸고 기존 문구는 그대로다", () => {
+    expect(statusLabel("CANCELING")).toBe("취소 처리 중");
+    expect(statusLabel("CANCELLED")).toBe("주문 취소됨(환불 완료)");
+    expect(statusLabel("SHIPPED")).toBe("배송 중");
+    expect(statusLabel("DELIVERED")).toBe("배송 완료");
+    expect(statusLabel("REFUNDED")).toBe("환불 완료");
+    expect(statusLabel("EXPIRED")).toBe("주문 만료(결제하지 않아 취소됨)");
+    expect(statusLabel("PAYMENT_REVIEW")).toBe("확인 중(결제 확인 후 취소·환불을 안내해 드려요)");
+  });
+
   it("실패: 모르는 상태나 없는 상태는 빈 문자열이다", () => {
-    expect(statusLabel("CANCELLED")).toBe("");
+    expect(statusLabel("SOMETHING_NEW")).toBe("");
     expect(statusLabel(undefined)).toBe("");
   });
 });

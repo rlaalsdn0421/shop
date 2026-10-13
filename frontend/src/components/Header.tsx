@@ -29,11 +29,18 @@ export function Header() {
             {session ? (
               <>
                 {(session.role === "ADMIN" || session.role === "SELLER") && (
-                  <li>
-                    <Link href="/admin/products" className={utilityClass}>
-                      상품 관리
-                    </Link>
-                  </li>
+                  <>
+                    <li>
+                      <Link href="/admin/products" className={utilityClass}>
+                        상품 관리
+                      </Link>
+                    </li>
+                    <li>
+                      <Link href="/admin/orders" className={utilityClass}>
+                        주문 관리
+                      </Link>
+                    </li>
+                  </>
                 )}
                 <li>
                   <Link href="/orders" className={utilityClass}>

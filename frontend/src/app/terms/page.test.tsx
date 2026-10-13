@@ -32,6 +32,20 @@ describe("이용약관 페이지", () => {
     expect(screen.queryByText(/서비스 내 안내에 따릅니다/)).not.toBeInTheDocument();
   });
 
+  it("성공: 배송 전 직접 전액 취소와 승인 취소 환불, 배송 후 연락처 신청을 안내하고 20분 규칙도 그대로다", () => {
+    render(<TermsPage />);
+
+    expect(screen.getByText(/배송이 시작되기 전까지 주문내역의 주문 상세 화면에서 직접 취소할 수 있으며, 배송비를 포함한 결제 금액 전액이 결제수단의 승인 취소로 환불됩니다/)).toBeInTheDocument();
+    expect(screen.getByText(/카드사에 따라 며칠 걸릴 수 있습니다/)).toBeInTheDocument();
+    expect(screen.getByText(/20분 안에 결제하지 않으면 주문이 자동으로 취소/)).toBeInTheDocument();
+  });
+
+  it("실패: 환불 일수를 구체적으로 약속하지 않는다", () => {
+    render(<TermsPage />);
+
+    expect(screen.queryByText(/\d+(영업)?일 (이내|안)에 환불/)).not.toBeInTheDocument();
+  });
+
   it("성공: 개인정보 처리방침, 교환·환불 안내, 내 정보로 가는 링크가 있다", () => {
     render(<TermsPage />);
 

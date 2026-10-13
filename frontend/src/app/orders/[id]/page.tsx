@@ -6,7 +6,8 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth, useRequireRole } from "@/auth/AuthContext";
 import { useCart } from "@/cart/CartContext";
 import { PaymentMethodSelect } from "@/components/PaymentMethodSelect";
-import { getOrder, AuthError, type Order } from "@/lib/api";
+import { cancelOrder, getOrder, AuthError, OrderActionError, type Order } from "@/lib/api";
+import { formatKoreanDate } from "@/lib/date";
 import { attemptIsFor, clearOrderAttempt } from "@/lib/orderAttempt";
 import {
   PAYMENT_NOT_READY,
@@ -62,6 +63,12 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
   const [justPaid, setJustPaid] = useState(false);
   const [cartNoticeDismissed, setCartNoticeDismissed] = useState(false);
   const payLock = useRef(false);
+  // Customer cancel: the confirm panel, the optional reason, and a lock against a double click (same idea as payLock).
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState("");
+  const cancelLock = useRef(false);
   // Runs once per mount (also under StrictMode's double effect) so the redirect result is confirmed only once.
   const returnHandled = useRef<Promise<void> | null>(null);
 
@@ -184,6 +191,33 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
     }
   }
 
+  async function cancel() {
+    if (!order || cancelLock.current) return;
+    cancelLock.current = true;
+    setCancelling(true);
+    setCancelError("");
+    try {
+      const status = await cancelOrder(order.id, token, cancelReason);
+      setCancelOpen(false);
+      setCancelReason("");
+      setOrder((o) => (o ? { ...o, status } : o));
+    } catch (e) {
+      if (e instanceof AuthError) {
+        logout();
+        return;
+      }
+      setCancelError(
+        e instanceof OrderActionError ? e.message : "취소 결과를 확인하지 못했어요. 주문 상태를 확인해 주세요."
+      );
+      setCancelOpen(false);
+    } finally {
+      cancelLock.current = false;
+      setCancelling(false);
+    }
+    // The server decides the final state (cancel time, or what a failed request left behind), so always read it back.
+    setAttempt((a) => a + 1);
+  }
+
   const home = (
     <Link href="/" className="text-sm underline">
       홈으로
@@ -227,6 +261,9 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
         <h1 className="text-2xl font-bold">{placed || justPaid ? "주문이 접수되었습니다" : "주문 상세"}</h1>
         <p className="text-gray-600 text-sm mt-1">주문번호 {order.id}</p>
         {label && <p role="status" className="text-sm mt-1">주문 상태: {label}</p>}
+        {order.shippedAt && <p className="text-sm text-gray-600 mt-1">배송 시작 {formatKoreanDate(order.shippedAt)}</p>}
+        {order.deliveredAt && <p className="text-sm text-gray-600 mt-1">배송 완료 {formatKoreanDate(order.deliveredAt)}</p>}
+        {order.cancelledAt && <p className="text-sm text-gray-600 mt-1">취소 {formatKoreanDate(order.cancelledAt)}</p>}
       </div>
 
       {showCartNotice && (
@@ -290,6 +327,77 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
         <p role="alert" className="text-sm text-red-600">
           {payError}
         </p>
+      )}
+
+      {order.status === "PAID" && (
+        <div className="flex flex-col items-start gap-3 border-t pt-4">
+          {cancelOpen ? (
+            <>
+              <p className="text-sm">
+                주문을 취소하면 배송비를 포함한 결제 금액 전액이 환불돼요. 카드사에 따라 며칠 걸릴 수 있어요.
+              </p>
+              <label htmlFor="cancel-reason" className="text-sm">
+                취소 사유 (선택)
+              </label>
+              <textarea
+                id="cancel-reason"
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                maxLength={200}
+                rows={2}
+                disabled={cancelling}
+                className="w-full border rounded px-3 py-2 text-sm disabled:opacity-50"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={cancel}
+                  disabled={cancelling}
+                  className="bg-black text-white rounded px-4 py-2 text-sm disabled:opacity-50"
+                >
+                  {cancelling ? "취소 처리 중..." : "주문 취소 확정"}
+                </button>
+                <button
+                  onClick={() => setCancelOpen(false)}
+                  disabled={cancelling}
+                  className="border rounded px-4 py-2 text-sm disabled:opacity-50"
+                >
+                  돌아가기
+                </button>
+              </div>
+            </>
+          ) : (
+            <button
+              onClick={() => {
+                setCancelError("");
+                setCancelOpen(true);
+              }}
+              className="border rounded px-4 py-2 text-sm"
+            >
+              주문 취소
+            </button>
+          )}
+        </div>
+      )}
+      {cancelError && (
+        <p role="alert" className="text-sm text-red-600">
+          {cancelError}
+        </p>
+      )}
+      {order.status === "CANCELING" && (
+        <div className="flex flex-col items-start gap-2 border-t pt-4 text-sm">
+          <p>취소 처리 중이에요. 잠시 뒤 다시 확인해 주세요.</p>
+          <button onClick={() => setAttempt((a) => a + 1)} className="border rounded px-3 py-1">
+            새로고침
+          </button>
+        </div>
+      )}
+      {(order.status === "SHIPPED" || order.status === "DELIVERED") && (
+        <div className="flex flex-col items-start gap-1 border-t pt-4 text-sm">
+          <p>교환·환불은 연락처로 신청해 주세요.</p>
+          <Link href="/refund" className="underline">
+            교환·환불·배송 안내
+          </Link>
+        </div>
       )}
 
       <div className="flex flex-col gap-2 border-t pt-4">
