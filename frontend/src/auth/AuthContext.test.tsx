@@ -18,7 +18,8 @@ function Consumer() {
       <span data-testid="username">{session?.username ?? "none"}</span>
       <span data-testid="role">{session?.role ?? "none"}</span>
       <button onClick={() => login("new-token", "newuser01", "SELLER")}>login</button>
-      <button onClick={logout}>logout</button>
+      <button onClick={() => logout()}>logout</button>
+      <button onClick={() => logout({ keepOrderAttempt: true })}>logout-keep</button>
     </div>
   );
 }
@@ -98,6 +99,22 @@ describe("AuthProvider", () => {
     await waitFor(() => expect(screen.getByTestId("username")).toHaveTextContent("none"));
     expect(localStorage.getItem(KEY)).toBeNull();
     expect(sessionStorage.getItem("shop-order-attempt")).toBeNull();
+  });
+
+  it("성공: logout({ keepOrderAttempt: true })은 세션만 지우고 주문 시도 키는 남긴다", async () => {
+    localStorage.setItem(
+      KEY,
+      JSON.stringify({ token: "t", username: "user01", role: "USER", expiresAt: Date.now() + HOUR })
+    );
+    sessionStorage.setItem("shop-order-attempt", JSON.stringify({ key: "k", fingerprintHash: "h" }));
+    renderConsumer();
+    await waitFor(() => expect(screen.getByTestId("username")).toHaveTextContent("user01"));
+
+    screen.getByRole("button", { name: "logout-keep" }).click();
+
+    await waitFor(() => expect(screen.getByTestId("username")).toHaveTextContent("none"));
+    expect(localStorage.getItem(KEY)).toBeNull();
+    expect(sessionStorage.getItem("shop-order-attempt")).not.toBeNull();
   });
 
   it("실패: sessionStorage를 쓸 수 없어도 logout()은 세션을 지운다", async () => {

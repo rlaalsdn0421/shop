@@ -141,7 +141,7 @@ export function CartView() {
         if (res.status === 401 || res.status === 403) {
           // Not a definitive refusal of the order: the stored attempt stays so a retry after login reuses the key.
           setError("로그인이 만료되었어요. 다시 로그인해 주세요.");
-          logout();
+          logout({ keepOrderAttempt: true });
           return;
         }
         const serverMessage = typeof data?.error === "string" ? data.error : null;

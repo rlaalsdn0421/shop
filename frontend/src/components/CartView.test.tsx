@@ -410,6 +410,7 @@ describe("CartView 주문 멱등 키", () => {
     expect(alert).toHaveTextContent("로그인이 만료되었어요. 다시 로그인해 주세요.");
     expect(alert).not.toHaveTextContent("인증이 필요합니다.");
     expect(logout).toHaveBeenCalledTimes(1);
+    expect(logout).toHaveBeenCalledWith({ keepOrderAttempt: true });
     expect(sessionStorage.getItem("shop-order-attempt")).not.toBeNull();
     expect(push).not.toHaveBeenCalled();
   });
