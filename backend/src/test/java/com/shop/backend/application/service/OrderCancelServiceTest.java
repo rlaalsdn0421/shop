@@ -209,6 +209,47 @@ class OrderCancelServiceTest {
     }
 
     @Test
+    void 실패_포트원_취소는_성공했는데_마무리_트랜잭션이_실패하면_되돌리지_않고_예외를_그대로_올린다() {
+        configured();
+        when(transactions.beginCancel(ORDER, USER, null))
+                .thenReturn(new PaymentTransactions.CancelStart(Order.STATUS_CANCELING, true));
+        when(transactions.applyCancelled(ORDER)).thenThrow(new IllegalStateException("db down"));
+
+        assertThatThrownBy(() -> service().cancelByCustomer(ORDER, USER, null))
+                .isInstanceOf(IllegalStateException.class).hasMessage("db down");
+
+        // the money is already refunded: reverting to PAID would be wrong; the order stays CANCELING for a retry/webhook
+        verify(transactions, never()).revertCancel(anyString());
+    }
+
+    @Test
+    void 실패_판매자_환불의_포트원_결과를_알_수_없으면_취소중으로_두고_되돌리지_않는다() {
+        configured();
+        when(transactions.beginCancel(ORDER, null, "x"))
+                .thenReturn(new PaymentTransactions.CancelStart(Order.STATUS_CANCELING, true));
+        doThrow(new CancelProviderUnavailableException(true)).when(gateway).cancel(anyString(), anyString(), any());
+
+        assertThatThrownBy(() -> service().refundByAdmin(ORDER, "x"))
+                .isInstanceOf(CancelProviderUnavailableException.class);
+
+        verify(transactions, never()).revertCancel(anyString());
+        verify(transactions, never()).applyCancelled(anyString());
+    }
+
+    @Test
+    void 성공_판매자_환불은_멈춘_결제완료발_취소중_주문을_ADMIN으로_이어서_취소됨으로_마무리한다() {
+        configured();
+        when(transactions.beginCancel(ORDER, null, "고객 취소 멈춤"))
+                .thenReturn(new PaymentTransactions.CancelStart(Order.STATUS_CANCELING, true));
+        when(transactions.applyCancelled(ORDER)).thenReturn(
+                new PaymentTransactions.CancelApplied(Order.STATUS_CANCELLED, Order.CancelOutcome.RESTORE_STOCK));
+
+        assertThat(service().refundByAdmin(ORDER, "고객 취소 멈춤")).isEqualTo(Order.STATUS_CANCELLED);
+
+        verify(gateway).cancel(ORDER, "고객 취소 멈춤", PaymentGateway.Requester.ADMIN);
+    }
+
+    @Test
     void 실패_판매자_환불도_포트원_오류면_직전_상태로_되돌린다() {
         configured();
         when(transactions.beginCancel(ORDER, null, "x"))

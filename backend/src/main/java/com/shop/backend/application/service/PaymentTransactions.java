@@ -51,6 +51,12 @@ public class PaymentTransactions {
         Order order = orderRepository.findByIdForUpdate(orderId).orElseThrow(OrderNotFoundException::new);
         Instant now = Instant.now(clock);
 
+        if (order.isPastPayment()) {
+            // changed since the unlocked read in PaymentService (cancel/ship won the race): leave it alone
+            logger.info("Payment confirmation ignored, the order has moved on: orderId={} status={}", orderId,
+                    order.getStatus());
+            return order.getStatus();
+        }
         if (Order.STATUS_EXPIRED.equals(order.getStatus())) {
             List<OrderItem> items = sortedByProduct(order);
             int reserved = 0;

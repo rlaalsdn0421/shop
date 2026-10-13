@@ -94,8 +94,8 @@ class PortOnePaymentGatewayCancelTest {
     }
 
     @Test
-    void 실패_그_밖의_4xx_5xx는_응답을_받았으므로_결과_알_수_있는_취소_장애다() {
-        for (int code : new int[]{400, 401, 403, 404, 409, 500, 502}) {
+    void 실패_그_밖의_4xx는_명확한_거절이라_결과_알_수_있는_취소_장애다() {
+        for (int code : new int[]{400, 401, 403, 404, 409, 422}) {
             status = code;
             body = "{\"type\":\"PAYMENT_NOT_PAID\",\"message\":\"nope\"}";
             assertThatThrownBy(() -> gateway("test-secret").cancel("o1", "x", PaymentGateway.Requester.CUSTOMER))
@@ -103,6 +103,27 @@ class PortOnePaymentGatewayCancelTest {
                     .isInstanceOfSatisfying(CancelProviderUnavailableException.class,
                             e -> assertThat(e.isOutcomeUnknown()).isFalse());
         }
+    }
+
+    @Test
+    void 실패_5xx는_프록시_502_504_포함_취소가_됐을_수도_있어_결과를_알_수_없는_취소_장애다() {
+        for (int code : new int[]{500, 502, 503, 504}) {
+            status = code;
+            body = "{\"type\":\"UNKNOWN\"}";
+            assertThatThrownBy(() -> gateway("test-secret").cancel("o1", "x", PaymentGateway.Requester.CUSTOMER))
+                    .as("status " + code)
+                    .isInstanceOfSatisfying(CancelProviderUnavailableException.class,
+                            e -> assertThat(e.isOutcomeUnknown()).isTrue());
+        }
+    }
+
+    @Test
+    void 성공_5xx여도_이미_취소된_결제라는_본문이면_성공으로_본다() {
+        status = 500;
+        body = "{\"type\":\"PAYMENT_ALREADY_CANCELLED\"}";
+
+        assertThatCode(() -> gateway("test-secret").cancel("o1", "x", PaymentGateway.Requester.CUSTOMER))
+                .doesNotThrowAnyException();
     }
 
     @Test

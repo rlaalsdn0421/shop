@@ -167,8 +167,17 @@ public class Order {
     }
 
     /**
-     * Idempotent: PAID stays PAID. From EXPIRED the caller must already have re-reserved the stock. A PAYMENT_REVIEW
-     * order is never paid automatically.
+     * True once the order has been paid and moved on (CANCELING, CANCELLED, SHIPPED, DELIVERED, REFUNDED): a late or
+     * repeated "payment confirmed" must never touch it.
+     */
+    public boolean isPastPayment() {
+        return STATUS_CANCELING.equals(status) || STATUS_CANCELLED.equals(status) || STATUS_SHIPPED.equals(status)
+                || STATUS_DELIVERED.equals(status) || STATUS_REFUNDED.equals(status);
+    }
+
+    /**
+     * Legal only from PENDING_PAYMENT and EXPIRED (then the caller must already have re-reserved the stock).
+     * Idempotent: PAID stays PAID. A PAYMENT_REVIEW order is never paid automatically; any later status is refused.
      */
     public void markPaid(Instant now, String transactionId) {
         if (STATUS_PAID.equals(status)) {
@@ -176,6 +185,9 @@ public class Order {
         }
         if (STATUS_PAYMENT_REVIEW.equals(status)) {
             throw new PaymentNeedsReviewException();
+        }
+        if (!STATUS_PENDING_PAYMENT.equals(status) && !STATUS_EXPIRED.equals(status)) {
+            throw new InvalidOrderStateException("결제를 확정할 수 없는 주문 상태예요.");
         }
         status = STATUS_PAID;
         paidAt = now;
@@ -243,7 +255,9 @@ public class Order {
 
     /**
      * Seller refund, first step: SHIPPED/DELIVERED -> CANCELING. Returns true when the provider cancel must (still) be
-     * done (also when resuming), false when it is already REFUNDED.
+     * done, false when it is already REFUNDED. Also resumes ANY stuck CANCELING order, including one a customer started
+     * from PAID (provider timeout, killed instance, failed revert): finishCancel then yields CANCELLED + stock back.
+     * A plain PAID order is still refused (the customer cancels those, or the seller ships them).
      */
     public boolean beginRefund(String reason) {
         if (STATUS_REFUNDED.equals(status)) {
@@ -253,7 +267,7 @@ public class Order {
             enterCanceling(reason);
             return true;
         }
-        if (STATUS_CANCELING.equals(status) && (STATUS_SHIPPED.equals(cancelFrom) || STATUS_DELIVERED.equals(cancelFrom))) {
+        if (STATUS_CANCELING.equals(status)) {
             return true;
         }
         throw new InvalidOrderStateException("배송이 시작된 주문만 환불할 수 있어요.");
@@ -269,6 +283,9 @@ public class Order {
     public boolean revertCancel() {
         if (!STATUS_CANCELING.equals(status)) {
             return false;
+        }
+        if (cancelFrom == null) {
+            throw new IllegalStateException("CANCELING order without a valid cancel_from");
         }
         status = cancelFrom;
         cancelFrom = null;

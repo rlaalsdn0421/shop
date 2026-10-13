@@ -48,7 +48,7 @@ public class FaqChatAnswerer implements ChatAnswerer {
             // Self-service cancel exists only for PAID orders before shipping (order detail page); keep this in step with
             // the order cancel feature and the /refund page.
             new Faq("교환·환불은 어떻게 하나요?", List.of("교환", "환불", "반품", "왕복", "왕복배송비", "취소"),
-                    "배송이 시작되기 전에는 주문 상세 페이지에서 직접 주문을 취소할 수 있어요. 환불은 결제하신 수단으로 처리되고 카드사에 따라 며칠 걸릴 수 있어요. "
+                    "결제를 완료한 뒤 배송이 시작되기 전에는 주문 상세 페이지에서 직접 주문을 취소할 수 있어요. 결제하지 않은 주문은 20분이 지나면 자동으로 만료돼요. 환불은 결제하신 수단으로 처리되고 카드사에 따라 며칠 걸릴 수 있어요. "
                             + "배송이 시작된 뒤에는 바로 취소할 수 없고, 연락처로 문의해 주세요. "
                             + "수령 후 7일 이내에 교환·환불(청약철회)을 신청할 수 있어요. 단순 변심의 경우 왕복 배송비는 구매자가 부담해요. "
                             + "상품에 하자가 있거나 다른 상품이 배송된 경우에는 수령 후 3개월 이내(또는 안 날부터 30일 이내) 무상으로 처리해요. "

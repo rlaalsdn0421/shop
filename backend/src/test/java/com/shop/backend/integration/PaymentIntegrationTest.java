@@ -333,9 +333,11 @@ class PaymentIntegrationTest extends PostgresIntegrationTest {
     }
 
     private void insertOrderWithStatus(String status) {
-        jdbc.update("INSERT INTO orders (id, customer_name, customer_phone, customer_address, total_amount, status, created_at) "
-                        + "VALUES (?, 'n', 'p', 'a', 1, ?, ?)",
-                UUID.randomUUID().toString(), status, Timestamp.valueOf(LocalDateTime.now()));
+        // V16 orders_canceling_has_origin: a CANCELING row must say where it came from
+        jdbc.update("INSERT INTO orders (id, customer_name, customer_phone, customer_address, total_amount, status, created_at, cancel_from) "
+                        + "VALUES (?, 'n', 'p', 'a', 1, ?, ?, ?)",
+                UUID.randomUUID().toString(), status, Timestamp.valueOf(LocalDateTime.now()),
+                "CANCELING".equals(status) ? "PAID" : null);
     }
 
     // ------------------------------------------------------------------ 1. V15

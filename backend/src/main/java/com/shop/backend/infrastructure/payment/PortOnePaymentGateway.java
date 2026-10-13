@@ -116,7 +116,8 @@ public class PortOnePaymentGateway implements PaymentGateway {
             }
             // status only: the message/body may echo request details
             logger.error("PortOne cancel failed: status={}", e.getStatusCode().value());
-            throw new CancelProviderUnavailableException(false);
+            // 5xx (incl. proxy 502/504): the cancel may have gone through, so the outcome is unknown; 4xx is a definite refusal
+            throw new CancelProviderUnavailableException(e.getStatusCode().is5xxServerError());
         } catch (RestClientException e) {
             // no answer (timeout, connection reset): the cancel may have gone through
             logger.error("PortOne cancel got no answer: {}", e.getClass().getSimpleName());

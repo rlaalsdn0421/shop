@@ -6,6 +6,7 @@ import com.shop.backend.domain.entity.Product;
 import com.shop.backend.domain.error.InvalidOrderStateException;
 import com.shop.backend.domain.error.OrderNotCancellableException;
 import com.shop.backend.domain.error.OrderNotFoundException;
+import com.shop.backend.domain.error.PaymentNeedsReviewException;
 import com.shop.backend.infrastructure.repository.OrderRepository;
 import com.shop.backend.infrastructure.repository.ProductRepository;
 import jakarta.persistence.EntityManager;
@@ -20,6 +21,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -30,6 +32,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /** Plain Mockito: the sequence of calls of the cancel transactions. Row locks and real SQL are the integration tests' job. */
@@ -194,6 +197,48 @@ class PaymentTransactionsCancelTest {
         assertThat(tx().applyCancelled("o1").status()).isEqualTo(Order.STATUS_CANCELLED);
 
         verify(productRepository, never()).incrementStock(anyString(), anyInt());
+    }
+
+    @Test
+    void 성공_판매자_환불은_멈춘_결제완료발_취소중_주문을_이어받고_결제완료_주문은_거부한다() {
+        Order stuck = order(Order.STATUS_PAID, "pA");
+        stuck.beginCustomerCancel("고객");
+        when(orderRepository.findByIdForUpdate("stuck")).thenReturn(Optional.of(stuck));
+        when(orderRepository.findByIdForUpdate("plain")).thenReturn(Optional.of(order(Order.STATUS_PAID)));
+
+        assertThat(tx().beginCancel("stuck", null, "판매자")).isEqualTo(
+                new PaymentTransactions.CancelStart(Order.STATUS_CANCELING, true));
+        assertThatThrownBy(() -> tx().beginCancel("plain", null, "판매자")).isInstanceOf(InvalidOrderStateException.class);
+    }
+
+    // applyPaid must never move an order that has already moved past PAID
+
+    @Test
+    void 성공_결제_이후_상태의_주문은_applyPaid가_아무것도_바꾸지_않고_현재_상태를_돌려준다() {
+        for (String status : List.of(Order.STATUS_CANCELING, Order.STATUS_CANCELLED, Order.STATUS_SHIPPED,
+                Order.STATUS_DELIVERED, Order.STATUS_REFUNDED)) {
+            Order order = order(status, "pA");
+            if (Order.STATUS_CANCELING.equals(status)) {
+                ReflectionTestUtils.setField(order, "cancelFrom", Order.STATUS_PAID);
+            }
+            when(orderRepository.findByIdForUpdate("o-" + status)).thenReturn(Optional.of(order));
+
+            assertThat(tx().applyPaid("o-" + status, "tx-late")).as(status).isEqualTo(status);
+
+            assertThat(order.getStatus()).isEqualTo(status);
+            assertThat(order.getPaidAt()).isNull();
+            assertThat(order.getPaymentTransactionId()).isNull();
+        }
+        verifyNoInteractions(productRepository);
+    }
+
+    @Test
+    void 성공_applyPaid는_PAID는_그대로_두고_PAYMENT_REVIEW는_기존대로_예외다() {
+        when(orderRepository.findByIdForUpdate("paid")).thenReturn(Optional.of(order(Order.STATUS_PAID)));
+        when(orderRepository.findByIdForUpdate("review")).thenReturn(Optional.of(order(Order.STATUS_PAYMENT_REVIEW)));
+
+        assertThat(tx().applyPaid("paid", "tx")).isEqualTo(Order.STATUS_PAID);
+        assertThatThrownBy(() -> tx().applyPaid("review", "tx")).isInstanceOf(PaymentNeedsReviewException.class);
     }
 
     @Test

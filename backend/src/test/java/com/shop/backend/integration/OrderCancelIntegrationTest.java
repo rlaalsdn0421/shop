@@ -446,7 +446,9 @@ class OrderCancelIntegrationTest extends PostgresIntegrationTest {
     void 성공_orders_status_valid는_아홉_가지_상태를_모두_받는다() {
         for (String status : List.of("PENDING_PAYMENT", "PAID", "EXPIRED", "PAYMENT_REVIEW", "CANCELING", "CANCELLED",
                 "SHIPPED", "DELIVERED", "REFUNDED")) {
-            assertThatCode(() -> insertRaw(status, null, null)).as(status).doesNotThrowAnyException();
+            // orders_canceling_has_origin: a CANCELING row needs cancel_from
+            assertThatCode(() -> insertRaw(status, "CANCELING".equals(status) ? "PAID" : null, null)).as(status)
+                    .doesNotThrowAnyException();
         }
         assertThat(orderCount()).isEqualTo(9);
     }
@@ -475,7 +477,9 @@ class OrderCancelIntegrationTest extends PostgresIntegrationTest {
     @Test
     void 성공_orders_cancel_from_valid는_PAID_SHIPPED_DELIVERED와_NULL을_받는다() {
         for (String from : new String[]{"PAID", "SHIPPED", "DELIVERED", null}) {
-            assertThatCode(() -> insertRaw("CANCELING", from, null)).as("[%s]", from).doesNotThrowAnyException();
+            // NULL is only legal when the row is not CANCELING (orders_canceling_has_origin)
+            assertThatCode(() -> insertRaw(from == null ? "PAID" : "CANCELING", from, null)).as("[%s]", from)
+                    .doesNotThrowAnyException();
         }
         assertThat(orderCount()).isEqualTo(4);
     }
@@ -1281,8 +1285,8 @@ class OrderCancelIntegrationTest extends PostgresIntegrationTest {
     @Test
     void 실패_배송_전_상태의_환불은_INVALID_ORDER_STATE이고_포트원도_부르지_않으며_행과_재고는_그대로다() {
         product("p1", 10);
-        for (String status : List.of("PENDING_PAYMENT", "PAID", "EXPIRED", "PAYMENT_REVIEW", "CANCELLED", "CANCELING")) {
-            Placed p = paid(data.user(), line("p1", 1)); // CANCELING is forced with cancel_from PAID: a customer cancel in flight
+        for (String status : List.of("PENDING_PAYMENT", "PAID", "EXPIRED", "PAYMENT_REVIEW", "CANCELLED")) {
+            Placed p = paid(data.user(), line("p1", 1));
             forceStatus(p.orderId(), status);
             Map<String, Object> before = row(p.orderId());
             Map<String, Integer> stockBefore = stocks("p1");
@@ -1297,17 +1301,16 @@ class OrderCancelIntegrationTest extends PostgresIntegrationTest {
     }
 
     @Test
-    void 실패_고객_취소가_진행_중인_PAID_출신_CANCELING_주문을_판매자가_환불할_수_없다() {
+    void 성공_멈춘_PAID_출신_CANCELING_주문은_판매자_환불이_ADMIN으로_이어받아_CANCELLED와_재고_복구로_끝낸다() {
         product("p1", 10);
         Placed p = paid(data.user(), line("p1", 3));
         customerCancelInFlight(p, "고객 사유");
-        Map<String, Object> before = row(p.orderId());
 
-        assertThatThrownBy(() -> cancelService.refundByAdmin(p.orderId(), "판매자 사유")).isInstanceOf(InvalidOrderStateException.class);
+        assertThat(cancelService.refundByAdmin(p.orderId(), "판매자 사유")).isEqualTo("CANCELLED");
 
-        assertThat(row(p.orderId())).isEqualTo(before);
-        assertThat(gateway.cancelCalls).isEmpty();
-        assertThat(stock("p1")).isEqualTo(7);
+        assertThat(status(p.orderId())).isEqualTo("CANCELLED");
+        assertThat(gateway.cancelCalls).containsExactly(new CancelCall(p.orderId(), "판매자 사유", Requester.ADMIN));
+        assertThat(stock("p1")).isEqualTo(10);
     }
 
     @Test
@@ -1525,7 +1528,7 @@ class OrderCancelIntegrationTest extends PostgresIntegrationTest {
     }
 
     @Test
-    void 성공_고객_취소와_관리자_환불_시도가_PAID_주문에서_동시에_와도_환불은_항상_거부되고_취소만_반영된다() throws Exception {
+    void 성공_고객_취소와_관리자_환불_시도가_PAID_주문에서_동시에_와도_거부되거나_이어받을_뿐_취소는_한_번만_반영된다() throws Exception {
         for (int round = 0; round < 20; round++) {
             newRound();
             product("p1", 10);
@@ -1535,12 +1538,14 @@ class OrderCancelIntegrationTest extends PostgresIntegrationTest {
                     () -> cancelService.cancelByCustomer(p.orderId(), p.userId(), "사유"),
                     () -> cancelService.refundByAdmin(p.orderId(), "판매자 사유")));
 
+            // The seller either came first (PAID: refused) or found the customer's CANCELING order and resumed it.
             assertThat(results.get(0)).as("round %d", round).isEqualTo("CANCELLED");
-            assertThat(results.get(1)).as("round %d: no refund for an unshipped order", round).isInstanceOf(InvalidOrderStateException.class);
+            assertThat(results.get(1)).as("round %d", round)
+                    .satisfiesAnyOf(r -> assertThat(r).isInstanceOf(InvalidOrderStateException.class),
+                            r -> assertThat(r).isEqualTo("CANCELLED"));
             assertThat(status(p.orderId())).as("round %d", round).isEqualTo("CANCELLED");
-            assertThat(stock("p1")).as("round %d", round).isEqualTo(10);
-            assertThat(gateway.cancelCalls).as("round %d: the provider only ever hears the customer", round)
-                    .hasSize(1).allSatisfy(c -> assertThat(c.requester()).isEqualTo(Requester.CUSTOMER));
+            assertThat(stock("p1")).as("round %d: restored exactly once", round).isEqualTo(10);
+            assertThat(gateway.cancelCalls).as("round %d", round).isNotEmpty().hasSizeLessThanOrEqualTo(2);
         }
     }
 
@@ -1599,6 +1604,9 @@ class OrderCancelIntegrationTest extends PostgresIntegrationTest {
             ReflectionTestUtils.setField(order, "id", id);
             ReflectionTestUtils.setField(order, "createdAt", createdAt);
             ReflectionTestUtils.setField(order, "status", status);
+            if ("CANCELING".equals(status)) {
+                ReflectionTestUtils.setField(order, "cancelFrom", "PAID"); // orders_canceling_has_origin
+            }
             for (Line line : lines) {
                 order.addItem(new OrderItem(em.getReference(Product.class, line.productId()), line.quantity(), line.price()));
             }

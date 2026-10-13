@@ -24,8 +24,8 @@ public interface PaymentGateway {
 
     /**
      * Cancels the whole payment. Returns normally when it is cancelled, including "was already cancelled". Throws
-     * CancelProviderUnavailableException (outcomeUnknown=false when the provider answered with an error, true on a
-     * timeout or connection failure) and PaymentNotConfiguredException when the API secret is empty.
+     * CancelProviderUnavailableException (outcomeUnknown=false when the provider refused with a 4xx, true on a 5xx, a
+     * timeout or a connection failure, where the cancel may still have happened) and PaymentNotConfiguredException when the API secret is empty.
      */
     void cancel(String paymentId, String reason, Requester requester);
 }

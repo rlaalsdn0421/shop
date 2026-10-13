@@ -2,6 +2,7 @@ package com.shop.backend.domain.entity;
 
 import com.shop.backend.domain.error.InvalidOrderStateException;
 import com.shop.backend.domain.error.OrderNotCancellableException;
+import com.shop.backend.domain.error.PaymentNeedsReviewException;
 import com.shop.backend.domain.error.ValidationException;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -154,8 +155,27 @@ class OrderCancelTest {
             Order order = withStatus(status);
             assertThatThrownBy(() -> order.beginRefund("x")).as(status).isInstanceOf(InvalidOrderStateException.class);
         }
-        Order paidCanceling = canceling(Order.STATUS_PAID);
-        assertThatThrownBy(() -> paidCanceling.beginRefund("x")).isInstanceOf(InvalidOrderStateException.class);
+    }
+
+    @Test
+    void 성공_판매자_환불은_고객이_시작했다가_멈춘_결제완료발_취소중_주문도_이어서_처리한다() {
+        Order order = canceling(Order.STATUS_PAID);
+
+        assertThat(order.beginRefund("고객 취소가 멈춤")).isTrue();
+
+        assertThat(order.getStatus()).isEqualTo(Order.STATUS_CANCELING);
+        assertThat(order.getCancelFrom()).isEqualTo(Order.STATUS_PAID);
+        assertThat(order.finishCancel(NOW)).isEqualTo(Order.CancelOutcome.RESTORE_STOCK);
+        assertThat(order.getStatus()).isEqualTo(Order.STATUS_CANCELLED);
+    }
+
+    @Test
+    void 실패_결제완료_주문은_판매자_환불로_바로_취소되지_않는다() {
+        Order order = withStatus(Order.STATUS_PAID);
+
+        assertThatThrownBy(() -> order.beginRefund("x")).isInstanceOf(InvalidOrderStateException.class);
+        assertThat(order.getStatus()).isEqualTo(Order.STATUS_PAID);
+        assertThat(order.getCancelFrom()).isNull();
     }
 
     // revert
@@ -176,6 +196,59 @@ class OrderCancelTest {
         Order order = withStatus(Order.STATUS_CANCELLED);
         assertThat(order.revertCancel()).isFalse();
         assertThat(order.getStatus()).isEqualTo(Order.STATUS_CANCELLED);
+    }
+
+    @Test
+    void 실패_직전_상태가_없는_취소중_주문은_되돌리지_않고_상태를_null로_만들지_않는다() {
+        Order order = withStatus(Order.STATUS_CANCELING);
+        assertThatThrownBy(order::revertCancel).isInstanceOf(IllegalStateException.class);
+        assertThat(order.getStatus()).isEqualTo(Order.STATUS_CANCELING);
+    }
+
+    // markPaid is legal only before the payment (PENDING_PAYMENT / EXPIRED)
+
+    @Test
+    void 성공_결제_대기와_만료_주문만_결제완료로_바뀌고_결제완료는_그대로다() {
+        for (String status : List.of(Order.STATUS_PENDING_PAYMENT, Order.STATUS_EXPIRED)) {
+            Order order = withStatus(status);
+            order.markPaid(NOW, "tx-1");
+            assertThat(order.getStatus()).as(status).isEqualTo(Order.STATUS_PAID);
+            assertThat(order.getPaidAt()).isEqualTo(NOW);
+        }
+        Order paid = withStatus(Order.STATUS_PAID);
+        paid.markPaid(NOW, "tx-2");
+        assertThat(paid.getStatus()).isEqualTo(Order.STATUS_PAID);
+        assertThat(paid.getPaidAt()).isNull(); // untouched
+        assertThat(paid.getPaymentTransactionId()).isNull();
+    }
+
+    @Test
+    void 실패_결제_확인_필요_주문은_markPaid가_기존대로_예외다() {
+        Order order = withStatus(Order.STATUS_PAYMENT_REVIEW);
+        assertThatThrownBy(() -> order.markPaid(NOW, "tx")).isInstanceOf(PaymentNeedsReviewException.class);
+        assertThat(order.getStatus()).isEqualTo(Order.STATUS_PAYMENT_REVIEW);
+    }
+
+    @Test
+    void 실패_결제_이후_상태의_주문은_markPaid로_결제완료로_돌아가지_못한다() {
+        for (String status : List.of(Order.STATUS_CANCELING, Order.STATUS_CANCELLED, Order.STATUS_SHIPPED,
+                Order.STATUS_DELIVERED, Order.STATUS_REFUNDED)) {
+            Order order = withStatus(status);
+            assertThatThrownBy(() -> order.markPaid(NOW, "tx")).as(status)
+                    .isInstanceOf(InvalidOrderStateException.class);
+            assertThat(order.getStatus()).isEqualTo(status);
+            assertThat(order.getPaidAt()).isNull();
+            assertThat(order.getPaymentTransactionId()).isNull();
+        }
+    }
+
+    @Test
+    void 성공_결제_이후_상태만_isPastPayment가_참이다() {
+        for (String status : Order.STATUSES) {
+            boolean expected = List.of(Order.STATUS_CANCELING, Order.STATUS_CANCELLED, Order.STATUS_SHIPPED,
+                    Order.STATUS_DELIVERED, Order.STATUS_REFUNDED).contains(status);
+            assertThat(withStatus(status).isPastPayment()).as(status).isEqualTo(expected);
+        }
     }
 
     // finish (our own cancel and the console webhook)

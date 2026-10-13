@@ -6,7 +6,13 @@ import com.shop.backend.domain.error.OrderNotFoundException;
 import com.shop.backend.domain.error.PaymentNotConfiguredException;
 import com.shop.backend.domain.error.PaymentProviderUnavailableException;
 import com.shop.backend.infrastructure.repository.OrderRepository;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -16,10 +22,13 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -72,16 +81,69 @@ class PaymentServiceCancelWebhookTest {
     }
 
     @Test
-    void 성공_이미_취소된_주문과_결제_전_주문의_취소_웹훅은_정상_응답한다() {
+    void 성공_이미_취소된_주문의_취소_웹훅은_아무_로그도_상태_변경도_없이_끝난다() {
         ourOrderAndProvider(payment("CANCELLED"));
         when(transactions.applyCancelled(ORDER)).thenReturn(
-                new PaymentTransactions.CancelApplied(Order.STATUS_CANCELLED, Order.CancelOutcome.ALREADY_FINAL),
-                new PaymentTransactions.CancelApplied(Order.STATUS_EXPIRED, Order.CancelOutcome.IGNORED),
-                new PaymentTransactions.CancelApplied(Order.STATUS_REFUNDED, Order.CancelOutcome.NO_STOCK_CHANGE));
+                new PaymentTransactions.CancelApplied(Order.STATUS_CANCELLED, Order.CancelOutcome.ALREADY_FINAL));
+        ListAppender<ILoggingEvent> logs = captureLogs();
 
         service(STORE).handleWebhook("id", "ts", "sig", event("Transaction.Cancelled"));
+
+        verify(transactions).applyCancelled(ORDER);
+        verifyNoMoreInteractions(transactions); // no begin/revert/paid, so no stock or state work of ours
+        verify(gateway, never()).cancel(anyString(), anyString(), any());
+        assertThat(logs.list).isEmpty();
+    }
+
+    @Test
+    void 성공_결제_전_주문의_취소_웹훅은_상태를_바꾸지_않고_INFO만_남긴다() {
+        ourOrderAndProvider(payment("CANCELLED"));
+        when(transactions.applyCancelled(ORDER)).thenReturn(
+                new PaymentTransactions.CancelApplied(Order.STATUS_EXPIRED, Order.CancelOutcome.IGNORED));
+        ListAppender<ILoggingEvent> logs = captureLogs();
+
         service(STORE).handleWebhook("id", "ts", "sig", event("Transaction.Cancelled"));
+
+        verify(transactions).applyCancelled(ORDER);
+        verifyNoMoreInteractions(transactions);
+        assertThat(logs.list).singleElement().satisfies(e -> {
+            assertThat(e.getLevel()).isEqualTo(Level.INFO);
+            assertThat(e.getFormattedMessage()).contains("never paid").contains(ORDER).contains(Order.STATUS_EXPIRED);
+        });
+    }
+
+    @Test
+    void 성공_배송_후_주문의_취소_웹훅은_환불됨으로_마무리하고_재고_복구_없음을_INFO로_남긴다() {
+        ourOrderAndProvider(payment("CANCELLED"));
+        when(transactions.applyCancelled(ORDER)).thenReturn(
+                new PaymentTransactions.CancelApplied(Order.STATUS_REFUNDED, Order.CancelOutcome.NO_STOCK_CHANGE));
+        ListAppender<ILoggingEvent> logs = captureLogs();
+
         service(STORE).handleWebhook("id", "ts", "sig", event("Transaction.Cancelled"));
+
+        verify(transactions).applyCancelled(ORDER);
+        verifyNoMoreInteractions(transactions);
+        assertThat(logs.list).singleElement().satisfies(e -> {
+            assertThat(e.getLevel()).isEqualTo(Level.INFO);
+            assertThat(e.getFormattedMessage()).contains("stock not restored").contains(ORDER);
+        });
+    }
+
+    private final Logger serviceLogger = (Logger) LoggerFactory.getLogger(PaymentService.class);
+    private ListAppender<ILoggingEvent> appender;
+
+    private ListAppender<ILoggingEvent> captureLogs() {
+        appender = new ListAppender<>();
+        appender.start();
+        serviceLogger.addAppender(appender);
+        return appender;
+    }
+
+    @AfterEach
+    void detachLogs() {
+        if (appender != null) {
+            serviceLogger.detachAppender(appender);
+        }
     }
 
     @Test

@@ -87,6 +87,11 @@ public class PaymentService {
         if (Order.STATUS_PAYMENT_REVIEW.equals(order.getStatus())) {
             throw new PaymentNeedsReviewException();
         }
+        if (order.isPastPayment()) {
+            // CANCELING/CANCELLED/SHIPPED/DELIVERED/REFUNDED: paid long ago and moved on. Never ask the provider or
+            // re-confirm (that would put a shipped order back to PAID); a late webhook or a retry just gets the status.
+            return order.getStatus();
+        }
 
         // 2) provider call, outside any transaction
         PaymentGateway.Payment payment = gateway.find(orderId).orElseThrow(PaymentNotConfirmedException::new);
