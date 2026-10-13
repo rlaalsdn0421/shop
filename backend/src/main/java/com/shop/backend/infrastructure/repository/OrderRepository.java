@@ -33,6 +33,15 @@ public interface OrderRepository extends JpaRepository<Order, String> {
     List<Order> findPageByUserAfter(@Param("userId") String userId, @Param("createdAt") Instant createdAt,
                                     @Param("id") String id, Pageable pageable);
 
+    // Admin list (all users), same keyset scheme; :status null = every status.
+    @Query("SELECT o FROM Order o WHERE (:status IS NULL OR o.status = :status) ORDER BY o.createdAt DESC, o.id DESC")
+    List<Order> findFirstPageForAdmin(@Param("status") String status, Pageable pageable);
+
+    @Query("SELECT o FROM Order o WHERE (:status IS NULL OR o.status = :status) AND (o.createdAt, o.id) < (:createdAt, :id) "
+            + "ORDER BY o.createdAt DESC, o.id DESC")
+    List<Order> findPageForAdminAfter(@Param("status") String status, @Param("createdAt") Instant createdAt,
+                                      @Param("id") String id, Pageable pageable);
+
     // One query for the whole page's lines and their products (no N+1); the order id is a plain column, no join needed.
     @Query("SELECT i FROM OrderItem i JOIN FETCH i.product WHERE i.order.id IN :orderIds")
     List<OrderItem> findItemsWithProductByOrderIds(@Param("orderIds") Collection<String> orderIds);

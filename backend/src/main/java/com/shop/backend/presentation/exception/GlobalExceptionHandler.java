@@ -1,11 +1,13 @@
 package com.shop.backend.presentation.exception;
 
+import com.shop.backend.domain.error.CancelProviderUnavailableException;
 import com.shop.backend.domain.error.DomainException;
 import com.shop.backend.domain.error.DuplicateEmailException;
 import com.shop.backend.domain.error.DuplicateReviewException;
 import com.shop.backend.domain.error.IdempotencyKeyReuseException;
 import com.shop.backend.domain.error.InvalidCredentialsException;
 import com.shop.backend.domain.error.OrderNotFoundException;
+import com.shop.backend.domain.error.OrderStateException;
 import com.shop.backend.domain.error.PaymentException;
 import com.shop.backend.domain.error.PaymentNotConfiguredException;
 import com.shop.backend.domain.error.PaymentProviderUnavailableException;
@@ -58,9 +60,16 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(PaymentException.class)
     public ResponseEntity<ErrorResponse> handlePayment(PaymentException ex) {
         boolean unavailable = ex instanceof PaymentProviderUnavailableException
+                || ex instanceof CancelProviderUnavailableException
                 || ex instanceof PaymentNotConfiguredException;
         return ResponseEntity.status(unavailable ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.CONFLICT)
                 .body(new ErrorResponse(ex.getMessage(), ex.getCode()));
+    }
+
+    // An action the order's current status does not allow (cancel after shipping, ship twice, ...): 409 with a code.
+    @ExceptionHandler(OrderStateException.class)
+    public ResponseEntity<ErrorResponse> handleOrderState(OrderStateException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(ex.getMessage(), ex.getCode()));
     }
 
     @ExceptionHandler(DuplicateEmailException.class)

@@ -1,7 +1,10 @@
 package com.shop.backend.infrastructure.payment;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shop.backend.application.service.PaymentGateway;
+import com.shop.backend.domain.error.CancelProviderUnavailableException;
 import com.shop.backend.domain.error.PaymentNotConfiguredException;
 import com.shop.backend.domain.error.PaymentProviderUnavailableException;
 import org.slf4j.Logger;
@@ -9,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
@@ -38,6 +42,9 @@ public class PortOnePaymentGateway implements PaymentGateway {
     }
 
     private static final String DEFAULT_API_BASE = "https://api.portone.io";
+    // error body {"type":"PAYMENT_ALREADY_CANCELLED","message":...} (SDK errors/PaymentAlreadyCancelledError.kt)
+    private static final String ALREADY_CANCELLED = "PAYMENT_ALREADY_CANCELLED";
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final String apiSecret;
     private final RestClient client;
@@ -88,6 +95,43 @@ public class PortOnePaymentGateway implements PaymentGateway {
         } catch (RestClientException e) {
             logger.error("PortOne lookup failed: {}", e.getClass().getSimpleName());
             throw new PaymentProviderUnavailableException();
+        }
+    }
+
+    /** POST /payments/{paymentId}/cancel with {reason, requester}: no amount = full cancel, no storeId = the secret's own store. */
+    @Override
+    public void cancel(String paymentId, String reason, Requester requester) {
+        if (!isConfigured()) {
+            throw new PaymentNotConfiguredException();
+        }
+        try {
+            client.post().uri("/payments/{paymentId}/cancel", paymentId)
+                    .header(HttpHeaders.AUTHORIZATION, "PortOne " + apiSecret)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new CancelRequest(reason, requester.name()))
+                    .retrieve().toBodilessEntity();
+        } catch (RestClientResponseException e) {
+            if (isAlreadyCancelled(e)) {
+                return; // someone (console, webhook race, an earlier try of ours) already cancelled it: that is the goal
+            }
+            // status only: the message/body may echo request details
+            logger.error("PortOne cancel failed: status={}", e.getStatusCode().value());
+            throw new CancelProviderUnavailableException(false);
+        } catch (RestClientException e) {
+            // no answer (timeout, connection reset): the cancel may have gone through
+            logger.error("PortOne cancel got no answer: {}", e.getClass().getSimpleName());
+            throw new CancelProviderUnavailableException(true);
+        }
+    }
+
+    record CancelRequest(String reason, String requester) {
+    }
+
+    private static boolean isAlreadyCancelled(RestClientResponseException e) {
+        try {
+            return ALREADY_CANCELLED.equals(MAPPER.readTree(e.getResponseBodyAsString()).path("type").asText());
+        } catch (JsonProcessingException | RuntimeException ex) {
+            return false;
         }
     }
 }

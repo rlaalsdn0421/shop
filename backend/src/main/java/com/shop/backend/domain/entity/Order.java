@@ -1,5 +1,7 @@
 package com.shop.backend.domain.entity;
 
+import com.shop.backend.domain.error.InvalidOrderStateException;
+import com.shop.backend.domain.error.OrderNotCancellableException;
 import com.shop.backend.domain.error.PaymentNeedsReviewException;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -29,12 +31,38 @@ public class Order {
     public static final String STATUS_EXPIRED = "EXPIRED";
     /** Paid after expiry but the stock was already gone: an operator must cancel the payment at the provider. */
     public static final String STATUS_PAYMENT_REVIEW = "PAYMENT_REVIEW";
+    /** A provider cancel was requested and its result is not final yet; {@code cancelFrom} is the status to go back to. */
+    public static final String STATUS_CANCELING = "CANCELING";
+    /** Cancelled and refunded BEFORE shipping; the stock was given back. */
+    public static final String STATUS_CANCELLED = "CANCELLED";
+    /** The seller started the delivery. */
+    public static final String STATUS_SHIPPED = "SHIPPED";
+    public static final String STATUS_DELIVERED = "DELIVERED";
+    /** Refunded AFTER shipping; stock is not restored automatically (the seller adjusts it after inspecting the return). */
+    public static final String STATUS_REFUNDED = "REFUNDED";
+
+    /** Every status the database allows (orders_status_valid, V16). */
+    public static final List<String> STATUSES = List.of(STATUS_PENDING_PAYMENT, STATUS_PAID, STATUS_EXPIRED,
+            STATUS_PAYMENT_REVIEW, STATUS_CANCELING, STATUS_CANCELLED, STATUS_SHIPPED, STATUS_DELIVERED, STATUS_REFUNDED);
+
+    /** What the caller of {@link #finishCancel} still has to do. */
+    public enum CancelOutcome {
+        /** Now CANCELLED from a paid order: give the stock back. */
+        RESTORE_STOCK,
+        /** Now CANCELLED/REFUNDED, stock untouched (refund after shipping, or a payment-review order that never held stock). */
+        NO_STOCK_CHANGE,
+        /** Was already CANCELLED/REFUNDED: nothing changed. */
+        ALREADY_FINAL,
+        /** PENDING_PAYMENT/EXPIRED: nothing was paid through us, nothing changed. */
+        IGNORED
+    }
 
     /** How long a new order holds its stock while waiting for payment. */
     public static final Duration PAYMENT_WINDOW = Duration.ofMinutes(20);
 
     private static final int TRANSACTION_ID_MAX = 100;
     private static final int ORDER_NAME_MAX = 100;
+    public static final int REASON_MAX = 200;
 
     @Id
     @Column(length = 36, nullable = false, updatable = false)
@@ -81,6 +109,23 @@ public class Order {
 
     @Column(name = "payment_transaction_id", length = TRANSACTION_ID_MAX)
     private String paymentTransactionId;
+
+    @Column(name = "shipped_at")
+    private Instant shippedAt;
+
+    @Column(name = "delivered_at")
+    private Instant deliveredAt;
+
+    // Set when the order ends CANCELLED or REFUNDED.
+    @Column(name = "cancelled_at")
+    private Instant cancelledAt;
+
+    // Only while CANCELING (and kept for the record otherwise): the status to return to if the provider cancel fails.
+    @Column(name = "cancel_from", length = 20)
+    private String cancelFrom;
+
+    @Column(name = "cancel_reason", length = REASON_MAX)
+    private String cancelReason;
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<OrderItem> items = new ArrayList<>();
@@ -153,6 +198,126 @@ public class Order {
             throw new IllegalStateException("Only an EXPIRED order can move to PAYMENT_REVIEW");
         }
         status = STATUS_PAYMENT_REVIEW;
+    }
+
+    /** PAID -> SHIPPED. */
+    public void ship(Instant now) {
+        if (!STATUS_PAID.equals(status)) {
+            throw new InvalidOrderStateException("결제가 완료된 주문만 배송을 시작할 수 있어요.");
+        }
+        status = STATUS_SHIPPED;
+        shippedAt = now;
+    }
+
+    /** SHIPPED -> DELIVERED. */
+    public void deliver(Instant now) {
+        if (!STATUS_SHIPPED.equals(status)) {
+            throw new InvalidOrderStateException("배송 중인 주문만 배송 완료로 바꿀 수 있어요.");
+        }
+        status = STATUS_DELIVERED;
+        deliveredAt = now;
+    }
+
+    /**
+     * Customer cancel, first step: PAID -> CANCELING. Returns true when the provider cancel must (still) be done, also
+     * when a CANCELING order of this kind is resumed after an unknown outcome; false when it is already CANCELLED.
+     * Anything else is refused (409): after shipping the customer has to ask the shop.
+     */
+    public boolean beginCustomerCancel(String reason) {
+        if (STATUS_CANCELLED.equals(status)) {
+            return false;
+        }
+        if (STATUS_PAID.equals(status)) {
+            enterCanceling(reason);
+            return true;
+        }
+        if (STATUS_CANCELING.equals(status) && STATUS_PAID.equals(cancelFrom)) {
+            return true;
+        }
+        if (STATUS_SHIPPED.equals(status) || STATUS_DELIVERED.equals(status) || STATUS_REFUNDED.equals(status)
+                || STATUS_CANCELING.equals(status)) {
+            throw new OrderNotCancellableException("배송이 시작되어 바로 취소할 수 없어요. 교환·환불은 연락처로 신청해 주세요.");
+        }
+        throw new OrderNotCancellableException("결제가 완료된 주문만 취소할 수 있어요.");
+    }
+
+    /**
+     * Seller refund, first step: SHIPPED/DELIVERED -> CANCELING. Returns true when the provider cancel must (still) be
+     * done (also when resuming), false when it is already REFUNDED.
+     */
+    public boolean beginRefund(String reason) {
+        if (STATUS_REFUNDED.equals(status)) {
+            return false;
+        }
+        if (STATUS_SHIPPED.equals(status) || STATUS_DELIVERED.equals(status)) {
+            enterCanceling(reason);
+            return true;
+        }
+        if (STATUS_CANCELING.equals(status) && (STATUS_SHIPPED.equals(cancelFrom) || STATUS_DELIVERED.equals(cancelFrom))) {
+            return true;
+        }
+        throw new InvalidOrderStateException("배송이 시작된 주문만 환불할 수 있어요.");
+    }
+
+    private void enterCanceling(String reason) {
+        cancelFrom = status;
+        cancelReason = reason;
+        status = STATUS_CANCELING;
+    }
+
+    /** The provider refused the cancel: CANCELING -> the status it came from. Returns false (no change) otherwise. */
+    public boolean revertCancel() {
+        if (!STATUS_CANCELING.equals(status)) {
+            return false;
+        }
+        status = cancelFrom;
+        cancelFrom = null;
+        cancelReason = null;
+        return true;
+    }
+
+    /**
+     * The provider says the payment is cancelled in full (our own cancel call, or the seller cancelled it in the
+     * provider console). PAID, and CANCELING from PAID -> CANCELLED; SHIPPED/DELIVERED, and CANCELING from those ->
+     * REFUNDED; PAYMENT_REVIEW -> CANCELLED (it never held stock). The result tells the caller whether to restore stock.
+     */
+    public CancelOutcome finishCancel(Instant now) {
+        String result;
+        CancelOutcome outcome;
+        switch (status) {
+            case STATUS_PAID -> {
+                result = STATUS_CANCELLED;
+                outcome = CancelOutcome.RESTORE_STOCK;
+            }
+            case STATUS_CANCELING -> {
+                if (STATUS_PAID.equals(cancelFrom)) {
+                    result = STATUS_CANCELLED;
+                    outcome = CancelOutcome.RESTORE_STOCK;
+                } else if (STATUS_SHIPPED.equals(cancelFrom) || STATUS_DELIVERED.equals(cancelFrom)) {
+                    result = STATUS_REFUNDED;
+                    outcome = CancelOutcome.NO_STOCK_CHANGE;
+                } else {
+                    throw new IllegalStateException("CANCELING order without a valid cancel_from");
+                }
+            }
+            case STATUS_SHIPPED, STATUS_DELIVERED -> {
+                result = STATUS_REFUNDED;
+                outcome = CancelOutcome.NO_STOCK_CHANGE;
+            }
+            case STATUS_PAYMENT_REVIEW -> {
+                result = STATUS_CANCELLED;
+                outcome = CancelOutcome.NO_STOCK_CHANGE;
+            }
+            case STATUS_CANCELLED, STATUS_REFUNDED -> {
+                return CancelOutcome.ALREADY_FINAL;
+            }
+            default -> {
+                return CancelOutcome.IGNORED;
+            }
+        }
+        status = result;
+        cancelledAt = now;
+        return outcome;
     }
 
     /**
@@ -236,6 +401,26 @@ public class Order {
 
     public String getPaymentTransactionId() {
         return paymentTransactionId;
+    }
+
+    public Instant getShippedAt() {
+        return shippedAt;
+    }
+
+    public Instant getDeliveredAt() {
+        return deliveredAt;
+    }
+
+    public Instant getCancelledAt() {
+        return cancelledAt;
+    }
+
+    public String getCancelFrom() {
+        return cancelFrom;
+    }
+
+    public String getCancelReason() {
+        return cancelReason;
     }
 
     public List<OrderItem> getItems() {

@@ -27,6 +27,32 @@ public final class OrderValidation {
         }
     }
 
+    /** Trimmed cancel/refund reason (null when blank and optional); at most {@link Order#REASON_MAX} characters. */
+    public static String normalizeCancelReason(String reason, boolean required) {
+        String trimmed = reason == null ? "" : reason.trim();
+        if (trimmed.isEmpty()) {
+            if (required) {
+                throw new ValidationException("사유를 입력해 주세요.");
+            }
+            return null;
+        }
+        if (trimmed.length() > Order.REASON_MAX) {
+            throw new ValidationException("사유는 " + Order.REASON_MAX + "자 이하로 입력해 주세요.");
+        }
+        return trimmed;
+    }
+
+    /** Null or blank means "all statuses"; anything else must be a known status. */
+    public static String normalizeStatusFilter(String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        if (!Order.STATUSES.contains(status)) {
+            throw new ValidationException("주문 상태가 올바르지 않아요.");
+        }
+        return status;
+    }
+
     public static void validateIdempotencyKey(String key) {
         if (key == null || !IDEMPOTENCY_KEY.matcher(key).matches()) {
             throw new ValidationException("요청 번호(Idempotency-Key)가 올바르지 않아요.");

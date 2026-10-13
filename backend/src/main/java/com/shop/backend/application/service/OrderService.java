@@ -9,6 +9,7 @@ import com.shop.backend.domain.entity.Product;
 import com.shop.backend.domain.entity.ShippingPolicy;
 import com.shop.backend.domain.error.IdempotencyKeyReuseException;
 import com.shop.backend.domain.error.InsufficientStockException;
+import com.shop.backend.domain.error.OrderNotFoundException;
 import com.shop.backend.domain.error.ProductNotFoundException;
 import com.shop.backend.domain.error.ValidationException;
 import com.shop.backend.infrastructure.repository.OrderRepository;
@@ -158,6 +159,41 @@ public class OrderService {
         List<Order> fetched = position == null
                 ? orderRepository.findFirstPageByUser(userId, limit)
                 : orderRepository.findPageByUserAfter(userId, position.createdAt(), position.id(), limit);
+        return toPage(fetched, size);
+    }
+
+    /** Admin list of every user's orders, newest first; {@code status} null/blank = all, otherwise a known status. */
+    @Transactional(readOnly = true)
+    public OrderPage listAdminOrders(String status, int size, String cursor) {
+        OrderValidation.validateListSize(size);
+        String statusFilter = OrderValidation.normalizeStatusFilter(status);
+        OrderCursor position = cursor == null ? null : OrderCursor.decode(cursor);
+        PageRequest limit = PageRequest.of(0, size + 1);
+        List<Order> fetched = position == null
+                ? orderRepository.findFirstPageForAdmin(statusFilter, limit)
+                : orderRepository.findPageForAdminAfter(statusFilter, position.createdAt(), position.id(), limit);
+        return toPage(fetched, size);
+    }
+
+    /** PAID -> SHIPPED under the order row lock (a customer cancel locks the same row, so only one of them wins). */
+    @Transactional
+    public String shipOrder(String orderId) {
+        em.createNativeQuery("SET LOCAL lock_timeout = '3s'").executeUpdate();
+        Order order = orderRepository.findByIdForUpdate(orderId).orElseThrow(OrderNotFoundException::new);
+        order.ship(Instant.now(clock));
+        return order.getStatus();
+    }
+
+    /** SHIPPED -> DELIVERED under the order row lock. */
+    @Transactional
+    public String deliverOrder(String orderId) {
+        em.createNativeQuery("SET LOCAL lock_timeout = '3s'").executeUpdate();
+        Order order = orderRepository.findByIdForUpdate(orderId).orElseThrow(OrderNotFoundException::new);
+        order.deliver(Instant.now(clock));
+        return order.getStatus();
+    }
+
+    private OrderPage toPage(List<Order> fetched, int size) {
         boolean hasNext = fetched.size() > size;
         List<Order> page = hasNext ? fetched.subList(0, size) : fetched;
         if (page.isEmpty()) {

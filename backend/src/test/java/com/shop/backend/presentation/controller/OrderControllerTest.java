@@ -1,5 +1,6 @@
 package com.shop.backend.presentation.controller;
 
+import com.shop.backend.application.service.OrderCancelService;
 import com.shop.backend.application.service.OrderService;
 import com.shop.backend.domain.entity.Order;
 import com.shop.backend.domain.entity.OrderItem;
@@ -51,6 +52,10 @@ class OrderControllerTest {
 
     @MockBean
     private OrderService orderService;
+
+    // OrderController also serves POST /{id}/cancel (tested in OrderControllerCancelTest)
+    @MockBean
+    private OrderCancelService orderCancelService;
 
     @Test
     @WithMockUser

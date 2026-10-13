@@ -43,10 +43,14 @@ public class FaqChatAnswerer implements ChatAnswerer {
             new Faq("배송비와 배송 기간은 어떻게 되나요?", List.of("배송", "택배", "도착", "언제와", "배송비"),
                     String.format(Locale.KOREA, "배송비는 %,d원이고, %d만 원 이상 주문하면 무료예요. 배송 기간은 상품과 지역에 따라 달라요.",
                             ShippingPolicy.FEE, ShippingPolicy.FREE_THRESHOLD / 10_000)),
-            // No order-cancel feature exists, so "취소" is not a keyword. "왕복"/"왕복배송비" lift a round-trip-shipping
-            // question to 3 with "환불" (delivery only reaches 2 via "배송"+"배송비"); a tie would go to delivery.
-            new Faq("교환·환불은 어떻게 하나요?", List.of("교환", "환불", "반품", "왕복", "왕복배송비"),
-                    "수령 후 7일 이내에 교환·환불(청약철회)을 신청할 수 있어요. 단순 변심의 경우 왕복 배송비는 구매자가 부담해요. "
+            // "왕복"/"왕복배송비" lift a round-trip-shipping question to 3 with "환불" (delivery only reaches 2 via
+            // "배송"+"배송비"); a tie would go to delivery. "취소" lands here too (a "결제 취소" tie goes to this earlier entry).
+            // Self-service cancel exists only for PAID orders before shipping (order detail page); keep this in step with
+            // the order cancel feature and the /refund page.
+            new Faq("교환·환불은 어떻게 하나요?", List.of("교환", "환불", "반품", "왕복", "왕복배송비", "취소"),
+                    "배송이 시작되기 전에는 주문 상세 페이지에서 직접 주문을 취소할 수 있어요. 환불은 결제하신 수단으로 처리되고 카드사에 따라 며칠 걸릴 수 있어요. "
+                            + "배송이 시작된 뒤에는 바로 취소할 수 없고, 연락처로 문의해 주세요. "
+                            + "수령 후 7일 이내에 교환·환불(청약철회)을 신청할 수 있어요. 단순 변심의 경우 왕복 배송비는 구매자가 부담해요. "
                             + "상품에 하자가 있거나 다른 상품이 배송된 경우에는 수령 후 3개월 이내(또는 안 날부터 30일 이내) 무상으로 처리해요. "
                             + "자세한 내용은 교환·환불 안내 페이지에서 확인할 수 있어요."),
             new Faq("결제 수단은 무엇이 있나요?", List.of("결제", "카드", "무통장", "페이"),

@@ -18,4 +18,14 @@ public interface PaymentGateway {
 
     /** Empty when the provider has no such payment (nothing paid yet). Throws PaymentProviderUnavailableException on failure/timeout. */
     Optional<Payment> find(String paymentId);
+
+    /** Who asked for the cancel (shown in the provider console). */
+    enum Requester { CUSTOMER, ADMIN }
+
+    /**
+     * Cancels the whole payment. Returns normally when it is cancelled, including "was already cancelled". Throws
+     * CancelProviderUnavailableException (outcomeUnknown=false when the provider answered with an error, true on a
+     * timeout or connection failure) and PaymentNotConfiguredException when the API secret is empty.
+     */
+    void cancel(String paymentId, String reason, Requester requester);
 }

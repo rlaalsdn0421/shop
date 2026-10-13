@@ -90,6 +90,54 @@ public class PaymentTransactions {
         return true;
     }
 
+    /** What step 1 of a cancel found: the status after it, and whether the provider still has to be asked. */
+    public record CancelStart(String status, boolean callProvider) {
+    }
+
+    /** What a finished cancel did (the outcome and the status after it). */
+    public record CancelApplied(String status, Order.CancelOutcome outcome) {
+    }
+
+    /**
+     * Cancel step 1 (customer: {@code userId} set; seller refund: {@code userId} null). Locks the order row and moves
+     * PAID (or SHIPPED/DELIVERED for a refund) -> CANCELING, or reports that it is already done / is resumed. A foreign
+     * or missing order is a 404. Runs under the same row lock as shipping, so only one of "cancel" and "ship" wins.
+     */
+    @Transactional
+    public CancelStart beginCancel(String orderId, String userId, String reason) {
+        em.createNativeQuery("SET LOCAL lock_timeout = '3s'").executeUpdate();
+        Order order = orderRepository.findByIdForUpdate(orderId).orElseThrow(OrderNotFoundException::new);
+        boolean customer = userId != null;
+        if (customer && (userId.isBlank() || !userId.equals(order.getUserId()))) {
+            throw new OrderNotFoundException();
+        }
+        boolean callProvider = customer ? order.beginCustomerCancel(reason) : order.beginRefund(reason);
+        return new CancelStart(order.getStatus(), callProvider);
+    }
+
+    /** The provider refused the cancel: CANCELING goes back to where it came from (no-op if it is not CANCELING any more). */
+    @Transactional
+    public void revertCancel(String orderId) {
+        em.createNativeQuery("SET LOCAL lock_timeout = '3s'").executeUpdate();
+        orderRepository.findByIdForUpdate(orderId).ifPresent(Order::revertCancel);
+    }
+
+    /**
+     * The provider reports the payment cancelled (our own call, or the webhook for a console cancel): locks the row,
+     * moves the order to CANCELLED/REFUNDED and gives the stock back (products in id order) when it was paid and unshipped.
+     * Idempotent: an order that is already final is left alone.
+     */
+    @Transactional
+    public CancelApplied applyCancelled(String orderId) {
+        em.createNativeQuery("SET LOCAL lock_timeout = '3s'").executeUpdate();
+        Order order = orderRepository.findByIdForUpdate(orderId).orElseThrow(OrderNotFoundException::new);
+        Order.CancelOutcome outcome = order.finishCancel(Instant.now(clock));
+        if (outcome == Order.CancelOutcome.RESTORE_STOCK) {
+            restoreStock(productRepository, order);
+        }
+        return new CancelApplied(order.getStatus(), outcome);
+    }
+
     /** Gives an expired order's stock back, products in id order (shared with OrderService's replay-of-an-overdue-order path). */
     public static void restoreStock(ProductRepository productRepository, Order order) {
         for (OrderItem item : sortedByProduct(order)) {

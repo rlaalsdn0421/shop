@@ -14,8 +14,9 @@ import java.util.List;
 
 public interface ProductRepository extends JpaRepository<Product, String> {
 
-    // Only paid orders count as sales.
-    String SOLD = "(SELECT COALESCE(SUM(oi.quantity), 0) FROM OrderItem oi WHERE oi.product = p AND oi.order.status = '" + Order.STATUS_PAID + "')";
+    // Paid orders count as sales until they are cancelled/refunded (CANCELING, CANCELLED and REFUNDED do not).
+    String SOLD_STATUSES = "('" + Order.STATUS_PAID + "', '" + Order.STATUS_SHIPPED + "', '" + Order.STATUS_DELIVERED + "')";
+    String SOLD = "(SELECT COALESCE(SUM(oi.quantity), 0) FROM OrderItem oi WHERE oi.product = p AND oi.order.status IN " + SOLD_STATUSES + ")";
     String REVIEW_COUNT = "(SELECT COUNT(r) FROM Review r WHERE r.product = p)";
     String AVG_RATING = "(SELECT AVG(r.rating) FROM Review r WHERE r.product = p)";
     String CATEGORY_FILTER = "WHERE (:category IS NULL OR p.category = :category) ";
@@ -82,7 +83,7 @@ public interface ProductRepository extends JpaRepository<Product, String> {
     List<Product> listByPopularDesc(@Param("category") String category, Pageable pageable);
 
     // Best products: only products sold since :since, most units first, ties -> overall popularity.
-    @Query("SELECT p FROM OrderItem oi JOIN oi.product p WHERE oi.order.status = '" + Order.STATUS_PAID + "' AND oi.order.createdAt >= :since "
+    @Query("SELECT p FROM OrderItem oi JOIN oi.product p WHERE oi.order.status IN " + SOLD_STATUSES + " AND oi.order.createdAt >= :since "
             + "GROUP BY p ORDER BY SUM(oi.quantity) DESC, (" + SOLD + " + " + REVIEW_COUNT + ") DESC" + NEWEST_TIE)
     List<Product> findBestSoldSince(@Param("since") Instant since, Pageable pageable);
 }

@@ -1,5 +1,6 @@
 package com.shop.backend.presentation.controller;
 
+import com.shop.backend.application.service.OrderCancelService;
 import com.shop.backend.application.service.OrderService;
 import com.shop.backend.domain.entity.OrderLine;
 import com.shop.backend.presentation.dto.OrderDtos;
@@ -19,9 +20,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class OrderController {
 
     private final OrderService orderService;
+    private final OrderCancelService orderCancelService;
 
-    public OrderController(OrderService orderService) {
+    public OrderController(OrderService orderService, OrderCancelService orderCancelService) {
         this.orderService = orderService;
+        this.orderCancelService = orderCancelService;
     }
 
     @PostMapping
@@ -42,6 +45,15 @@ public class OrderController {
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(required = false) String cursor, Authentication authentication) {
         return OrderDtos.OrderListResponse.from(orderService.listMyOrders(authentication.getName(), size, cursor));
+    }
+
+    /** The owner cancels an unshipped PAID order in full; the body (and its reason) is optional. */
+    @PostMapping("/{id}/cancel")
+    public OrderDtos.OrderStatusResponse cancelOrder(@PathVariable String id,
+                                                     @RequestBody(required = false) OrderDtos.CancelRequest request,
+                                                     Authentication authentication) {
+        return new OrderDtos.OrderStatusResponse(
+                orderCancelService.cancelByCustomer(id, authentication.getName(), request == null ? null : request.reason()));
     }
 
     @GetMapping("/{id}")
