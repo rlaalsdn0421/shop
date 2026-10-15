@@ -112,9 +112,9 @@ describe("관리자 주문 목록", () => {
     expect(c.getByText("고객2 / 010-0000-0000")).toBeInTheDocument();
     expect(c.getByText("서울시 테스트구")).toBeInTheDocument();
     expect(c.getByText("주문번호 00000002")).toBeInTheDocument();
-    expect(c.getByText("결제 2026. 10. 11.")).toBeInTheDocument();
-    expect(c.getByText("배송 시작 2026. 10. 12.")).toBeInTheDocument();
-    expect(c.getByText("배송 완료 2026. 10. 13.")).toBeInTheDocument();
+    expect(c.getByText("결제 2026. 10. 11. 12:05")).toBeInTheDocument();
+    expect(c.getByText("배송 시작 2026. 10. 12. 12:00")).toBeInTheDocument();
+    expect(c.getByText("배송 완료 2026. 10. 13. 12:00")).toBeInTheDocument();
     expect(screen.queryByText(/DELIVERED/)).not.toBeInTheDocument();
   });
 

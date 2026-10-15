@@ -11,7 +11,7 @@ import {
   shipOrder,
   type AdminOrder,
 } from "@/lib/api";
-import { formatKoreanDate } from "@/lib/date";
+import { formatKoreanDateTime } from "@/lib/date";
 import { statusLabel } from "@/lib/payment";
 import { formatWon } from "@/lib/price";
 import { useNow } from "@/lib/useNow";
@@ -228,7 +228,7 @@ function AdminOrderList({ token }: { token: string }) {
             return (
               <li key={o.id} className="border rounded p-4 flex flex-col gap-2 text-sm">
                 <div className="flex justify-between text-xs text-gray-500">
-                  <span>{formatKoreanDate(o.createdAt)}</span>
+                  <span>{formatKoreanDateTime(o.createdAt)}</span>
                   <span>주문번호 {short}</span>
                 </div>
                 <div className="font-medium">
@@ -247,9 +247,9 @@ function AdminOrderList({ token }: { token: string }) {
                   <p>{o.customerAddress}</p>
                 </div>
                 <div className="text-xs text-gray-500">
-                  {o.paidAt && <p>결제 {formatKoreanDate(o.paidAt)}</p>}
-                  {o.shippedAt && <p>배송 시작 {formatKoreanDate(o.shippedAt)}</p>}
-                  {o.deliveredAt && <p>배송 완료 {formatKoreanDate(o.deliveredAt)}</p>}
+                  {o.paidAt && <p>결제 {formatKoreanDateTime(o.paidAt)}</p>}
+                  {o.shippedAt && <p>배송 시작 {formatKoreanDateTime(o.shippedAt)}</p>}
+                  {o.deliveredAt && <p>배송 완료 {formatKoreanDateTime(o.deliveredAt)}</p>}
                 </div>
 
                 <div className="flex gap-2">

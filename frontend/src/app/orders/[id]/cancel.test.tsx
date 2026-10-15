@@ -78,9 +78,9 @@ describe("주문 상태 문구와 날짜", () => {
       },
     ]);
     render(<OrderComplete />);
-    expect(await screen.findByText("배송 시작 2026. 10. 12.")).toBeInTheDocument();
-    expect(screen.getByText("배송 완료 2026. 10. 13.")).toBeInTheDocument();
-    expect(screen.getByText("취소 2026. 10. 14.")).toBeInTheDocument();
+    expect(await screen.findByText("배송 시작 2026. 10. 12. 12:00")).toBeInTheDocument();
+    expect(screen.getByText("배송 완료 2026. 10. 13. 12:00")).toBeInTheDocument();
+    expect(screen.getByText("취소 2026. 10. 14. 12:00")).toBeInTheDocument();
   });
 
   it("실패: 날짜가 없거나 null이면 날짜 줄이 없다", async () => {
@@ -151,7 +151,7 @@ describe("주문 취소 흐름", () => {
     await confirm();
 
     expect(await screen.findByText("주문 상태: 주문 취소됨(환불 완료)")).toBeInTheDocument();
-    expect(await screen.findByText("취소 2026. 10. 13.")).toBeInTheDocument();
+    expect(await screen.findByText("취소 2026. 10. 13. 12:00")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /주문 취소/ })).not.toBeInTheDocument();
     const [url, init] = cancelCalls()[0];
     expect(String(url)).toMatch(/\/api\/orders\/o1\/cancel$/);
@@ -332,7 +332,7 @@ describe("주문 취소 흐름", () => {
     await confirm();
     await userEvent.click(await screen.findByRole("button", { name: "상태 다시 확인" }));
 
-    expect(await screen.findByText("취소 2026. 10. 13.")).toBeInTheDocument();
+    expect(await screen.findByText("취소 2026. 10. 13. 12:00")).toBeInTheDocument();
     expect(screen.queryByText(/최신 상태를 불러오지 못했어요/)).not.toBeInTheDocument();
   });
 
