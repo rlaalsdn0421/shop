@@ -33,6 +33,27 @@ public final class ProductValidation {
     /** Same pattern as the frontend: letters, combining marks (Thai, Devanagari, ...), numbers, underscore. */
     private static final Pattern HASHTAG_CHARS = Pattern.compile("[\\p{L}\\p{M}\\p{N}_]+");
 
+    public static final int MAX_IMAGES = 10;
+
+    /**
+     * Cleans and validates a gallery list (product_images, V17): 1..10 entries, each trimmed, non-blank, at most 2000
+     * chars and starting with http:// or https://. The scheme rule is only for this new field; the legacy imageUrl
+     * keeps its blank/length-only rule so existing clients do not break. Duplicate URLs are allowed.
+     */
+    public static List<String> normalizeImageUrls(List<String> raw) {
+        if (raw == null || raw.isEmpty() || raw.size() > MAX_IMAGES) {
+            throw new ValidationException("이미지는 1~" + MAX_IMAGES + "장까지 등록할 수 있어요.");
+        }
+        return raw.stream().map(u -> {
+            String t = u == null ? "" : u.trim();
+            String lower = t.toLowerCase(Locale.ROOT);
+            if (t.isEmpty() || t.length() > 2000 || !(lower.startsWith("http://") || lower.startsWith("https://"))) {
+                throw new ValidationException("이미지 URL은 http:// 또는 https://로 시작하는 2000자 이하 주소여야 해요.");
+            }
+            return t;
+        }).toList();
+    }
+
     public static void validateNewProduct(String name, String description, Integer price, String imageUrl, Integer stock,
                                           String category, Integer originalPrice) {
         if (isBlank(name) || isBlank(description) || isBlank(imageUrl)

@@ -37,10 +37,11 @@ public final class ProductDtos {
     }
 
     public record ProductDetail(String id, String name, Integer price, String imageUrl, String description, Integer stock,
-                                Integer originalPrice, Integer discountRate, List<String> hashtags, String category) {
-        public static ProductDetail from(Product p) {
+                                Integer originalPrice, Integer discountRate, List<String> hashtags, String category,
+                                List<String> images) {
+        public static ProductDetail from(Product p, List<String> images) {
             return new ProductDetail(p.getId(), p.getName(), p.getPrice(), p.getImageUrl(), p.getDescription(), p.getStock(),
-                    p.getOriginalPrice(), p.getDiscountRate(), p.getHashtags(), p.getCategory());
+                    p.getOriginalPrice(), p.getDiscountRate(), p.getHashtags(), p.getCategory(), images);
         }
     }
 
@@ -54,8 +55,8 @@ public final class ProductDtos {
         }
     }
 
-    public record NewProductRequest(String name, String description, Integer price, String imageUrl, Integer stock, String category,
-                                    Integer originalPrice, List<String> hashtags) {
+    public record NewProductRequest(String name, String description, Integer price, String imageUrl, List<String> imageUrls,
+                                    Integer stock, String category, Integer originalPrice, List<String> hashtags) {
     }
 
     public record IdResponse(String id) {

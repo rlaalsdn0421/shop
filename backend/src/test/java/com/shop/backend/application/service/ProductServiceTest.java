@@ -4,6 +4,8 @@ import com.shop.backend.domain.entity.BestPeriod;
 import com.shop.backend.domain.entity.Product;
 import com.shop.backend.domain.entity.ProductSort;
 import com.shop.backend.domain.error.ValidationException;
+import com.shop.backend.domain.entity.ProductImage;
+import com.shop.backend.infrastructure.repository.ProductImageRepository;
 import com.shop.backend.infrastructure.repository.ProductRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -35,7 +37,8 @@ class ProductServiceTest {
     private static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
 
     private final ProductRepository repository = mock(ProductRepository.class);
-    private final ProductService service = new ProductService(repository, CLOCK);
+    private final ProductImageRepository imageRepository = mock(ProductImageRepository.class);
+    private final ProductService service = new ProductService(repository, imageRepository, CLOCK);
     private final Page<Product> page = new PageImpl<>(List.of());
 
     private static Product product(String id) {
@@ -274,7 +277,7 @@ class ProductServiceTest {
     void 성공_정가와_정규화된_해시태그로_상품을_저장한다() {
         when(repository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Product saved = service.createProduct("n", "d", 7500, "http://img", 3, " 신발 ", 10000, List.of(" ##여름 ", "#Sale", "sale"));
+        Product saved = service.createProduct("n", "d", 7500, "http://img", null, 3, " 신발 ", 10000, List.of(" ##여름 ", "#Sale", "sale"));
 
         assertThat(saved.getOriginalPrice()).isEqualTo(10000);
         assertThat(saved.getDiscountRate()).isEqualTo(25);
@@ -286,7 +289,7 @@ class ProductServiceTest {
     void 성공_정가와_해시태그가_없으면_할인_없는_상품으로_저장한다() {
         when(repository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Product saved = service.createProduct("n", "d", 7500, "http://img", 3, null, null, null);
+        Product saved = service.createProduct("n", "d", 7500, "http://img", null, 3, null, null, null);
 
         assertThat(saved.getOriginalPrice()).isNull();
         assertThat(saved.getDiscountRate()).isNull();
@@ -295,15 +298,143 @@ class ProductServiceTest {
 
     @Test
     void 실패_정가가_판매가_이하면_저장하지_않는다() {
-        assertThatThrownBy(() -> service.createProduct("n", "d", 7500, "http://img", 3, null, 7500, null))
+        assertThatThrownBy(() -> service.createProduct("n", "d", 7500, "http://img", null, 3, null, 7500, null))
                 .isInstanceOf(ValidationException.class);
         verify(repository, never()).save(any());
     }
 
     @Test
     void 실패_해시태그가_잘못되면_저장하지_않는다() {
-        assertThatThrownBy(() -> service.createProduct("n", "d", 7500, "http://img", 3, null, null, List.of("a", "b", "c", "d")))
+        assertThatThrownBy(() -> service.createProduct("n", "d", 7500, "http://img", null, 3, null, null, List.of("a", "b", "c", "d")))
                 .isInstanceOf(ValidationException.class);
         verify(repository, never()).save(any());
+    }
+
+    // ---- createProduct: images (V17) ----
+
+    private Product createWith(String imageUrl, List<String> imageUrls) {
+        when(repository.save(any(Product.class))).thenAnswer(inv -> {
+            Product p = inv.getArgument(0);
+            org.springframework.test.util.ReflectionTestUtils.setField(p, "id", "pid");
+            return p;
+        });
+        return service.createProduct("n", "d", 7500, imageUrl, imageUrls, 3, null, null, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<ProductImage> savedRows() {
+        ArgumentCaptor<List<ProductImage>> captor = ArgumentCaptor.forClass(List.class);
+        verify(imageRepository).saveAll(captor.capture());
+        return captor.getValue();
+    }
+
+    @Test
+    void 성공_imageUrls는_순서대로_행으로_저장하고_첫_이미지가_대표가_된다() {
+        Product saved = createWith(null, List.of(" http://img/a ", "https://img/b", "http://img/c"));
+
+        assertThat(saved.getImageUrl()).isEqualTo("http://img/a");
+        assertThat(savedRows()).extracting(ProductImage::getProductId).containsOnly("pid");
+        assertThat(savedRows()).extracting(ProductImage::getUrl).containsExactly("http://img/a", "https://img/b", "http://img/c");
+        assertThat(savedRows()).extracting(ProductImage::getSortOrder).containsExactly(0, 1, 2);
+    }
+
+    @Test
+    void 성공_imageUrls가_1장이어도_행을_저장한다() {
+        createWith(null, List.of("http://img/a"));
+
+        assertThat(savedRows()).hasSize(1);
+    }
+
+    @Test
+    void 성공_imageUrls가_10장이면_저장한다() {
+        createWith(null, java.util.Collections.nCopies(10, "http://img/a"));
+
+        assertThat(savedRows()).hasSize(10);
+    }
+
+    @Test
+    void 성공_imageUrl만_주면_행_없이_대표_이미지만_저장한다() {
+        Product saved = createWith("http://img/legacy", null);
+
+        assertThat(saved.getImageUrl()).isEqualTo("http://img/legacy");
+        verify(imageRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void 성공_빈_imageUrls는_없는_것으로_보고_imageUrl을_쓴다() {
+        Product saved = createWith("http://img/legacy", List.of());
+
+        assertThat(saved.getImageUrl()).isEqualTo("http://img/legacy");
+        verify(imageRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void 성공_둘_다_주면_imageUrls가_이기고_첫_원소가_imageUrl이_된다() {
+        Product saved = createWith("http://img/legacy", List.of("http://img/a", "http://img/b"));
+
+        assertThat(saved.getImageUrl()).isEqualTo("http://img/a");
+        assertThat(savedRows()).extracting(ProductImage::getUrl).containsExactly("http://img/a", "http://img/b");
+    }
+
+    @Test
+    void 실패_이미지가_하나도_없으면_저장하지_않는다() {
+        assertThatThrownBy(() -> createWith(null, null)).isInstanceOf(ValidationException.class);
+        assertThatThrownBy(() -> createWith(" ", List.of())).isInstanceOf(ValidationException.class);
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void 실패_imageUrls가_11장이면_저장하지_않는다() {
+        assertThatThrownBy(() -> createWith(null, java.util.Collections.nCopies(11, "http://img/a")))
+                .isInstanceOf(ValidationException.class);
+        verify(repository, never()).save(any());
+        verify(imageRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void 실패_imageUrls에_빈_항목이_있으면_저장하지_않는다() {
+        assertThatThrownBy(() -> createWith("http://img/legacy", List.of("http://img/a", "  ")))
+                .isInstanceOf(ValidationException.class);
+        assertThatThrownBy(() -> createWith(null, java.util.Arrays.asList("http://img/a", null)))
+                .isInstanceOf(ValidationException.class);
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void 실패_imageUrls_항목이_2000자를_넘거나_http가_아니면_저장하지_않는다() {
+        assertThatThrownBy(() -> createWith(null, List.of("http://" + "a".repeat(1994))))
+                .isInstanceOf(ValidationException.class);
+        assertThatThrownBy(() -> createWith(null, List.of("javascript:alert(1)")))
+                .isInstanceOf(ValidationException.class);
+        assertThatThrownBy(() -> createWith(null, List.of("ftp://img/a")))
+                .isInstanceOf(ValidationException.class);
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void 성공_imageUrls_항목이_정확히_2000자면_저장한다() {
+        createWith(null, List.of("http://" + "a".repeat(1993)));
+
+        assertThat(savedRows()).hasSize(1);
+    }
+
+    // ---- getImageUrls ----
+
+    @Test
+    void 성공_이미지_행이_있으면_정렬된_행의_url을_반환한다() {
+        Product p = product("p1");
+        when(imageRepository.findByProductIdOrderBySortOrderAsc("p1"))
+                .thenReturn(List.of(new ProductImage("p1", "http://img/a", 0), new ProductImage("p1", "http://img/b", 1)));
+
+        assertThat(service.getImageUrls(p)).containsExactly("http://img/a", "http://img/b");
+    }
+
+    @Test
+    void 성공_이미지_행이_없으면_대표_imageUrl_하나를_반환한다() {
+        Product p = product("p1");
+        when(p.getImageUrl()).thenReturn("http://img/legacy");
+        when(imageRepository.findByProductIdOrderBySortOrderAsc("p1")).thenReturn(List.of());
+
+        assertThat(service.getImageUrls(p)).containsExactly("http://img/legacy");
     }
 }

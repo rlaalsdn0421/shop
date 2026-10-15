@@ -145,4 +145,18 @@ describe("상품 상세 페이지 레이아웃", () => {
     expect(screen.getByRole("img", { name: "린넨 셔츠" })).toBeInTheDocument();
     expect(screen.queryByRole("list", { name: "상품 이미지 목록" })).not.toBeInTheDocument();
   });
+
+  it("성공: 응답에 images가 있으면 그 순서대로 썸네일을 보여준다", async () => {
+    mockBackend({ ...product, images: ["https://example.com/a.jpg", "https://example.com/b.jpg"] });
+    await renderDetail();
+    expect(within(screen.getByRole("list", { name: "상품 이미지 목록" })).getAllByRole("button")).toHaveLength(2);
+    expect(screen.getByRole("img", { name: "린넨 셔츠" }).getAttribute("src")).toContain("a.jpg");
+  });
+
+  it("실패: images가 빈 배열이면 대표 이미지 한 장으로 대신한다", async () => {
+    mockBackend({ ...product, images: [] });
+    await renderDetail();
+    expect(screen.getByRole("img", { name: "린넨 셔츠" }).getAttribute("src")).toContain("a.jpg");
+    expect(screen.queryByRole("list", { name: "상품 이미지 목록" })).not.toBeInTheDocument();
+  });
 });

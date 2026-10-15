@@ -2,8 +2,10 @@ package com.shop.backend.application.service;
 
 import com.shop.backend.domain.entity.BestPeriod;
 import com.shop.backend.domain.entity.Product;
+import com.shop.backend.domain.entity.ProductImage;
 import com.shop.backend.domain.entity.ProductSort;
 import com.shop.backend.domain.entity.ProductValidation;
+import com.shop.backend.infrastructure.repository.ProductImageRepository;
 import com.shop.backend.infrastructure.repository.ProductRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -23,20 +25,45 @@ import java.util.stream.Collectors;
 public class ProductService {
 
     private final ProductRepository productRepository;
+    private final ProductImageRepository productImageRepository;
     private final Clock clock;
 
-    public ProductService(ProductRepository productRepository, Clock clock) {
+    public ProductService(ProductRepository productRepository, ProductImageRepository productImageRepository, Clock clock) {
         this.productRepository = productRepository;
+        this.productImageRepository = productImageRepository;
         this.clock = clock;
     }
 
+    /**
+     * A non-empty {@code imageUrls} wins over the legacy {@code imageUrl}; its first entry becomes products.image_url
+     * (the representative image) and every entry gets a product_images row. Legacy imageUrl alone creates no rows.
+     */
     @Transactional
-    public Product createProduct(String name, String description, Integer price, String imageUrl, Integer stock, String category,
-                                 Integer originalPrice, List<String> hashtags) {
+    public Product createProduct(String name, String description, Integer price, String imageUrl, List<String> imageUrls,
+                                 Integer stock, String category, Integer originalPrice, List<String> hashtags) {
         String normalizedCategory = category == null || category.trim().isEmpty() ? null : category.trim();
-        ProductValidation.validateNewProduct(name, description, price, imageUrl, stock, normalizedCategory, originalPrice);
+        boolean gallery = imageUrls != null && !imageUrls.isEmpty();
+        List<String> urls = gallery ? ProductValidation.normalizeImageUrls(imageUrls) : List.of();
+        String representative = gallery ? urls.get(0) : imageUrl;
+        ProductValidation.validateNewProduct(name, description, price, representative, stock, normalizedCategory, originalPrice);
         List<String> normalizedTags = ProductValidation.normalizeHashtags(hashtags);
-        return productRepository.save(new Product(name, description, price, imageUrl, stock, normalizedCategory, originalPrice, normalizedTags));
+        Product saved = productRepository.save(new Product(name, description, price, representative, stock, normalizedCategory, originalPrice, normalizedTags));
+        if (gallery) {
+            List<ProductImage> rows = new ArrayList<>();
+            for (int i = 0; i < urls.size(); i++) {
+                rows.add(new ProductImage(saved.getId(), urls.get(i), i));
+            }
+            productImageRepository.saveAll(rows);
+        }
+        return saved;
+    }
+
+    /** Gallery of one product in display order; products without product_images rows (old/legacy) show just their image_url. */
+    @Transactional(readOnly = true)
+    public List<String> getImageUrls(Product product) {
+        List<String> urls = productImageRepository.findByProductIdOrderBySortOrderAsc(product.getId()).stream()
+                .map(ProductImage::getUrl).toList();
+        return urls.isEmpty() ? List.of(product.getImageUrl()) : urls;
     }
 
     @Transactional(readOnly = true)
