@@ -74,6 +74,8 @@ export type ProductPage = {
 export type ProductDetail = Product & {
   description: string;
   stock: number;
+  // Optional on purpose: the detail endpoint does not send it yet (breadcrumb shows only when present).
+  category?: string | null;
 };
 
 export type AdminProduct = {
