@@ -7,7 +7,7 @@ import { useAuth, useRequireRole } from "@/auth/AuthContext";
 import { useCart } from "@/cart/CartContext";
 import { PaymentMethodSelect } from "@/components/PaymentMethodSelect";
 import { cancelOrder, getOrder, AuthError, OrderActionError, type Order } from "@/lib/api";
-import { formatKoreanDate } from "@/lib/date";
+import { formatKoreanDateTime } from "@/lib/date";
 import { attemptIsFor, clearOrderAttempt } from "@/lib/orderAttempt";
 import {
   PAYMENT_NOT_READY,
@@ -279,9 +279,9 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
         <h1 className="text-2xl font-bold">{placed || justPaid ? "주문이 접수되었습니다" : "주문 상세"}</h1>
         <p className="text-gray-600 text-sm mt-1">주문번호 {order.id}</p>
         {label && <p role="status" className="text-sm mt-1">주문 상태: {label}</p>}
-        {order.shippedAt && <p className="text-sm text-gray-600 mt-1">배송 시작 {formatKoreanDate(order.shippedAt)}</p>}
-        {order.deliveredAt && <p className="text-sm text-gray-600 mt-1">배송 완료 {formatKoreanDate(order.deliveredAt)}</p>}
-        {order.cancelledAt && <p className="text-sm text-gray-600 mt-1">취소 {formatKoreanDate(order.cancelledAt)}</p>}
+        {order.shippedAt && <p className="text-sm text-gray-600 mt-1">배송 시작 {formatKoreanDateTime(order.shippedAt)}</p>}
+        {order.deliveredAt && <p className="text-sm text-gray-600 mt-1">배송 완료 {formatKoreanDateTime(order.deliveredAt)}</p>}
+        {order.cancelledAt && <p className="text-sm text-gray-600 mt-1">취소 {formatKoreanDateTime(order.cancelledAt)}</p>}
         {staleNote && (
           <div role="status" className="flex items-center gap-2 text-sm text-gray-600 mt-1">
             <span>최신 상태를 불러오지 못했어요. 화면의 상태가 오래됐을 수 있어요.</span>
