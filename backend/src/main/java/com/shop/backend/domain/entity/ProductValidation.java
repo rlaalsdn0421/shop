@@ -82,10 +82,6 @@ public final class ProductValidation {
             String color = cleanOptionText(option.colorName());
             String size = cleanOptionText(option.sizeLabel());
             String hex = option.colorHex() == null || option.colorHex().isBlank() ? null : option.colorHex().trim();
-            if ((color != null && color.length() > MAX_OPTION_NAME_LENGTH)
-                    || (size != null && size.length() > MAX_OPTION_NAME_LENGTH)) {
-                throw new ValidationException("색상 이름과 사이즈는 " + MAX_OPTION_NAME_LENGTH + "자 이하로 입력해 주세요.");
-            }
             if (color == null && size == null) {
                 throw new ValidationException("옵션에는 색상 이름이나 사이즈가 하나는 있어야 해요.");
             }
@@ -119,12 +115,36 @@ public final class ProductValidation {
         return List.copyOf(cleaned);
     }
 
+    /** Any control, format (zero-width, bidi), unassigned, private-use or separator character other than the plain space. */
+    private static final Pattern OPTION_TEXT_FORBIDDEN = Pattern.compile("[\\p{C}\\p{Z}&&[^ ]]");
+    private static final Pattern LETTER_OR_DIGIT = Pattern.compile("[\\p{L}\\p{N}]");
+
+    /**
+     * One option text (color name or size): Unicode NFC, strip, blank = absent. Rejects control/format/separator
+     * characters (NUL, tab, newline, zero-width, bidi overrides, NBSP-like spaces; only the plain space is allowed
+     * inside), collapses runs of spaces to one (so "화이트  M" equals "화이트 M"), then enforces at most 30 chars and at
+     * least one letter or digit. The limit counts UTF-16 units (String.length), so an emoji counts 2: deliberately
+     * stricter than the DB's VARCHAR(30), which counts code points, and never looser.
+     */
     private static String cleanOptionText(String value) {
         if (value == null) {
             return null;
         }
         String t = Normalizer.normalize(value, Normalizer.Form.NFC).strip();
-        return t.isEmpty() ? null : t;
+        if (t.isEmpty()) {
+            return null;
+        }
+        if (OPTION_TEXT_FORBIDDEN.matcher(t).find()) {
+            throw new ValidationException("옵션 이름에 쓸 수 없는 문자가 있어요.");
+        }
+        t = t.replaceAll(" {2,}", " ");
+        if (t.length() > MAX_OPTION_NAME_LENGTH) {
+            throw new ValidationException("색상 이름과 사이즈는 " + MAX_OPTION_NAME_LENGTH + "자 이하로 입력해 주세요.");
+        }
+        if (!LETTER_OR_DIGIT.matcher(t).find()) {
+            throw new ValidationException("옵션 이름에는 글자나 숫자가 하나는 있어야 해요.");
+        }
+        return t;
     }
 
     public static void validateNewProduct(String name, String description, Integer price, String imageUrl, Integer stock,

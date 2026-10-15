@@ -278,6 +278,54 @@ class OrderServiceOptionsTest {
         verifyNoInteractions(productOptionRepository);
     }
 
+    // ---- blank optionId is "no option" (normalised to null) ----
+
+    @Test
+    void 실패_옵션이_있는_상품에_optionId가_빈_문자열이나_공백이면_옵션을_선택하라고_거절한다() {
+        givenProducts(product("p1", 1000, 0));
+        givenOptions(option("o1", "p1", "화이트", "M", 1000, 5));
+
+        for (String blank : List.of("", "  ", "\t")) {
+            assertThatThrownBy(() -> create(new OrderLine("p1", 1, blank)))
+                    .isInstanceOf(ValidationException.class).hasMessage("옵션을 선택해 주세요.");
+        }
+
+        verify(productOptionRepository, never()).decrementStockIfAvailable(anyString(), anyString(), anyInt());
+        verify(productRepository, never()).decrementStockIfAvailable(anyString(), anyInt());
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void 성공_옵션이_없는_상품에_optionId가_빈_문자열이나_공백이면_옵션_없음으로_받고_주문이_같다() {
+        givenProducts(product("p1", 1000, 5));
+        givenOptions();
+        givenUpdatesSucceed();
+
+        Order plain = create(new OrderLine("p1", 2));
+        for (String blank : List.of("", "  ")) {
+            Order blankOption = create(new OrderLine("p1", 2, blank));
+
+            assertThat(blankOption.getRequestHash()).isEqualTo(plain.getRequestHash());
+            assertThat(blankOption.getTotalAmount()).isEqualTo(plain.getTotalAmount());
+            assertThat(blankOption.getItems()).hasSize(1);
+            assertThat(blankOption.getItems().get(0).getOptionId()).isNull();
+            assertThat(blankOption.getItems().get(0).getOptionLabel()).isNull();
+        }
+
+        verify(productRepository, org.mockito.Mockito.times(3)).decrementStockIfAvailable("p1", 2);
+        verify(productOptionRepository, never()).decrementStockIfAvailable(anyString(), anyString(), anyInt());
+    }
+
+    @Test
+    void 성공_빈_optionId로_보낸_옵션_없는_주문은_같은_키_재생이_기존_주문과_같은_것으로_취급된다() {
+        Order existing = existingOrder(hashOf(Map.of(new StockKey("p1", null), 2)));
+
+        assertThat(create(new OrderLine("p1", 2, ""))).isSameAs(existing);
+        assertThat(create(new OrderLine("p1", 1, "  "), new OrderLine("p1", 1))).isSameAs(existing);
+
+        verifyNoInteractions(productRepository, productOptionRepository);
+    }
+
     // ---- stock errors name the option ----
 
     @Test
