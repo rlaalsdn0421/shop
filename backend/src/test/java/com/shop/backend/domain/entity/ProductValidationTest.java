@@ -269,4 +269,43 @@ class ProductValidationTest {
                 .isInstanceOf(ValidationException.class)
                 .hasMessage(CHARS_MSG);
     }
+
+    // ---- image URLs (V17) ----
+
+    @Test
+    void 성공_이미지_1장과_10장은_통과하고_앞뒤_공백은_잘린다() {
+        assertThat(ProductValidation.normalizeImageUrls(List.of(" http://img/a "))).containsExactly("http://img/a");
+        assertThat(ProductValidation.normalizeImageUrls(Collections.nCopies(10, "HTTPS://img/a"))).hasSize(10);
+    }
+
+    @Test
+    void 성공_이미지_순서를_유지한다() {
+        assertThat(ProductValidation.normalizeImageUrls(List.of("http://b", "http://a", "http://c")))
+                .containsExactly("http://b", "http://a", "http://c");
+    }
+
+    @Test
+    void 실패_이미지가_없거나_11장이면_거부한다() {
+        assertThatThrownBy(() -> ProductValidation.normalizeImageUrls(null)).isInstanceOf(ValidationException.class);
+        assertThatThrownBy(() -> ProductValidation.normalizeImageUrls(List.of())).isInstanceOf(ValidationException.class);
+        assertThatThrownBy(() -> ProductValidation.normalizeImageUrls(Collections.nCopies(11, "http://img/a")))
+                .isInstanceOf(ValidationException.class)
+                .hasMessage("이미지는 1~10장까지 등록할 수 있어요.");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "   ", "img/a.png", "//img/a", "javascript:alert(1)", "data:image/png;base64,AAAA", "ftp://img/a"})
+    void 실패_빈_항목이나_http가_아닌_주소는_거부한다(String url) {
+        assertThatThrownBy(() -> ProductValidation.normalizeImageUrls(List.of("http://img/a", url)))
+                .isInstanceOf(ValidationException.class);
+    }
+
+    @Test
+    void 실패_null_항목과_2000자_초과_항목은_거부한다() {
+        assertThatThrownBy(() -> ProductValidation.normalizeImageUrls(Arrays.asList("http://img/a", null)))
+                .isInstanceOf(ValidationException.class);
+        assertThatThrownBy(() -> ProductValidation.normalizeImageUrls(List.of("http://" + "a".repeat(1994))))
+                .isInstanceOf(ValidationException.class);
+        assertThat(ProductValidation.normalizeImageUrls(List.of("http://" + "a".repeat(1993)))).hasSize(1);
+    }
 }

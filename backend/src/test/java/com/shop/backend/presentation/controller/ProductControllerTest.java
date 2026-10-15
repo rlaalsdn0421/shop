@@ -234,6 +234,41 @@ class ProductControllerTest {
         mockMvc.perform(get("/api/products/id2")).andExpect(jsonPath("$.category").value(nullValue()));
     }
 
+    @Test
+    void 성공_상품상세는_images를_순서대로_담고_imageUrl은_그대로다() throws Exception {
+        Product p = new Product("티셔츠", "상세", 9000, "http://img/a", 5);
+        when(productService.getProduct("id1")).thenReturn(Optional.of(p));
+        when(productService.getImageUrls(p)).thenReturn(List.of("http://img/a", "http://img/b", "http://img/c"));
+
+        mockMvc.perform(get("/api/products/id1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.imageUrl").value("http://img/a"))
+                .andExpect(jsonPath("$.images.length()").value(3))
+                .andExpect(jsonPath("$.images[0]").value("http://img/a"))
+                .andExpect(jsonPath("$.images[2]").value("http://img/c"));
+    }
+
+    @Test
+    void 성공_이미지_행이_없는_상품상세는_images가_imageUrl_하나다() throws Exception {
+        Product p = new Product("티셔츠", "상세", 9000, "http://img/a", 5);
+        when(productService.getProduct("id1")).thenReturn(Optional.of(p));
+        when(productService.getImageUrls(p)).thenReturn(List.of("http://img/a"));
+
+        mockMvc.perform(get("/api/products/id1"))
+                .andExpect(jsonPath("$.images.length()").value(1))
+                .andExpect(jsonPath("$.images[0]").value("http://img/a"));
+    }
+
+    @Test
+    void 성공_상품목록_항목에는_images가_없다() throws Exception {
+        Product p1 = new Product("티셔츠", "설명1", 10000, "http://img/1", 5);
+        when(productService.listProducts(isNull(), any(ProductSort.class), anyInt(), anyInt()))
+                .thenReturn(new PageImpl<>(List.of(p1), PageRequest.of(0, 8), 1));
+
+        mockMvc.perform(get("/api/products"))
+                .andExpect(jsonPath("$.items[0].images").doesNotExist());
+    }
+
     // ---- best ----
 
     @Test

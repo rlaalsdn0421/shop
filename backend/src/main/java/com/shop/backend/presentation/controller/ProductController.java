@@ -48,7 +48,7 @@ public class ProductController {
     @GetMapping("/{id}")
     public ResponseEntity<ProductDtos.ProductDetail> getProduct(@PathVariable String id) {
         return productService.getProduct(id)
-                .map(ProductDtos.ProductDetail::from)
+                .map(p -> ProductDtos.ProductDetail.from(p, productService.getImageUrls(p)))
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
