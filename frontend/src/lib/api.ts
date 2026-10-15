@@ -76,6 +76,8 @@ export type ProductDetail = Product & {
   stock: number;
   // Optional on purpose: the detail endpoint does not send it yet (breadcrumb shows only when present).
   category?: string | null;
+  // Optional on purpose: an older backend does not send it; the page then falls back to [imageUrl].
+  images?: string[];
 };
 
 export type AdminProduct = {

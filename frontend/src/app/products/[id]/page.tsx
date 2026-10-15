@@ -49,7 +49,7 @@ export default async function ProductDetail({
       </nav>
 
       <div className="grid md:grid-cols-2 gap-8 lg:gap-12 -mt-6">
-        <ProductGallery images={[product.imageUrl]} name={product.name} />
+        <ProductGallery images={product.images?.length ? product.images : [product.imageUrl]} name={product.name} />
         <div className="flex flex-col gap-4">
           <h1 className="text-2xl font-bold">{product.name}</h1>
           <p className="text-sm text-gray-600">

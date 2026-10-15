@@ -30,7 +30,7 @@ async function fillRequired(price = "8000") {
   await userEvent.type(screen.getByLabelText("상품명"), "린넨 셔츠");
   await userEvent.type(screen.getByLabelText("상품 설명"), "시원한 셔츠");
   await userEvent.type(screen.getByLabelText("가격"), price);
-  await userEvent.type(screen.getByLabelText("이미지 URL"), "https://example.com/a.jpg");
+  await userEvent.type(screen.getByLabelText("이미지 주소 1"), "https://example.com/a.jpg");
   await userEvent.type(screen.getByLabelText("재고 수량"), "5");
 }
 
@@ -53,6 +53,7 @@ describe("AdminProductForm 정가/해시태그", () => {
       description: "시원한 셔츠",
       price: 8000,
       imageUrl: "https://example.com/a.jpg",
+      imageUrls: ["https://example.com/a.jpg"],
       stock: 5,
       category: "",
     });
@@ -226,5 +227,105 @@ describe("AdminProductForm 정가/해시태그", () => {
     await submit();
     expect(await screen.findByRole("alert")).toHaveTextContent("정가는 판매가보다 커야 해요.");
     expect(push).not.toHaveBeenCalled();
+  });
+});
+
+describe("AdminProductForm 이미지 여러 장", () => {
+  const addButton = () => screen.getByRole("button", { name: "이미지 추가" });
+  const addRow = () => userEvent.click(addButton());
+  const rowInput = (n: number) => screen.getByLabelText(`이미지 주소 ${n}`);
+
+  it("성공: 처음에는 이미지 주소 한 줄만 있고 삭제 버튼은 없다", () => {
+    render(<AdminProductForm />);
+    expect(rowInput(1)).toBeRequired();
+    expect(screen.queryByLabelText("이미지 주소 2")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /삭제/ })).not.toBeInTheDocument();
+  });
+
+  it("성공: 추가하면 새 줄에 포커스가 가고, 삭제하면 그 줄이 사라지고 값은 남은 줄에 그대로 있다", async () => {
+    render(<AdminProductForm />);
+    await userEvent.type(rowInput(1), "https://example.com/a.jpg");
+    await addRow();
+    expect(rowInput(2)).toHaveFocus();
+    await userEvent.type(rowInput(2), "https://example.com/b.jpg");
+    await addRow();
+    await userEvent.type(rowInput(3), "https://example.com/c.jpg");
+
+    await userEvent.click(screen.getByRole("button", { name: "이미지 주소 2 삭제" }));
+    expect(screen.queryByLabelText("이미지 주소 3")).not.toBeInTheDocument();
+    expect(rowInput(1)).toHaveValue("https://example.com/a.jpg");
+    expect(rowInput(2)).toHaveValue("https://example.com/c.jpg");
+    expect(rowInput(1)).toHaveFocus();
+  });
+
+  it("성공: 10장까지 늘릴 수 있고 그 이후에는 추가 버튼이 막힌다", async () => {
+    render(<AdminProductForm />);
+    for (let i = 0; i < 9; i++) await addRow();
+    expect(rowInput(10)).toBeInTheDocument();
+    expect(addButton()).toBeDisabled();
+    expect(screen.getByText("이미지는 최대 10장까지 등록할 수 있어요.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "이미지 주소 10 삭제" }));
+    expect(addButton()).toBeEnabled();
+  });
+
+  it("성공: imageUrl(첫 번째)과 imageUrls(전부)를 함께 보내고, 앞뒤 공백은 지우고 빈 줄은 뺀다", async () => {
+    mockFetchOnce(201, {});
+    render(<AdminProductForm />);
+    await fillRequired();
+    await addRow();
+    await addRow();
+    await addRow();
+    await userEvent.type(rowInput(2), "  https://example.com/b.jpg  ");
+    await userEvent.type(rowInput(4), "https://example.com/c.jpg");
+    await submit();
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/admin/products"));
+    expect(sentBody()).toMatchObject({
+      imageUrl: "https://example.com/a.jpg",
+      imageUrls: ["https://example.com/a.jpg", "https://example.com/b.jpg", "https://example.com/c.jpg"],
+    });
+  });
+
+  it("성공: 한 장만 올리는 옛 방식도 imageUrl과 한 개짜리 imageUrls로 보낸다", async () => {
+    mockFetchOnce(201, {});
+    render(<AdminProductForm />);
+    await fillRequired();
+    await submit();
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    const body = sentBody();
+    expect(body.imageUrl).toBe("https://example.com/a.jpg");
+    expect(body.imageUrls).toEqual(["https://example.com/a.jpg"]);
+  });
+
+  it("실패: 같은 주소를 두 번 넣으면 그 줄에 오류를 보여주고 요청하지 않는다", async () => {
+    mockFetchOnce(201, {});
+    render(<AdminProductForm />);
+    await fillRequired();
+    await addRow();
+    await userEvent.type(rowInput(2), " https://example.com/a.jpg");
+    expect(messages()).toEqual(["이미 입력한 이미지 주소예요."]);
+    expect(rowInput(2)).toHaveAccessibleDescription("이미 입력한 이미지 주소예요.");
+    expect(rowInput(1)).not.toHaveAttribute("aria-invalid");
+    // The native check does not stop this one, so the guard has to.
+    await submit();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(rowInput(2)).toHaveFocus();
+
+    await userEvent.clear(rowInput(2));
+    await userEvent.type(rowInput(2), "https://example.com/b.jpg");
+    expect(messages()).toEqual([]);
+  });
+
+  it("실패: 첫 줄이 비었거나 공백뿐이면 두 번째 줄이 차 있어도 요청하지 않는다", async () => {
+    mockFetchOnce(201, {});
+    render(<AdminProductForm />);
+    await fillRequired();
+    await addRow();
+    await userEvent.type(rowInput(2), "https://example.com/b.jpg");
+    await userEvent.clear(rowInput(1));
+    await userEvent.type(rowInput(1), "   ");
+    fireEvent.submit(form());
+    expect(await screen.findByRole("alert")).toHaveTextContent("첫 번째 이미지 주소를 입력해 주세요.");
+    expect(rowInput(1)).toHaveFocus();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

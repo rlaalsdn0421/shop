@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useRequireRole } from "@/auth/AuthContext";
 import { CATEGORIES } from "@/lib/categories";
@@ -8,6 +8,7 @@ import { parseHashtags } from "@/lib/hashtags";
 import { MAX_PRICE } from "@/lib/price";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080";
+const MAX_IMAGES = 10;
 
 // Inline field errors use a polite live region so typing "12900" does not interrupt a screen
 // reader at every digit. It stays mounted (empty) so the announcement is reliable.
@@ -28,10 +29,14 @@ export function AdminProductForm() {
     price: "",
     originalPrice: "",
     hashtags: "",
-    imageUrl: "",
     stock: "",
     category: "",
   });
+  // Rows keep a stable key so deleting a middle row does not hand its input to the next one.
+  const [imageRows, setImageRows] = useState([{ key: 0, url: "" }]);
+  const nextRowKey = useRef(1);
+  const imageInputs = useRef<(HTMLInputElement | null)[]>([]);
+  const focusRow = useRef<number | null>(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   // The ref blocks a second submit in the same tick, before the disabled button re-renders.
@@ -54,6 +59,28 @@ export function AdminProductForm() {
           ? "정가는 판매가보다 커야 해요."
           : null;
 
+  // Trimmed once; blank extra rows are dropped on submit, a repeated address is flagged on the later row.
+  const imageUrls = imageRows.map((row) => row.url.trim());
+  const duplicateRow = (i: number) => imageUrls[i] !== "" && imageUrls.indexOf(imageUrls[i]) < i;
+  const firstDuplicate = imageUrls.findIndex((_, i) => duplicateRow(i));
+
+  useEffect(() => {
+    if (focusRow.current === null) return;
+    imageInputs.current[focusRow.current]?.focus();
+    focusRow.current = null;
+  }, [imageRows]);
+
+  function addImageRow() {
+    if (imageRows.length >= MAX_IMAGES) return;
+    focusRow.current = imageRows.length;
+    setImageRows([...imageRows, { key: nextRowKey.current++, url: "" }]);
+  }
+
+  function removeImageRow(index: number) {
+    focusRow.current = Math.max(index - 1, 0);
+    setImageRows(imageRows.filter((_, i) => i !== index));
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -69,6 +96,16 @@ export function AdminProductForm() {
       firstInvalid.current?.focus();
       return;
     }
+    if (imageUrls[0] === "") {
+      setError("첫 번째 이미지 주소를 입력해 주세요.");
+      imageInputs.current[0]?.focus();
+      return;
+    }
+    if (firstDuplicate >= 0) {
+      imageInputs.current[firstDuplicate]?.focus();
+      return;
+    }
+    const urls = imageUrls.filter(Boolean);
     if (submitLock.current) return;
     submitLock.current = true;
     setSubmitting(true);
@@ -85,7 +122,9 @@ export function AdminProductForm() {
           price: Number(form.price),
           ...(form.originalPrice !== "" ? { originalPrice: Number(form.originalPrice) } : {}),
           ...(tags.length > 0 ? { hashtags: tags } : {}),
-          imageUrl: form.imageUrl,
+          // Both on purpose: an older backend only reads imageUrl, a newer one reads imageUrls.
+          imageUrl: urls[0],
+          imageUrls: urls,
           stock: Number(form.stock),
           category: form.category,
         }),
@@ -184,16 +223,57 @@ export function AdminProductForm() {
           />
           <FieldError id="product-hashtags-error" message={hashtagError} />
         </div>
-        <label htmlFor="product-image" className="sr-only">이미지 URL</label>
-        <input
-          id="product-image"
-          className="border rounded px-3 py-2 text-sm"
-          placeholder="이미지 URL"
-          value={form.imageUrl}
-          onChange={(e) => setForm({ ...form, imageUrl: e.target.value })}
-          maxLength={2000}
-          required
-        />
+        <fieldset className="flex flex-col gap-2">
+          <legend className="sr-only">상품 이미지 (첫 번째가 대표 이미지, 최대 {MAX_IMAGES}장)</legend>
+          {imageRows.map((row, i) => {
+            const duplicate = duplicateRow(i);
+            return (
+              <div key={row.key}>
+                <div className="flex gap-2">
+                  <label htmlFor={`product-image-${row.key}`} className="sr-only">{`이미지 주소 ${i + 1}`}</label>
+                  <input
+                    id={`product-image-${row.key}`}
+                    ref={(el) => {
+                      imageInputs.current[i] = el;
+                    }}
+                    className="min-w-0 flex-1 border rounded px-3 py-2 text-sm"
+                    placeholder={i === 0 ? "이미지 주소 (대표 이미지)" : `이미지 주소 ${i + 1}`}
+                    value={row.url}
+                    onChange={(e) =>
+                      setImageRows(imageRows.map((r) => (r.key === row.key ? { ...r, url: e.target.value } : r)))
+                    }
+                    maxLength={2000}
+                    required={i === 0}
+                    aria-invalid={duplicate ? true : undefined}
+                    aria-describedby={duplicate ? `product-image-${row.key}-error` : undefined}
+                  />
+                  {imageRows.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeImageRow(i)}
+                      aria-label={`이미지 주소 ${i + 1} 삭제`}
+                      className="shrink-0 border rounded px-3 text-sm"
+                    >
+                      삭제
+                    </button>
+                  )}
+                </div>
+                <FieldError id={`product-image-${row.key}-error`} message={duplicate ? "이미 입력한 이미지 주소예요." : null} />
+              </div>
+            );
+          })}
+          <button
+            type="button"
+            onClick={addImageRow}
+            disabled={imageRows.length >= MAX_IMAGES}
+            className="self-start border rounded px-3 py-2 text-sm disabled:opacity-50"
+          >
+            이미지 추가
+          </button>
+          {imageRows.length >= MAX_IMAGES && (
+            <p role="status" className="text-sm text-gray-600">이미지는 최대 {MAX_IMAGES}장까지 등록할 수 있어요.</p>
+          )}
+        </fieldset>
         <label htmlFor="product-stock" className="sr-only">재고 수량</label>
         <input
           id="product-stock"
