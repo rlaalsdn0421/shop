@@ -6,13 +6,16 @@ import com.shop.backend.domain.entity.OrderItem;
 import com.shop.backend.domain.entity.OrderLine;
 import com.shop.backend.domain.entity.OrderValidation;
 import com.shop.backend.domain.entity.Product;
+import com.shop.backend.domain.entity.ProductOption;
 import com.shop.backend.domain.entity.ShippingPolicy;
+import com.shop.backend.domain.entity.StockKey;
 import com.shop.backend.domain.error.IdempotencyKeyReuseException;
 import com.shop.backend.domain.error.InsufficientStockException;
 import com.shop.backend.domain.error.OrderNotFoundException;
 import com.shop.backend.domain.error.ProductNotFoundException;
 import com.shop.backend.domain.error.ValidationException;
 import com.shop.backend.infrastructure.repository.OrderRepository;
+import com.shop.backend.infrastructure.repository.ProductOptionRepository;
 import com.shop.backend.infrastructure.repository.ProductRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
@@ -23,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -33,14 +37,16 @@ import java.util.stream.Collectors;
 public class OrderService {
 
     private final ProductRepository productRepository;
+    private final ProductOptionRepository productOptionRepository;
     private final OrderRepository orderRepository;
 
     private final EntityManager em;
     private final Clock clock;
 
-    public OrderService(ProductRepository productRepository, OrderRepository orderRepository, EntityManager em,
-                        Clock clock) {
+    public OrderService(ProductRepository productRepository, ProductOptionRepository productOptionRepository,
+                        OrderRepository orderRepository, EntityManager em, Clock clock) {
         this.productRepository = productRepository;
+        this.productOptionRepository = productOptionRepository;
         this.orderRepository = orderRepository;
         this.em = em;
         this.clock = clock;
@@ -52,8 +58,8 @@ public class OrderService {
         OrderValidation.validateIdempotencyKey(idempotencyKey);
         OrderValidation.validateCustomerInfo(customerName, customerPhone, customerAddress);
         OrderValidation.validateOrderLines(lines);
-        Map<String, Integer> quantityByProductId = OrderValidation.aggregateQuantities(lines);
-        String requestHash = OrderValidation.requestHash(customerName, customerPhone, customerAddress, quantityByProductId);
+        Map<StockKey, Integer> quantityByKey = OrderValidation.aggregateLines(lines);
+        String requestHash = OrderValidation.requestHashByStockKey(customerName, customerPhone, customerAddress, quantityByKey);
 
         // Transaction-scoped (needs this transaction, resets at commit/rollback; fine behind a connection pooler): a
         // stuck lock holder fails this order after 3 s (-> 503) instead of tying up one of the few pooled connections.
@@ -74,14 +80,14 @@ public class OrderService {
             if (Order.STATUS_PENDING_PAYMENT.equals(replay.getStatus()) && replay.getExpiresAt() != null
                     && replay.getExpiresAt().isBefore(now)) {
                 // Overdue but the sweeper has not run yet: the client would keep replaying a dead order, so expire it
-                // here (the client sees EXPIRED and re-keys). Lock order: advisory lock (held), this order row, products
-                // by id. Lock first, THEN re-read: the copy loaded above may predate a payment that committed while we
+                // here (the client sees EXPIRED and re-keys). Lock order: advisory lock (held), this order row, stock
+                // rows (products and options) in StockKey order. Lock first, THEN re-read: the copy loaded above may predate a payment that committed while we
                 // waited for the lock, and expiring a just-paid order would wrongly return its stock. (refresh(entity,
                 // lockMode) is not enough: Hibernate 6 reads first with a plain SELECT and only then locks.)
                 em.lock(replay, LockModeType.PESSIMISTIC_WRITE);
                 em.refresh(replay);
                 if (replay.expire(now)) {
-                    PaymentTransactions.restoreStock(productRepository, replay);
+                    PaymentTransactions.restoreStock(productRepository, productOptionRepository, replay);
                 }
             }
             // otherwise a replay changes no stock and saves nothing; the current status is returned as is
@@ -89,19 +95,38 @@ public class OrderService {
             return replay;
         }
 
-        List<Product> products = productRepository.findAllByIdIn(List.copyOf(quantityByProductId.keySet()));
+        List<String> productIds = quantityByKey.keySet().stream().map(StockKey::productId).distinct().toList();
+        List<Product> products = productRepository.findAllByIdIn(productIds);
         Map<String, Product> productsById = products.stream()
                 .collect(java.util.stream.Collectors.toMap(Product::getId, p -> p));
 
-        for (String productId : quantityByProductId.keySet()) {
+        for (String productId : productIds) {
             if (!productsById.containsKey(productId)) {
                 throw new ProductNotFoundException(productId);
             }
         }
 
-        // Sorted by id, not request order: each update row-locks its product until commit, so two orders with the
-        // same products in opposite order would deadlock.
-        TreeMap<String, Integer> sortedQuantities = new TreeMap<>(quantityByProductId);
+        // The server decides which products sell by option: a product with options needs a valid optionId of its own,
+        // one without options takes none (the option's price and stock replace the product's below).
+        Map<String, List<ProductOption>> optionsByProductId = productOptionRepository.findByProductIdIn(productIds).stream()
+                .collect(Collectors.groupingBy(ProductOption::getProductId));
+        Map<StockKey, ProductOption> optionByKey = new HashMap<>();
+        for (StockKey key : quantityByKey.keySet()) {
+            List<ProductOption> options = optionsByProductId.getOrDefault(key.productId(), List.of());
+            if (key.optionId() == null) {
+                if (!options.isEmpty()) {
+                    throw new ValidationException("옵션을 선택해 주세요.");
+                }
+                continue;
+            }
+            ProductOption option = options.stream().filter(o -> o.getId().equals(key.optionId())).findFirst()
+                    .orElseThrow(() -> new ValidationException("선택한 옵션을 찾을 수 없어요."));
+            optionByKey.put(key, option);
+        }
+
+        // Sorted by StockKey (productId, optionId), not request order: each update row-locks its stock row until
+        // commit, so two orders touching the same rows in opposite order would deadlock. Same order in every path.
+        TreeMap<StockKey, Integer> sortedQuantities = new TreeMap<>(quantityByKey);
 
         // Pass 1, nothing locked yet: reject sold-out products early and make sure the amounts fit into an int.
         // The stock read here is advisory only (it can already be stale); the conditional UPDATE below decides.
@@ -109,12 +134,15 @@ public class OrderService {
         int shippingFee;
         int totalAmount;
         try {
-            for (Map.Entry<String, Integer> entry : sortedQuantities.entrySet()) {
-                Product product = productsById.get(entry.getKey());
-                if (product.getStock() < entry.getValue()) {
-                    throw new InsufficientStockException(product.getName());
+            for (Map.Entry<StockKey, Integer> entry : sortedQuantities.entrySet()) {
+                Product product = productsById.get(entry.getKey().productId());
+                ProductOption option = optionByKey.get(entry.getKey());
+                int stock = option != null ? option.getStock() : product.getStock();
+                int unitPrice = option != null ? option.getPrice() : product.getPrice();
+                if (stock < entry.getValue()) {
+                    throw new InsufficientStockException(soldOutName(product, option));
                 }
-                itemsAmount = Math.addExact(itemsAmount, Math.multiplyExact(product.getPrice(), entry.getValue()));
+                itemsAmount = Math.addExact(itemsAmount, Math.multiplyExact(unitPrice, entry.getValue()));
             }
             shippingFee = ShippingPolicy.feeFor(itemsAmount);
             totalAmount = Math.addExact(itemsAmount, shippingFee);
@@ -128,20 +156,35 @@ public class OrderService {
         // RuntimeException), undoing the products already decremented.
         Order order = new Order(userId, idempotencyKey, requestHash, customerName, customerPhone, customerAddress, totalAmount,
                 shippingFee, Instant.now(clock));
-        for (Map.Entry<String, Integer> entry : sortedQuantities.entrySet()) {
-            Product product = productsById.get(entry.getKey());
+        for (Map.Entry<StockKey, Integer> entry : sortedQuantities.entrySet()) {
+            Product product = productsById.get(entry.getKey().productId());
+            ProductOption option = optionByKey.get(entry.getKey());
             int quantity = entry.getValue();
-            if (productRepository.decrementStockIfAvailable(product.getId(), quantity) == 0) {
-                throw new InsufficientStockException(product.getName());
+            if (option == null) {
+                if (productRepository.decrementStockIfAvailable(product.getId(), quantity) == 0) {
+                    throw new InsufficientStockException(product.getName());
+                }
+                order.addItem(new OrderItem(product, quantity, product.getPrice()));
+            } else {
+                if (productOptionRepository.decrementStockIfAvailable(option.getId(), product.getId(), quantity) == 0) {
+                    throw new InsufficientStockException(soldOutName(product, option));
+                }
+                order.addItem(new OrderItem(product, quantity, option.getPrice(), option.getId(), option.label()));
             }
-            order.addItem(new OrderItem(product, quantity, product.getPrice()));
         }
 
         return orderRepository.save(order);
     }
 
+    private static String soldOutName(Product product, ProductOption option) {
+        return option == null ? product.getName() : product.getName() + " (" + option.label() + ")";
+    }
+
     /** One list row; the aggregates are computed in memory from the page's lines (no per-order query). */
-    public record OrderSummary(Order order, int itemCount, String firstItemName) {
+    public record OrderSummary(Order order, int itemCount, String firstItemName, String firstItemOptionLabel) {
+        public OrderSummary(Order order, int itemCount, String firstItemName) {
+            this(order, itemCount, firstItemName, null);
+        }
     }
 
     public record OrderPage(List<OrderSummary> orders, String nextCursor) {
@@ -209,8 +252,9 @@ public class OrderService {
                 .thenComparing(OrderItem::getId);
         List<OrderSummary> summaries = page.stream().map(order -> {
             List<OrderItem> items = itemsByOrderId.getOrDefault(order.getId(), List.of());
-            String firstName = items.stream().min(representative).map(i -> i.getProduct().getName()).orElse(null);
-            return new OrderSummary(order, items.size(), firstName);
+            OrderItem first = items.stream().min(representative).orElse(null);
+            return new OrderSummary(order, items.size(), first == null ? null : first.getProduct().getName(),
+                    first == null ? null : first.getOptionLabel());
         }).toList();
 
         Order last = page.get(page.size() - 1);

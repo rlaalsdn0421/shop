@@ -12,6 +12,7 @@ import com.shop.backend.domain.error.InsufficientStockException;
 import com.shop.backend.domain.error.ProductNotFoundException;
 import com.shop.backend.domain.error.ValidationException;
 import com.shop.backend.infrastructure.repository.OrderRepository;
+import com.shop.backend.infrastructure.repository.ProductOptionRepository;
 import com.shop.backend.infrastructure.repository.ProductRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
@@ -52,6 +53,8 @@ class OrderServiceTest {
     @Mock
     private ProductRepository productRepository;
     @Mock
+    private ProductOptionRepository productOptionRepository;
+    @Mock
     private OrderRepository orderRepository;
     private static final String USER = "user-1";
     private static final String KEY = "key-12345";
@@ -66,7 +69,7 @@ class OrderServiceTest {
     }
 
     private Order create(OrderLine... lines) {
-        return new OrderService(productRepository, orderRepository, em, CLOCK)
+        return new OrderService(productRepository, productOptionRepository, orderRepository, em, CLOCK)
                 .createOrder(USER, KEY, "구매자", "010-0000-0000", "서울", List.of(lines));
     }
 
@@ -374,7 +377,7 @@ class OrderServiceTest {
 
     @Test
     void 실패_요청_번호가_올바르지_않으면_DB에_아무것도_하지_않는다() {
-        OrderService service = new OrderService(productRepository, orderRepository, em, CLOCK);
+        OrderService service = new OrderService(productRepository, productOptionRepository, orderRepository, em, CLOCK);
 
         assertThatThrownBy(() -> service.createOrder(USER, null, "구매자", "010", "서울", List.of(new OrderLine("p1", 1))))
                 .isInstanceOf(ValidationException.class)
@@ -390,20 +393,20 @@ class OrderServiceTest {
         order.addItem(item);
         when(orderRepository.findByIdAndUserId("o1", USER)).thenReturn(Optional.of(order));
 
-        assertThat(new OrderService(productRepository, orderRepository, em, CLOCK).getOrder("o1", USER)).containsSame(order);
+        assertThat(new OrderService(productRepository, productOptionRepository, orderRepository, em, CLOCK).getOrder("o1", USER)).containsSame(order);
     }
 
     @Test
     void 실패_남의_주문이거나_없거나_주문자_없는_옛_주문이면_빈_결과다() {
         when(orderRepository.findByIdAndUserId("o1", "someone-else")).thenReturn(Optional.empty());
 
-        assertThat(new OrderService(productRepository, orderRepository, em, CLOCK).getOrder("o1", "someone-else")).isEmpty();
+        assertThat(new OrderService(productRepository, productOptionRepository, orderRepository, em, CLOCK).getOrder("o1", "someone-else")).isEmpty();
         verify(orderRepository, never()).findById(any());
     }
 
     @Test
     void 실패_주문자가_null이거나_비어_있으면_조회하지_않고_빈_결과다() {
-        OrderService service = new OrderService(productRepository, orderRepository, em, CLOCK);
+        OrderService service = new OrderService(productRepository, productOptionRepository, orderRepository, em, CLOCK);
 
         assertThat(service.getOrder("o1", null)).isEmpty();
         assertThat(service.getOrder("o1", "")).isEmpty();
@@ -428,7 +431,7 @@ class OrderServiceTest {
     }
 
     private OrderService service() {
-        return new OrderService(productRepository, orderRepository, em, CLOCK);
+        return new OrderService(productRepository, productOptionRepository, orderRepository, em, CLOCK);
     }
 
     @Test

@@ -75,7 +75,7 @@ class AdminProductControllerTest {
     void 성공_판매자가_상품을_등록한다() throws Exception {
         Product created = new Product("새상품", "설명", 5000, "http://img/new", 10, "스포츠/레저");
         ReflectionTestUtils.setField(created, "id", "new-id");
-        when(productService.createProduct(any(), any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(created);
+        when(productService.createProduct(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(created);
 
         String body = """
                 {"name":"새상품","description":"설명","price":5000,"imageUrl":"http://img/new","stock":10,"category":"스포츠/레저"}
@@ -91,7 +91,7 @@ class AdminProductControllerTest {
     @Test
     @WithMockUser(roles = "ADMIN")
     void 실패_유효성검증에_실패하면_400을_반환한다() throws Exception {
-        when(productService.createProduct(any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(productService.createProduct(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenThrow(new ValidationException("이름, 설명, 이미지 URL을 올바르게 입력해주세요."));
 
         String body = """
@@ -110,7 +110,7 @@ class AdminProductControllerTest {
     void 성공_정가와_해시태그를_서비스에_그대로_넘긴다() throws Exception {
         Product created = new Product("새상품", "설명", 5000, "http://img/new", 10);
         ReflectionTestUtils.setField(created, "id", "new-id");
-        when(productService.createProduct(any(), any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(created);
+        when(productService.createProduct(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(created);
 
         String body = """
                 {"name":"새상품","description":"설명","price":5000,"imageUrl":"http://img/new","stock":10,
@@ -123,7 +123,7 @@ class AdminProductControllerTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<String>> tags = ArgumentCaptor.forClass(List.class);
         verify(productService).createProduct(eq("새상품"), eq("설명"), eq(5000), eq("http://img/new"), isNull(), eq(10),
-                isNull(), eq(8000), tags.capture());
+                isNull(), eq(8000), tags.capture(), isNull());
         assertThat(tags.getValue()).containsExactly("#여름", "세일");
     }
 
@@ -132,7 +132,7 @@ class AdminProductControllerTest {
     void 성공_정가와_해시태그가_없으면_null로_넘긴다() throws Exception {
         Product created = new Product("새상품", "설명", 5000, "http://img/new", 10);
         ReflectionTestUtils.setField(created, "id", "new-id");
-        when(productService.createProduct(any(), any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(created);
+        when(productService.createProduct(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(created);
 
         String body = """
                 {"name":"새상품","description":"설명","price":5000,"imageUrl":"http://img/new","stock":10}
@@ -141,7 +141,7 @@ class AdminProductControllerTest {
         mockMvc.perform(post("/api/admin/products").contentType("application/json").content(body))
                 .andExpect(status().isOk());
 
-        verify(productService).createProduct(any(), any(), any(), any(), isNull(), any(), any(), isNull(), isNull());
+        verify(productService).createProduct(any(), any(), any(), any(), isNull(), any(), any(), isNull(), isNull(), isNull());
     }
 
     @Test
@@ -149,7 +149,7 @@ class AdminProductControllerTest {
     void 성공_imageUrls를_서비스에_순서대로_넘긴다() throws Exception {
         Product created = new Product("새상품", "설명", 5000, "http://img/a", 10);
         ReflectionTestUtils.setField(created, "id", "new-id");
-        when(productService.createProduct(any(), any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(created);
+        when(productService.createProduct(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(created);
 
         String body = """
                 {"name":"새상품","description":"설명","price":5000,"imageUrls":["http://img/a","http://img/b"],"stock":10}
@@ -161,14 +161,14 @@ class AdminProductControllerTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<String>> urls = ArgumentCaptor.forClass(List.class);
-        verify(productService).createProduct(any(), any(), any(), isNull(), urls.capture(), any(), any(), any(), any());
+        verify(productService).createProduct(any(), any(), any(), isNull(), urls.capture(), any(), any(), any(), any(), any());
         assertThat(urls.getValue()).containsExactly("http://img/a", "http://img/b");
     }
 
     @Test
     @WithMockUser(roles = "ADMIN")
     void 실패_서비스가_이미지를_거절하면_400을_반환한다() throws Exception {
-        when(productService.createProduct(any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(productService.createProduct(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenThrow(new ValidationException("이미지는 1~10장까지 등록할 수 있어요."));
 
         String body = """
@@ -196,7 +196,7 @@ class AdminProductControllerTest {
     @Test
     @WithMockUser(roles = "ADMIN")
     void 실패_정가가_판매가_이하면_400을_반환한다() throws Exception {
-        when(productService.createProduct(any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(productService.createProduct(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenThrow(new ValidationException("정가는 판매가보다 커야 해요."));
 
         String body = """
@@ -211,7 +211,7 @@ class AdminProductControllerTest {
     @Test
     @WithMockUser(roles = "ADMIN")
     void 실패_해시태그가_4개면_400을_반환한다() throws Exception {
-        when(productService.createProduct(any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(productService.createProduct(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenThrow(new ValidationException("해시태그는 최대 3개까지 입력할 수 있어요."));
 
         String body = """
