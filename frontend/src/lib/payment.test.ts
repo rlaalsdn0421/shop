@@ -1,10 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { FAKE_PAYMENT_ENV, clearPaymentEnv, stubPaymentEnv } from "@/test-utils/paymentEnv";
 
 vi.mock("@portone/browser-sdk/v2", () => ({ requestPayment: vi.fn() }));
 
 import * as PortOne from "@portone/browser-sdk/v2";
-import { getPaymentConfig, orderNameFor, payOrder, remainingLabel, statusLabel, type PayMethodId } from "./payment";
+import {
+  confirmPayment,
+  getPaymentConfig,
+  orderNameFor,
+  payOrder,
+  remainingLabel,
+  statusLabel,
+  type PayMethodId,
+} from "./payment";
 
 const requestPayment = vi.mocked(PortOne.requestPayment);
 
@@ -98,14 +106,44 @@ describe("getPaymentConfig", () => {
   });
 });
 
+describe("confirmPayment", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const stubStatus = (status: number, body: unknown) =>
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: status < 300, status, json: async () => body }));
+
+  it("성공: PAID, SHIPPED, DELIVERED 응답은 모두 결제된 것으로 보고 서버 상태를 함께 돌려준다", async () => {
+    for (const status of ["PAID", "SHIPPED", "DELIVERED"]) {
+      stubStatus(200, { status });
+      await expect(confirmPayment("o1", "t")).resolves.toEqual({ kind: "paid", status });
+    }
+  });
+
+  it("실패: 그 밖의 상태는 확인되지 않은 것으로 다룬다", async () => {
+    for (const status of ["PENDING_PAYMENT", "CANCELLED", "REFUNDED", "EXPIRED", "PAYMENT_REVIEW"]) {
+      stubStatus(200, { status });
+      await expect(confirmPayment("o1", "t")).resolves.toMatchObject({ kind: "unconfirmed" });
+    }
+  });
+});
+
 describe("statusLabel", () => {
   it("성공: 알려진 상태는 한국어 문구로 바꾼다", () => {
     expect(statusLabel("PENDING_PAYMENT")).toBe("결제 대기");
     expect(statusLabel("PAID")).toBe("결제 완료");
   });
 
+  it("성공: 취소·배송·환불 상태도 한국어 문구로 바꾸고 기존 문구는 그대로다", () => {
+    expect(statusLabel("CANCELING")).toBe("취소 처리 중");
+    expect(statusLabel("CANCELLED")).toBe("주문 취소됨(환불 완료)");
+    expect(statusLabel("SHIPPED")).toBe("배송 중");
+    expect(statusLabel("DELIVERED")).toBe("배송 완료");
+    expect(statusLabel("REFUNDED")).toBe("환불 완료");
+    expect(statusLabel("EXPIRED")).toBe("주문 만료(결제하지 않아 취소됨)");
+    expect(statusLabel("PAYMENT_REVIEW")).toBe("확인 중(결제 확인 후 취소·환불을 안내해 드려요)");
+  });
+
   it("실패: 모르는 상태나 없는 상태는 빈 문자열이다", () => {
-    expect(statusLabel("CANCELLED")).toBe("");
+    expect(statusLabel("SOMETHING_NEW")).toBe("");
     expect(statusLabel(undefined)).toBe("");
   });
 });

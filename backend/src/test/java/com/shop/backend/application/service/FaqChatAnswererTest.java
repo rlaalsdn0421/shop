@@ -112,8 +112,28 @@ class FaqChatAnswererTest {
     }
 
     @Test
-    void 성공_주문_취소_기능이_없어서_취소_질문은_환불_답변으로_가지_않는다() {
-        assertTrue(answerer.answer("주문 취소하고 싶어요").answer().startsWith("잘 이해하지 못했어요"));
+    void 성공_취소_질문은_배송_전_직접_취소와_배송_후_문의를_안내하는_환불_답변으로_간다() {
+        for (String m : List.of("주문 취소하고 싶어요", "결제한 거 취소할래요", "취소는 어떻게 해요?")) {
+            String answer = answerer.answer(m).answer();
+            assertTrue(answer.contains("결제를 완료한 뒤 배송이 시작되기 전에는 주문 상세 페이지에서 직접 주문을 취소"), m);
+            assertTrue(answer.contains("결제하지 않은 주문은 20분이 지나면 자동으로 만료"), m);
+            assertTrue(answer.contains("카드사에 따라 며칠 걸릴 수 있어요"), m);
+            assertTrue(answer.contains("배송이 시작된 뒤에는 바로 취소할 수 없고, 연락처로 문의"), m);
+        }
+    }
+
+    @Test
+    void 성공_취소_답변은_존재하지_않는_기능이나_환불_시점을_약속하지_않는다() {
+        String answer = answerer.answer("주문 취소하고 싶어요").answer();
+        assertFalse(answer.contains("자동으로 환불"));
+        assertFalse(answer.contains("즉시"));
+        assertFalse(answer.contains("당일"));
+        assertFalse(answer.contains("영업일"));
+    }
+
+    @Test
+    void 성공_결제_수단_질문은_취소_키워드가_없으면_계속_결제_답변이다() {
+        assertTrue(answerer.answer("카드로 결제할 수 있나요?").answer().contains("20분 안에 결제"));
     }
 
     @Test

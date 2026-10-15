@@ -43,6 +43,9 @@ final class TestData {
         tx.executeWithoutResult(s -> {
             Order order = new Order(null, null, null, "구매자", "010-0000-0000", "서울", 1000 * quantity, 0);
             ReflectionTestUtils.setField(order, "status", status);
+            if ("CANCELING".equals(status)) {
+                ReflectionTestUtils.setField(order, "cancelFrom", "PAID"); // orders_canceling_has_origin (V16)
+            }
             ReflectionTestUtils.setField(order, "createdAt", orderCreatedAt);
             order.addItem(new OrderItem(em.getReference(Product.class, productId), quantity, 1000));
             em.persist(order);

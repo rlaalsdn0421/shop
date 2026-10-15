@@ -54,10 +54,11 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login").permitAll()
-                        .requestMatchers("/api/admin/products/**").hasAnyRole("ADMIN", "SELLER")
+                        .requestMatchers("/api/admin/products/**", "/api/admin/orders/**").hasAnyRole("ADMIN", "SELLER")
                         .requestMatchers(HttpMethod.POST, "/api/orders").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/orders/**").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/orders/*/payment/complete").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/orders/*/cancel").authenticated()
                         // /api/payments/webhook (signature) and /api/internal/** (token) authenticate themselves, not by JWT
                         .requestMatchers(HttpMethod.POST, "/api/products/*/reviews").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/api/users/me").authenticated()

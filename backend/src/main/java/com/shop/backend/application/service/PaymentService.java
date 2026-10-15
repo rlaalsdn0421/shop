@@ -35,7 +35,10 @@ public class PaymentService {
     private static final String PAID = "PAID";
     private static final String CHANNEL_LIVE = "LIVE";
     private static final String CHANNEL_TEST = "TEST";
+    private static final String CANCELLED = "CANCELLED";
     private static final String WEBHOOK_PAID_TYPE = "Transaction.Paid";
+    private static final String WEBHOOK_CANCELLED_TYPE = "Transaction.Cancelled";
+    private static final String WEBHOOK_PARTIAL_CANCELLED_TYPE = "Transaction.PartialCancelled";
 
     private final OrderRepository orderRepository;
     private final PaymentGateway gateway;
@@ -84,6 +87,11 @@ public class PaymentService {
         if (Order.STATUS_PAYMENT_REVIEW.equals(order.getStatus())) {
             throw new PaymentNeedsReviewException();
         }
+        if (order.isPastPayment()) {
+            // CANCELING/CANCELLED/SHIPPED/DELIVERED/REFUNDED: paid long ago and moved on. Never ask the provider or
+            // re-confirm (that would put a shipped order back to PAID); a late webhook or a retry just gets the status.
+            return order.getStatus();
+        }
 
         // 2) provider call, outside any transaction
         PaymentGateway.Payment payment = gateway.find(orderId).orElseThrow(PaymentNotConfirmedException::new);
@@ -127,8 +135,13 @@ public class PaymentService {
         } catch (JsonProcessingException e) {
             throw new ValidationException("요청 본문을 읽을 수 없습니다.");
         }
-        // type first; data/paymentId are only looked at for the one type we handle. Any odd shape is ignored (200).
-        if (root == null || !root.path("type").isTextual() || !WEBHOOK_PAID_TYPE.equals(root.path("type").asText())) {
+        // type first; data/paymentId are only looked at for the types we handle. Any odd shape is ignored (200).
+        if (root == null || !root.path("type").isTextual()) {
+            return;
+        }
+        String type = root.path("type").asText();
+        if (!WEBHOOK_PAID_TYPE.equals(type) && !WEBHOOK_CANCELLED_TYPE.equals(type)
+                && !WEBHOOK_PARTIAL_CANCELLED_TYPE.equals(type)) {
             return;
         }
         JsonNode paymentIdNode = root.path("data").path("paymentId");
@@ -140,13 +153,49 @@ public class PaymentService {
             logger.info("Webhook for a payment that is not one of our orders: paymentId={}", paymentId);
             return;
         }
+        if (WEBHOOK_PARTIAL_CANCELLED_TYPE.equals(type)) {
+            // not in our policy (full refunds only): the order stays as it is, an operator has to look at the console
+            logger.error("Partial cancellation reported by the provider, order left unchanged; check it in the "
+                    + "provider console: paymentId={}", paymentId);
+            return;
+        }
         try {
-            complete(paymentId, null);
+            if (WEBHOOK_CANCELLED_TYPE.equals(type)) {
+                applyProviderCancel(paymentId);
+            } else {
+                complete(paymentId, null);
+            }
         } catch (PaymentAmountMismatchException | PaymentNeedsReviewException | PaymentChannelNotAllowedException e) {
             // already logged at ERROR for the operator; a retry would give the same answer
             logger.info("Webhook processed without confirmation: paymentId={} code={}", paymentId, e.getCode());
         } catch (OrderNotFoundException e) {
             logger.info("Webhook for an order that no longer exists: paymentId={}", paymentId);
+        }
+    }
+
+    /**
+     * Transaction.Cancelled: the body is not trusted, the payment is looked up again and only a full CANCELLED payment
+     * for this store and order id moves the order (see {@link Order#finishCancel}).
+     */
+    private void applyProviderCancel(String paymentId) {
+        if (storeId == null || storeId.isBlank() || !gateway.isConfigured()) {
+            throw new PaymentNotConfiguredException();
+        }
+        PaymentGateway.Payment payment = gateway.find(paymentId).orElse(null);
+        if (payment == null || !CANCELLED.equals(payment.status()) || !paymentId.equals(payment.id())
+                || !storeId.equals(payment.storeId())) {
+            logger.warn("Cancel webhook ignored, the provider does not report this order's payment as cancelled: "
+                    + "paymentId={} providerStatus={}", paymentId, payment == null ? null : payment.status());
+            return;
+        }
+        PaymentTransactions.CancelApplied applied = transactions.applyCancelled(paymentId);
+        if (applied.outcome() == Order.CancelOutcome.IGNORED) {
+            logger.info("Payment cancelled at the provider for an order that was never paid: paymentId={} status={}",
+                    paymentId, applied.status());
+        } else if (applied.outcome() == Order.CancelOutcome.NO_STOCK_CHANGE
+                && Order.STATUS_REFUNDED.equals(applied.status())) {
+            logger.info("Order refunded after the payment was cancelled at the provider; stock not restored: "
+                    + "paymentId={}", paymentId);
         }
     }
 

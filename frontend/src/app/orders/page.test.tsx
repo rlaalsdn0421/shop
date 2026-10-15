@@ -54,6 +54,39 @@ describe("주문내역 페이지", () => {
     expect(init?.headers).toMatchObject({ Authorization: "Bearer fake-token" });
   });
 
+  it("성공: 취소·배송·환불 상태의 문구를 보이고 상태 코드는 보이지 않는다", async () => {
+    const statuses: [string, string][] = [
+      ["CANCELING", "취소 처리 중"],
+      ["CANCELLED", "주문 취소됨(환불 완료)"],
+      ["SHIPPED", "배송 중"],
+      ["DELIVERED", "배송 완료"],
+      ["REFUNDED", "환불 완료"],
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        reply(200, { orders: statuses.map(([status], i) => order(i + 1, { status })), nextCursor: null })
+      )
+    );
+    render(<OrdersPage />);
+    for (const [i, [status, text]] of statuses.entries()) {
+      const link = await screen.findByRole("link", { name: new RegExp(`상품${i + 1}`) });
+      expect(link).toHaveTextContent(text);
+      expect(link).not.toHaveTextContent(status);
+    }
+  });
+
+  it("실패: 모르는 상태는 문구 없이 카드만 보인다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(reply(200, { orders: [order(1, { status: "SOMETHING_NEW" })], nextCursor: null }))
+    );
+    render(<OrdersPage />);
+    const link = await screen.findByRole("link", { name: /상품1/ });
+    expect(link).not.toHaveTextContent("SOMETHING_NEW");
+    expect(link).toHaveTextContent("16,001원");
+  });
+
   it("성공: 카드의 접근 가능한 이름은 상품명으로 시작한다 (날짜·주문번호는 뒤에 읽힌다)", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(reply(200, { orders: [order(1)], nextCursor: null })));
     render(<OrdersPage />);

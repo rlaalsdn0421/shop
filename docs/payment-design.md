@@ -97,7 +97,7 @@ CREATE INDEX idx_orders_pending_expires ON orders (expires_at) WHERE status = 'P
 
 ## 7. 이번 PR에서 하지 않는 것(알고 두는 한계)
 
-- 환불·취소(다음 PR). 자동 환불이 없어서 `PAYMENT_REVIEW`와 금액 불일치는 운영자가 포트원 콘솔에서 처리한다.
+- 환불·취소(다음 PR, 설계는 [refund-design.md](refund-design.md)). 자동 환불이 없어서 `PAYMENT_REVIEW`와 금액 불일치는 운영자가 포트원 콘솔에서 처리한다.
 - 가상계좌·계좌이체(웹훅 `VirtualAccountIssued` 등은 무시).
 - 결제 요청 단위 레이트 리밋, 주문 생성 레이트 리밋. 특히 `POST /api/orders/{id}/payment/complete`를 로그인한 사용자가 반복 호출하면 그때마다 포트원 조회가 나가 포트원 API 한도를 쓸 수 있다.
 - 포트원 쪽에서 결제를 취소·환불해도(`Transaction.Cancelled`, 분쟁) 주문 상태는 `PAID`로 남는다. 다음 PR(환불)에서 웹훅으로 반영한다.

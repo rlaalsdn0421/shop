@@ -36,6 +36,25 @@ const PAYMENT_ERROR_MESSAGES: Record<string, string> = {
   PAYMENT_NOT_CONFIGURED: "결제 준비 중이에요. 잠시 후 다시 시도해 주세요.",
 };
 
+// Failed order cancel / admin order action. `message` is already a short Korean sentence for the known server codes.
+export class OrderActionError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly code?: string
+  ) {
+    super(message);
+  }
+}
+
+const CANCEL_UNAVAILABLE = "취소 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요.";
+const ORDER_ACTION_ERROR_MESSAGES: Record<string, string> = {
+  ORDER_NOT_CANCELLABLE: "배송이 시작되어 바로 취소할 수 없어요. 교환·환불은 연락처로 신청해 주세요.",
+  CANCEL_PROVIDER_UNAVAILABLE: CANCEL_UNAVAILABLE,
+  PAYMENT_NOT_CONFIGURED: CANCEL_UNAVAILABLE,
+  INVALID_ORDER_STATE: "주문 상태가 바뀌어 처리할 수 없어요. 목록을 새로고침해 확인해 주세요.",
+};
+
 export type Product = {
   id: string;
   name: string;
@@ -80,6 +99,9 @@ export type Order = {
   status?: string;
   expiresAt?: string | null;
   paidAt?: string | null;
+  shippedAt?: string | null;
+  deliveredAt?: string | null;
+  cancelledAt?: string | null;
   customerName: string;
   customerPhone: string;
   customerAddress: string;
@@ -98,6 +120,27 @@ export type OrderSummary = {
 
 export type OrderSummaryPage = {
   orders: OrderSummary[];
+  nextCursor: string | null;
+};
+
+export type AdminOrder = {
+  id: string;
+  status: string;
+  totalAmount: number; // includes shippingFee
+  shippingFee: number;
+  createdAt: string;
+  paidAt: string | null;
+  shippedAt: string | null;
+  deliveredAt: string | null;
+  customerName: string;
+  customerPhone: string;
+  customerAddress: string;
+  itemCount: number;
+  firstItemName: string;
+};
+
+export type AdminOrderPage = {
+  orders: AdminOrder[];
   nextCursor: string | null;
 };
 
@@ -224,6 +267,52 @@ export async function listMyOrders(token: string, cursor?: string | null): Promi
   if (!res.ok || !Array.isArray(data?.orders)) throw new Error("주문 내역을 불러오지 못했습니다.");
   return { orders: data.orders, nextCursor: data.nextCursor ?? null };
 }
+
+// POST that returns the order status the server settled on. 401/403 is a session problem (AuthError), anything else an OrderActionError.
+// The timeout is long on purpose: cancel and refund call the payment provider before answering.
+async function postOrderAction(path: string, token: string, body?: object): Promise<string> {
+  const res = await apiFetch(path, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (res.status === 401 || res.status === 403) throw new AuthError();
+  const data = await res.json().catch(() => null);
+  if (res.ok && typeof data?.status === "string") return data.status;
+  const code = typeof data?.code === "string" ? data.code : undefined;
+  throw new OrderActionError(
+    res.status,
+    (code && ORDER_ACTION_ERROR_MESSAGES[code]) ||
+      (res.status === 404 ? "주문을 찾을 수 없어요." : "요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요."),
+    code
+  );
+}
+
+const orderPath = (id: string) => `/api/orders/${encodeURIComponent(id)}`;
+const adminOrderPath = (id: string) => `/api/admin/orders/${encodeURIComponent(id)}`;
+
+export const cancelOrder = (id: string, token: string, reason?: string) =>
+  postOrderAction(`${orderPath(id)}/cancel`, token, reason?.trim() ? { reason: reason.trim() } : {});
+
+export async function listAdminOrders(token: string, status?: string, cursor?: string | null): Promise<AdminOrderPage> {
+  const params = new URLSearchParams({ size: "20" });
+  if (status) params.set("status", status);
+  if (cursor) params.set("cursor", cursor);
+  const res = await apiFetch(`/api/admin/orders?${params}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (res.status === 401 || res.status === 403) throw new AuthError();
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !Array.isArray(data?.orders)) throw new Error("주문 목록을 불러오지 못했습니다.");
+  return { orders: data.orders, nextCursor: data.nextCursor ?? null };
+}
+
+export const shipOrder = (id: string, token: string) => postOrderAction(`${adminOrderPath(id)}/ship`, token);
+export const deliverOrder = (id: string, token: string) => postOrderAction(`${adminOrderPath(id)}/deliver`, token);
+export const refundOrder = (id: string, token: string, reason: string) =>
+  postOrderAction(`${adminOrderPath(id)}/refund`, token, { reason });
 
 export async function withdrawAccount(token: string, password: string): Promise<void> {
   const res = await apiFetch("/api/users/me", {

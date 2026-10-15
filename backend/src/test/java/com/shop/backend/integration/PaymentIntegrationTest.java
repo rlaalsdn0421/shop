@@ -101,6 +101,12 @@ class PaymentIntegrationTest extends PostgresIntegrationTest {
             }
             return Optional.ofNullable(payments.get(paymentId));
         }
+
+        @Override
+        public void cancel(String paymentId, String reason, Requester requester) {
+            // not used by the payment flow tests
+            throw new UnsupportedOperationException();
+        }
     }
 
     @TestConfiguration(proxyBeanMethods = false)
@@ -327,9 +333,11 @@ class PaymentIntegrationTest extends PostgresIntegrationTest {
     }
 
     private void insertOrderWithStatus(String status) {
-        jdbc.update("INSERT INTO orders (id, customer_name, customer_phone, customer_address, total_amount, status, created_at) "
-                        + "VALUES (?, 'n', 'p', 'a', 1, ?, ?)",
-                UUID.randomUUID().toString(), status, Timestamp.valueOf(LocalDateTime.now()));
+        // V16 orders_canceling_has_origin: a CANCELING row must say where it came from
+        jdbc.update("INSERT INTO orders (id, customer_name, customer_phone, customer_address, total_amount, status, created_at, cancel_from) "
+                        + "VALUES (?, 'n', 'p', 'a', 1, ?, ?, ?)",
+                UUID.randomUUID().toString(), status, Timestamp.valueOf(LocalDateTime.now()),
+                "CANCELING".equals(status) ? "PAID" : null);
     }
 
     // ------------------------------------------------------------------ 1. V15
@@ -349,16 +357,17 @@ class PaymentIntegrationTest extends PostgresIntegrationTest {
     }
 
     @Test
-    void 성공_orders_status_valid는_네_가지_상태를_받는다() {
-        for (String status : List.of("PENDING_PAYMENT", "PAID", "EXPIRED", "PAYMENT_REVIEW")) {
+    void 성공_orders_status_valid는_아홉_가지_상태를_받는다() {
+        for (String status : List.of("PENDING_PAYMENT", "PAID", "EXPIRED", "PAYMENT_REVIEW", "CANCELING", "CANCELLED",
+                "SHIPPED", "DELIVERED", "REFUNDED")) {
             assertThatCode(() -> insertOrderWithStatus(status)).as(status).doesNotThrowAnyException();
         }
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM orders", Integer.class)).isEqualTo(4);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM orders", Integer.class)).isEqualTo(9);
     }
 
     @Test
     void 실패_orders_status_valid는_알_수_없는_상태와_대소문자가_다른_값을_거부한다() {
-        for (String status : List.of("SHIPPED", "paid", "", "CANCELLED", "PAID ")) {
+        for (String status : List.of("UNKNOWN", "paid", "", "cancelled", "PAID ")) {
             assertThatThrownBy(() -> insertOrderWithStatus(status)).as("[%s]", status)
                     .isInstanceOf(DataIntegrityViolationException.class)
                     .hasMessageContaining("orders_status_valid");
@@ -370,7 +379,7 @@ class PaymentIntegrationTest extends PostgresIntegrationTest {
     void 실패_기존_주문을_알_수_없는_상태로_바꾸는_UPDATE도_거부한다() {
         insertOrderWithStatus("PAID");
 
-        assertThatThrownBy(() -> jdbc.update("UPDATE orders SET status = 'REFUNDED'"))
+        assertThatThrownBy(() -> jdbc.update("UPDATE orders SET status = 'UNKNOWN'"))
                 .isInstanceOf(DataIntegrityViolationException.class).hasMessageContaining("orders_status_valid");
         assertThat(jdbc.queryForObject("SELECT status FROM orders", String.class)).isEqualTo("PAID");
     }
@@ -523,7 +532,7 @@ class PaymentIntegrationTest extends PostgresIntegrationTest {
         providerPaid(p);
         Map<String, Object> before = row(p.orderId());
 
-        webhook(paidBody(p.orderId()).replace("Transaction.Paid", "Transaction.Cancelled"));
+        webhook(paidBody(p.orderId()).replace("Transaction.Paid", "Transaction.VirtualAccountIssued"));
 
         assertThat(gateway.calls.get()).isZero();
         assertThat(row(p.orderId())).isEqualTo(before);
