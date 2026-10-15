@@ -37,10 +37,10 @@ public final class ProductDtos {
     }
 
     public record ProductDetail(String id, String name, Integer price, String imageUrl, String description, Integer stock,
-                                Integer originalPrice, Integer discountRate, List<String> hashtags) {
+                                Integer originalPrice, Integer discountRate, List<String> hashtags, String category) {
         public static ProductDetail from(Product p) {
             return new ProductDetail(p.getId(), p.getName(), p.getPrice(), p.getImageUrl(), p.getDescription(), p.getStock(),
-                    p.getOriginalPrice(), p.getDiscountRate(), p.getHashtags());
+                    p.getOriginalPrice(), p.getDiscountRate(), p.getHashtags(), p.getCategory());
         }
     }
 

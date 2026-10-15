@@ -225,6 +225,15 @@ class ProductControllerTest {
                 .andExpect(jsonPath("$.hashtags.length()").value(0));
     }
 
+    @Test
+    void 성공_상품상세는_카테고리를_담고_없으면_null이다() throws Exception {
+        when(productService.getProduct("id1")).thenReturn(Optional.of(new Product("신발", "상세", 9000, "http://img/1", 5, "신발")));
+        when(productService.getProduct("id2")).thenReturn(Optional.of(new Product("티셔츠", "상세", 9000, "http://img/2", 5)));
+
+        mockMvc.perform(get("/api/products/id1")).andExpect(jsonPath("$.category").value("신발"));
+        mockMvc.perform(get("/api/products/id2")).andExpect(jsonPath("$.category").value(nullValue()));
+    }
+
     // ---- best ----
 
     @Test
