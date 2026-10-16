@@ -844,10 +844,10 @@ class PaymentStateGuardIntegrationTest extends PostgresIntegrationTest {
         assertThat(gateway.cancelCalls).hasSize(1);
         assertThat(gateway.cancelCalls.get(0)).isEqualTo(new CancelCall(p.orderId(), "고객 요청 재처리", Requester.ADMIN));
 
-        // clicking again: a CANCELLED order is no refund candidate; nothing changes and the stock is not restored twice
+        // clicking again: an already CANCELLED order answers idempotently with its status; nothing changes, the provider
+        // is not asked again and the stock is not restored twice
         Map<String, Object> finished = row(p.orderId());
-        assertCode(catchThrowable(() -> cancelService.refundByAdmin(p.orderId(), "다시")), InvalidOrderStateException.class,
-                "INVALID_ORDER_STATE");
+        assertThat(cancelService.refundByAdmin(p.orderId(), "다시")).isEqualTo("CANCELLED");
         assertThat(row(p.orderId())).isEqualTo(finished);
         assertThat(allStocks()).isEqualTo(INITIAL);
         assertThat(gateway.cancelCalls).hasSize(1);
@@ -867,16 +867,17 @@ class PaymentStateGuardIntegrationTest extends PostgresIntegrationTest {
     }
 
     @Test
-    void 실패_일반_PAID_주문은_관리자_환불_대상이_아니고_행_재고_포트원은_그대로다() {
+    void 성공_일반_PAID_주문도_관리자가_취소하면_CANCELLED이고_재고는_정확히_한_번_돌아오고_ADMIN으로_포트원을_부른다() {
         seedProducts();
         Placed p = standardPaid();
-        Map<String, Object> rowBefore = row(p.orderId());
-        Map<String, Integer> stockBefore = allStocks();
+        assertThat(allStocks()).isEqualTo(HELD);
 
-        Throwable thrown = catchThrowable(() -> cancelService.refundByAdmin(p.orderId(), "사유"));
+        assertThat(cancelService.refundByAdmin(p.orderId(), "품절")).isEqualTo("CANCELLED");
 
-        assertCode(thrown, InvalidOrderStateException.class, "INVALID_ORDER_STATE");
-        assertUntouched(p, rowBefore, stockBefore, "plain PAID");
+        assertThat(row(p.orderId())).containsEntry("status", "CANCELLED").containsEntry("cancel_from", "PAID")
+                .containsEntry("cancel_reason", "품절");
+        assertThat(allStocks()).isEqualTo(INITIAL);
+        assertThat(gateway.cancelCalls).containsExactly(new CancelCall(p.orderId(), "품절", Requester.ADMIN));
     }
 
     // ------------------------------------------------------------------ 7. V16 orders_canceling_has_origin

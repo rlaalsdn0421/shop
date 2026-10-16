@@ -201,7 +201,7 @@ class OrderCancelServiceTest {
     @Test
     void 실패_환불할_수_없는_상태면_409이고_포트원을_부르지_않는다() {
         configured();
-        when(transactions.beginCancel(ORDER, null, "x")).thenThrow(new InvalidOrderStateException("배송이 시작된 주문만"));
+        when(transactions.beginCancel(ORDER, null, "x")).thenThrow(new InvalidOrderStateException("결제가 완료된 주문만 취소·환불할 수 있어요."));
 
         assertThatThrownBy(() -> service().refundByAdmin(ORDER, "x")).isInstanceOf(InvalidOrderStateException.class);
 
@@ -260,5 +260,47 @@ class OrderCancelServiceTest {
                 .isInstanceOf(CancelProviderUnavailableException.class);
 
         verify(transactions).revertCancel(ORDER);
+    }
+
+    // seller cancel of a plain PAID order (before shipping)
+
+    @Test
+    void 성공_결제완료_주문의_판매자_취소는_ADMIN으로_포트원을_부르고_취소됨을_돌려준다() {
+        configured();
+        when(transactions.beginCancel(ORDER, null, "품절"))
+                .thenReturn(new PaymentTransactions.CancelStart(Order.STATUS_CANCELING, true));
+        when(transactions.applyCancelled(ORDER)).thenReturn(
+                new PaymentTransactions.CancelApplied(Order.STATUS_CANCELLED, Order.CancelOutcome.RESTORE_STOCK));
+
+        assertThat(service().refundByAdmin(ORDER, " 품절 ")).isEqualTo(Order.STATUS_CANCELLED);
+
+        InOrder inOrder = inOrder(transactions, gateway);
+        inOrder.verify(transactions).beginCancel(ORDER, null, "품절");
+        inOrder.verify(gateway).cancel(ORDER, "품절", PaymentGateway.Requester.ADMIN);
+        inOrder.verify(transactions).applyCancelled(ORDER);
+    }
+
+    @Test
+    void 성공_이미_취소된_주문의_판매자_취소는_포트원도_마무리도_부르지_않고_현재_상태로_멱등이다() {
+        configured();
+        when(transactions.beginCancel(ORDER, null, "x"))
+                .thenReturn(new PaymentTransactions.CancelStart(Order.STATUS_CANCELLED, false));
+
+        assertThat(service().refundByAdmin(ORDER, "x")).isEqualTo(Order.STATUS_CANCELLED);
+
+        verify(gateway, never()).cancel(anyString(), anyString(), any());
+        verify(transactions, never()).applyCancelled(anyString());
+        verify(transactions, never()).revertCancel(anyString());
+    }
+
+    @Test
+    void 성공_이미_환불된_주문의_판매자_환불도_멱등이다() {
+        configured();
+        when(transactions.beginCancel(ORDER, null, "x"))
+                .thenReturn(new PaymentTransactions.CancelStart(Order.STATUS_REFUNDED, false));
+
+        assertThat(service().refundByAdmin(ORDER, "x")).isEqualTo(Order.STATUS_REFUNDED);
+
+        verify(gateway, never()).cancel(anyString(), anyString(), any());
     }
 }
