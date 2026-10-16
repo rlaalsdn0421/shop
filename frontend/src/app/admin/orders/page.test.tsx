@@ -293,7 +293,7 @@ describe("행별 버튼", () => {
     ]);
     render(<AdminOrdersPage />);
     const names = (c: Awaited<ReturnType<typeof card>>) => c.queryAllByRole("button").map((b) => b.textContent);
-    expect(names(await card("상품1"))).toEqual(["배송 시작"]);
+    expect(names(await card("상품1"))).toEqual(["배송 시작", "취소·환불"]);
     expect(names(await card("상품2"))).toEqual(["배송 완료", "환불"]);
     expect(names(await card("상품3"))).toEqual(["환불"]);
     for (const n of [4, 5]) expect(names(await card(`상품${n}`))).toEqual([]);
@@ -666,5 +666,154 @@ describe("관리자 주문 옵션 이름", () => {
     const first = await card(/^상품1/);
     expect(first.getByText(/^상품1/).textContent).toBe("상품1");
     expect((await card(/^상품2/)).getByText(/^상품2/).textContent).toBe("상품2");
+  });
+});
+
+describe("결제 완료 주문 취소·환불", () => {
+  const PAID_NOTE = "배송 전 주문을 취소하고 전액 환불해요. 재고가 돌아와요.";
+  // The filter tab above the list is also named "취소·환불", so the row button is found inside its card.
+  const openCancel = async (n = 1) => {
+    const c = await card(`상품${n}`);
+    await userEvent.click(c.getByRole("button", { name: /^취소·환불 - / }));
+    return c;
+  };
+
+  it("성공: 결제 완료 행에 배송 시작과 취소·환불 버튼이 같이 보인다", async () => {
+    mockApi([page([order(1, { status: "PAID" })])]);
+    render(<AdminOrdersPage />);
+    const c = await card("상품1");
+    expect(c.getByRole("button", { name: /^배송 시작 - / })).toBeInTheDocument();
+    expect(c.getByRole("button", { name: "취소·환불 - 주문 00000001" })).toHaveTextContent("취소·환불");
+  });
+
+  it("성공: 누르면 같은 사유 폼이 열리고 결제 완료용 안내 문구를 보이며 요청은 아직 없다", async () => {
+    mockApi([page([order(1, { status: "PAID" })])]);
+    render(<AdminOrdersPage />);
+    const c = await openCancel();
+    expect(c.getByText(PAID_NOTE)).toBeInTheDocument();
+    expect(c.queryByText("결제 금액 전액을 환불해요. 되돌릴 수 없어요.")).not.toBeInTheDocument();
+    expect(c.getByLabelText("환불 사유")).toBeRequired();
+    expect(c.getByLabelText("환불 사유")).toHaveFocus();
+    expect(c.getByRole("button", { name: /^취소·환불 확정 - / })).toHaveTextContent("취소·환불 확정");
+    expect(c.queryByRole("button", { name: /^취소·환불 - / })).not.toBeInTheDocument();
+    expect(c.queryByText(/7일이 지났어요/)).not.toBeInTheDocument();
+    expect(postCalls()).toHaveLength(0);
+  });
+
+  it("성공: 사유를 보내면 refund를 POST하고 행이 주문 취소됨이 되어 버튼이 모두 사라진다", async () => {
+    mockApi([page([order(1, { status: "PAID" })])], reply(200, { status: "CANCELLED" }));
+    render(<AdminOrdersPage />);
+    const c = await openCancel();
+    await userEvent.type(c.getByLabelText("환불 사유"), "  고객 요청  ");
+    await userEvent.click(c.getByRole("button", { name: /취소·환불 확정/ }));
+
+    await waitFor(() => expect(c.getByText("주문 취소됨(환불 완료)", { selector: "div" })).toBeInTheDocument());
+    const [url, init] = postCalls()[0];
+    expect(new URL(String(url)).pathname).toBe("/api/admin/orders/00000001-aaaa-bbbb-cccc-ddddeeeeffff/refund");
+    expect(init?.headers).toMatchObject({ Authorization: "Bearer fake-token" });
+    expect(JSON.parse(String(init?.body))).toEqual({ reason: "고객 요청" });
+    expect(c.queryByRole("button")).not.toBeInTheDocument();
+    expect(c.queryByLabelText("환불 사유")).not.toBeInTheDocument();
+  });
+
+  it("실패: 사유가 비어 있거나 공백이면 요청하지 않고 alert를 보인다", async () => {
+    mockApi([page([order(1, { status: "PAID" })])]);
+    render(<AdminOrdersPage />);
+    const c = await openCancel();
+    await userEvent.click(c.getByRole("button", { name: /취소·환불 확정/ }));
+    expect(await c.findByRole("alert")).toHaveTextContent("환불 사유를 입력해 주세요.");
+    await userEvent.type(c.getByLabelText("환불 사유"), "   ");
+    await userEvent.click(c.getByRole("button", { name: /취소·환불 확정/ }));
+    expect(postCalls()).toHaveLength(0);
+    expect(c.getByRole("alert")).toHaveTextContent("환불 사유를 입력해 주세요.");
+  });
+
+  it("성공: 닫기를 누르면 폼이 닫히고 포커스가 취소·환불 버튼으로 돌아온다", async () => {
+    mockApi([page([order(1, { status: "PAID" })])]);
+    render(<AdminOrdersPage />);
+    const c = await openCancel();
+    await userEvent.click(c.getByRole("button", { name: "닫기" }));
+    expect(c.queryByLabelText("환불 사유")).not.toBeInTheDocument();
+    expect(c.getByRole("button", { name: /^취소·환불 - / })).toHaveFocus();
+    expect(postCalls()).toHaveLength(0);
+  });
+
+  it("실패: 두 번 눌러도 요청은 한 번이고 그동안 입력과 버튼이 잠긴다", async () => {
+    let finish!: (v: unknown) => void;
+    mockApi([page([order(1, { status: "PAID" })])], new Promise((r) => (finish = r)));
+    render(<AdminOrdersPage />);
+    const c = await openCancel();
+    await userEvent.type(c.getByLabelText("환불 사유"), "고객 요청");
+    await clickTwice(c.getByRole("button", { name: /취소·환불 확정/ }));
+
+    expect(postCalls()).toHaveLength(1);
+    expect(await c.findByRole("button", { name: /환불 처리 중 취소·환불 확정/ })).toBeDisabled();
+    expect(c.getByLabelText("환불 사유")).toBeDisabled();
+    expect(c.getByRole("button", { name: /^처리 중 배송 시작/ })).toBeDisabled();
+    await act(async () => finish(reply(200, { status: "CANCELLED" })));
+    expect(postCalls()).toHaveLength(1);
+  });
+
+  it("실패: 서버가 거부하면 오류를 보이고 폼과 사유는 남으며 다시 시도할 수 있다", async () => {
+    mockApi([page([order(1, { status: "PAID" })])], reply(503, { code: "CANCEL_PROVIDER_UNAVAILABLE" }));
+    render(<AdminOrdersPage />);
+    const c = await openCancel();
+    await userEvent.type(c.getByLabelText("환불 사유"), "고객 요청");
+    await userEvent.click(c.getByRole("button", { name: /취소·환불 확정/ }));
+
+    expect(await c.findByRole("alert")).toHaveTextContent("취소 요청을 처리하지 못했어요");
+    expect(c.getByLabelText("환불 사유")).toHaveValue("고객 요청");
+    expect(c.getByRole("button", { name: /취소·환불 확정/ })).toBeEnabled();
+    expect(c.getByText("결제 완료", { selector: "div" })).toBeInTheDocument();
+  });
+
+  it("실패: 409 INVALID_ORDER_STATE이면 목록을 자동으로 다시 불러오고 안내를 보인다", async () => {
+    mockApi(
+      [page([order(1, { status: "PAID" })]), page([order(1, { status: "SHIPPED" })])],
+      reply(409, { code: "INVALID_ORDER_STATE" })
+    );
+    render(<AdminOrdersPage />);
+    const c = await openCancel();
+    await userEvent.type(c.getByLabelText("환불 사유"), "고객 요청");
+    await userEvent.click(c.getByRole("button", { name: /취소·환불 확정/ }));
+
+    expect(await screen.findByText("주문 상태가 바뀌어 처리하지 못했어요. 목록을 새로 불러왔어요.")).toBeInTheDocument();
+    await waitFor(() => expect(getCalls()).toHaveLength(2));
+    const reloaded = await card("상품1");
+    expect(await reloaded.findByText("배송 중", { selector: "div" })).toBeInTheDocument();
+    expect(reloaded.queryByRole("button", { name: /^취소·환불 - / })).not.toBeInTheDocument();
+  });
+
+  it("성공: 이미 취소된 주문의 200 CANCELLED 응답도 행을 취소됨으로 바꾼다", async () => {
+    mockApi([page([order(1, { status: "PAID" })])], reply(200, { status: "CANCELLED" }));
+    render(<AdminOrdersPage />);
+    const c = await openCancel();
+    await userEvent.type(c.getByLabelText("환불 사유"), "중복 처리");
+    await userEvent.click(c.getByRole("button", { name: /취소·환불 확정/ }));
+    await waitFor(() => expect(c.getByText("주문 취소됨(환불 완료)", { selector: "div" })).toBeInTheDocument());
+  });
+
+  it("성공: 배송 중과 배송 완료 행은 그대로 환불 버튼과 환불 문구를 쓴다", async () => {
+    mockApi([page([order(1, { status: "SHIPPED" }), order(2, { status: "DELIVERED", deliveredAt: daysAgo(8) })])]);
+    render(<AdminOrdersPage />);
+    for (const n of [1, 2]) {
+      const c = await card(`상품${n}`);
+      expect(c.queryByRole("button", { name: /^취소·환불 - / })).not.toBeInTheDocument();
+      await userEvent.click(c.getByRole("button", { name: /^환불 - / }));
+      expect(c.getByText("결제 금액 전액을 환불해요. 되돌릴 수 없어요.")).toBeInTheDocument();
+      expect(c.queryByText(PAID_NOTE)).not.toBeInTheDocument();
+      expect(c.getByRole("button", { name: /^환불 확정 - / })).toBeInTheDocument();
+    }
+    expect((await card("상품2")).getByText(/7일이 지났어요/)).toBeInTheDocument();
+  });
+
+  it("성공: 멈춘 취소(CANCELING)는 그대로 이어서 처리 버튼과 문구를 쓴다", async () => {
+    mockApi([page([order(1, { status: "CANCELING" })])]);
+    render(<AdminOrdersPage />);
+    const c = await card("상품1");
+    expect(c.queryByRole("button", { name: /^취소·환불 - / })).not.toBeInTheDocument();
+    await userEvent.click(c.getByRole("button", { name: /^취소 이어서 처리 - / }));
+    expect(c.getByText("멈춰 있는 취소를 이어서 처리해요. 결제 금액 전액이 환불돼요.")).toBeInTheDocument();
+    expect(c.queryByText(PAID_NOTE)).not.toBeInTheDocument();
   });
 });
