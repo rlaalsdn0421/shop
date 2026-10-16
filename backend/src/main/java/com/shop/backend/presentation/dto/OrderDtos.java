@@ -13,7 +13,8 @@ public final class OrderDtos {
     private OrderDtos() {
     }
 
-    public record OrderLineRequest(String productId, Integer quantity) {
+    /** {@code optionId} is required for products that have options and rejected for products that do not. */
+    public record OrderLineRequest(String productId, Integer quantity, String optionId) {
     }
 
     public record OrderRequest(String customerName, String customerPhone, String customerAddress,
@@ -32,15 +33,17 @@ public final class OrderDtos {
     public record PaymentCompleteResponse(String status) {
     }
 
-    public record OrderItemView(String id, Integer quantity, Integer price, String productName) {
+    /** {@code optionLabel} is the "화이트 / M" snapshot taken at order time; null for a product without options. */
+    public record OrderItemView(String id, Integer quantity, Integer price, String productName, String optionLabel) {
         static OrderItemView from(OrderItem item) {
-            return new OrderItemView(item.getId(), item.getQuantity(), item.getPrice(), item.getProduct().getName());
+            return new OrderItemView(item.getId(), item.getQuantity(), item.getPrice(), item.getProduct().getName(),
+                    item.getOptionLabel());
         }
     }
 
     public record OrderSummaryView(String id, Instant createdAt, Integer totalAmount, String status, int itemCount,
                                     String firstItemName, Instant expiresAt, Instant paidAt, Instant shippedAt,
-                                    Instant deliveredAt, Instant cancelledAt) {
+                                    Instant deliveredAt, Instant cancelledAt, String firstItemOptionLabel) {
     }
 
     public record OrderListResponse(List<OrderSummaryView> orders, String nextCursor) {
@@ -49,7 +52,7 @@ public final class OrderDtos {
                     .map(s -> new OrderSummaryView(s.order().getId(), s.order().getCreatedAt(),
                             s.order().getTotalAmount(), s.order().getStatus(), s.itemCount(), s.firstItemName(),
                             s.order().getExpiresAt(), s.order().getPaidAt(), s.order().getShippedAt(),
-                            s.order().getDeliveredAt(), s.order().getCancelledAt()))
+                            s.order().getDeliveredAt(), s.order().getCancelledAt(), s.firstItemOptionLabel()))
                     .toList(), page.nextCursor());
         }
     }
@@ -75,7 +78,8 @@ public final class OrderDtos {
     /** One row of the seller's order list; carries the buyer's personal data, so the response is never cached. */
     public record AdminOrderView(String id, String status, Integer totalAmount, Integer shippingFee, Instant createdAt,
                                   Instant paidAt, Instant shippedAt, Instant deliveredAt, String customerName,
-                                  String customerPhone, String customerAddress, int itemCount, String firstItemName) {
+                                  String customerPhone, String customerAddress, int itemCount, String firstItemName,
+                                  String firstItemOptionLabel) {
     }
 
     public record AdminOrderListResponse(List<AdminOrderView> orders, String nextCursor) {
@@ -85,7 +89,7 @@ public final class OrderDtos {
                             s.order().getShippingFee(), s.order().getCreatedAt(), s.order().getPaidAt(),
                             s.order().getShippedAt(), s.order().getDeliveredAt(), s.order().getCustomerName(),
                             s.order().getCustomerPhone(), s.order().getCustomerAddress(), s.itemCount(),
-                            s.firstItemName()))
+                            s.firstItemName(), s.firstItemOptionLabel()))
                     .toList(), page.nextCursor());
         }
     }

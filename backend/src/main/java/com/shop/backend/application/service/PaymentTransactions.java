@@ -4,6 +4,7 @@ import com.shop.backend.domain.entity.Order;
 import com.shop.backend.domain.entity.OrderItem;
 import com.shop.backend.domain.error.OrderNotFoundException;
 import com.shop.backend.infrastructure.repository.OrderRepository;
+import com.shop.backend.infrastructure.repository.ProductOptionRepository;
 import com.shop.backend.infrastructure.repository.ProductRepository;
 import jakarta.persistence.EntityManager;
 import org.slf4j.Logger;
@@ -28,13 +29,15 @@ public class PaymentTransactions {
 
     private final OrderRepository orderRepository;
     private final ProductRepository productRepository;
+    private final ProductOptionRepository productOptionRepository;
     private final EntityManager em;
     private final Clock clock;
 
-    public PaymentTransactions(OrderRepository orderRepository, ProductRepository productRepository, EntityManager em,
-                               Clock clock) {
+    public PaymentTransactions(OrderRepository orderRepository, ProductRepository productRepository,
+                               ProductOptionRepository productOptionRepository, EntityManager em, Clock clock) {
         this.orderRepository = orderRepository;
         this.productRepository = productRepository;
+        this.productOptionRepository = productOptionRepository;
         this.em = em;
         this.clock = clock;
     }
@@ -58,17 +61,17 @@ public class PaymentTransactions {
             return order.getStatus();
         }
         if (Order.STATUS_EXPIRED.equals(order.getStatus())) {
-            List<OrderItem> items = sortedByProduct(order);
+            List<OrderItem> items = sortedByStockKey(order);
             int reserved = 0;
             for (OrderItem item : items) {
-                if (productRepository.decrementStockIfAvailable(item.getProduct().getId(), item.getQuantity()) == 0) {
+                if (reserveStock(item) == 0) {
                     break;
                 }
                 reserved++;
             }
             if (reserved < items.size()) {
                 for (OrderItem item : items.subList(0, reserved)) {
-                    productRepository.incrementStock(item.getProduct().getId(), item.getQuantity());
+                    releaseStock(productRepository, productOptionRepository, item);
                 }
                 order.markPaymentReview();
                 logger.error("Payment arrived for an expired order but the stock is gone; cancel it at the provider: orderId={}",
@@ -92,7 +95,7 @@ public class PaymentTransactions {
         if (order == null || !order.expire(Instant.now(clock))) {
             return false;
         }
-        restoreStock(productRepository, order);
+        restoreStock(productRepository, productOptionRepository, order);
         return true;
     }
 
@@ -130,7 +133,7 @@ public class PaymentTransactions {
 
     /**
      * The provider reports the payment cancelled (our own call, or the webhook for a console cancel): locks the row,
-     * moves the order to CANCELLED/REFUNDED and gives the stock back (products in id order) when it was paid and unshipped.
+     * moves the order to CANCELLED/REFUNDED and gives the stock back (products and options in StockKey order) when it was paid and unshipped.
      * Idempotent: an order that is already final is left alone.
      */
     @Transactional
@@ -139,20 +142,41 @@ public class PaymentTransactions {
         Order order = orderRepository.findByIdForUpdate(orderId).orElseThrow(OrderNotFoundException::new);
         Order.CancelOutcome outcome = order.finishCancel(Instant.now(clock));
         if (outcome == Order.CancelOutcome.RESTORE_STOCK) {
-            restoreStock(productRepository, order);
+            restoreStock(productRepository, productOptionRepository, order);
         }
         return new CancelApplied(order.getStatus(), outcome);
     }
 
-    /** Gives an expired order's stock back, products in id order (shared with OrderService's replay-of-an-overdue-order path). */
-    public static void restoreStock(ProductRepository productRepository, Order order) {
-        for (OrderItem item : sortedByProduct(order)) {
-            productRepository.incrementStock(item.getProduct().getId(), item.getQuantity());
+    /**
+     * Gives an order's stock back, rows in StockKey order (shared with OrderService's replay-of-an-overdue-order path):
+     * a line with an option returns to that option, a line without one to its product.
+     */
+    public static void restoreStock(ProductRepository productRepository, ProductOptionRepository productOptionRepository,
+                                    Order order) {
+        for (OrderItem item : sortedByStockKey(order)) {
+            releaseStock(productRepository, productOptionRepository, item);
         }
     }
 
-    // By product id, like order creation: every stock update row-locks its product, so a fixed order avoids deadlocks.
-    private static List<OrderItem> sortedByProduct(Order order) {
-        return order.getItems().stream().sorted(Comparator.comparing(i -> i.getProduct().getId())).toList();
+    private static void releaseStock(ProductRepository productRepository, ProductOptionRepository productOptionRepository,
+                                     OrderItem item) {
+        if (item.getOptionId() == null) {
+            productRepository.incrementStock(item.getProduct().getId(), item.getQuantity());
+        } else {
+            productOptionRepository.incrementStock(item.getOptionId(), item.getQuantity());
+        }
+    }
+
+    /** Takes the line's stock again; 0 = not enough left (nothing changed). */
+    private int reserveStock(OrderItem item) {
+        return item.getOptionId() == null
+                ? productRepository.decrementStockIfAvailable(item.getProduct().getId(), item.getQuantity())
+                : productOptionRepository.decrementStockIfAvailable(item.getOptionId(), item.getProduct().getId(),
+                        item.getQuantity());
+    }
+
+    // By StockKey, like order creation: every stock update row-locks its row, so one fixed order avoids deadlocks.
+    private static List<OrderItem> sortedByStockKey(Order order) {
+        return order.getItems().stream().sorted(Comparator.comparing(OrderItem::stockKey)).toList();
     }
 }

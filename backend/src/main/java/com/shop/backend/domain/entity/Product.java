@@ -50,6 +50,13 @@ public class Product {
     @Column(length = 100)
     private String hashtags;
 
+    /**
+     * True when the product's options (V18) do not all cost the same, so lists show "N원~". products.price is then the
+     * cheapest option's price. Always false for products without options.
+     */
+    @Column(name = "price_varies", nullable = false)
+    private boolean priceVaries;
+
     protected Product() {
         // JPA
     }
@@ -65,6 +72,13 @@ public class Product {
     /** {@code hashtags} must already be normalized by {@link ProductValidation#normalizeHashtags}. */
     public Product(String name, String description, Integer price, String imageUrl, Integer stock, String category,
                    Integer originalPrice, List<String> hashtags) {
+        this(name, description, price, imageUrl, stock, category, originalPrice, hashtags, false);
+    }
+
+    /** For a product with options: {@code price}/{@code originalPrice} are the cheapest option's, {@code stock} is 0 (unused). */
+    public Product(String name, String description, Integer price, String imageUrl, Integer stock, String category,
+                   Integer originalPrice, List<String> hashtags, boolean priceVaries) {
+        this.priceVaries = priceVaries;
         this.name = name;
         this.description = description;
         this.price = price;
@@ -128,11 +142,20 @@ public class Product {
      * long math: (originalPrice - price) * 100 overflows int for prices above ~21M.
      */
     public Integer getDiscountRate() {
+        return discountRate(originalPrice, price);
+    }
+
+    /** Shared with {@link ProductOption#getDiscountRate()} so a product and its options round the same way. */
+    static Integer discountRate(Integer originalPrice, Integer price) {
         if (originalPrice == null || originalPrice <= price) {
             return null;
         }
         long rate = ((long) originalPrice - price) * 100 / originalPrice;
         return rate >= 1 ? (int) rate : null;
+    }
+
+    public boolean isPriceVaries() {
+        return priceVaries;
     }
 
     public Instant getCreatedAt() {

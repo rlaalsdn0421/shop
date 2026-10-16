@@ -45,7 +45,7 @@ class ProductImagesIntegrationTest extends PostgresIntegrationTest {
     }
 
     private Product create(String legacyImageUrl, List<String> imageUrls) {
-        return productService.createProduct("상품", "설명", 1000, legacyImageUrl, imageUrls, 5, null, null, null);
+        return productService.createProduct("상품", "설명", 1000, legacyImageUrl, imageUrls, 5, null, null, null, null);
     }
 
     private List<String> rowUrls(String productId) {

@@ -33,14 +33,28 @@ public class OrderItem {
     @Column(nullable = false)
     private Integer price;
 
+    /** Plain id, not a relation: restoring stock only needs the key, and the label below is the display snapshot. */
+    @Column(name = "option_id", length = 36, updatable = false)
+    private String optionId;
+
+    /** "화이트 / M" at order time; kept even if the option changes later. */
+    @Column(name = "option_label", length = 80, updatable = false)
+    private String optionLabel;
+
     protected OrderItem() {
         // JPA
     }
 
     public OrderItem(Product product, Integer quantity, Integer price) {
+        this(product, quantity, price, null, null);
+    }
+
+    public OrderItem(Product product, Integer quantity, Integer price, String optionId, String optionLabel) {
         this.product = product;
         this.quantity = quantity;
         this.price = price;
+        this.optionId = optionId;
+        this.optionLabel = optionLabel;
     }
 
     void assignOrder(Order order) {
@@ -72,5 +86,18 @@ public class OrderItem {
 
     public Integer getPrice() {
         return price;
+    }
+
+    public String getOptionId() {
+        return optionId;
+    }
+
+    public String getOptionLabel() {
+        return optionLabel;
+    }
+
+    /** The stock row this line reserved: the option's when it has one, else the product's. */
+    public StockKey stockKey() {
+        return new StockKey(product.getId(), optionId);
     }
 }

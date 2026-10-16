@@ -67,12 +67,30 @@ public final class OrderValidation {
      */
     public static String requestHash(String customerName, String customerPhone, String customerAddress,
                                      Map<String, Integer> quantityByProductId) {
+        Map<StockKey, Integer> byKey = new LinkedHashMap<>();
+        quantityByProductId.forEach((id, qty) -> byKey.put(new StockKey(id, null), qty));
+        return requestHashByStockKey(customerName, customerPhone, customerAddress, byKey);
+    }
+
+    /**
+     * The same hash for lines keyed by (product, option). A line without an option is written exactly as before
+     * ({@code <len>:<productId>=<qty>}), so the hash of an option-less order is unchanged and stored hashes stay valid;
+     * an option line is {@code <len>:<productId>@<len>:<optionId>=<qty>}, which cannot be mistaken for the old form
+     * (after the length-prefixed product id comes '=' in one and '@' in the other).
+     */
+    public static String requestHashByStockKey(String customerName, String customerPhone, String customerAddress,
+                                               Map<StockKey, Integer> quantityByKey) {
         StringBuilder canonical = new StringBuilder();
         for (String field : List.of(customerName.trim(), customerPhone.trim(), customerAddress.trim())) {
             canonical.append(field.length()).append(':').append(field).append('\n');
         }
-        new TreeMap<>(quantityByProductId).forEach((id, qty) ->
-                canonical.append(id.length()).append(':').append(id).append('=').append(qty).append('\n'));
+        new TreeMap<>(quantityByKey).forEach((key, qty) -> {
+            canonical.append(key.productId().length()).append(':').append(key.productId());
+            if (key.optionId() != null) {
+                canonical.append('@').append(key.optionId().length()).append(':').append(key.optionId());
+            }
+            canonical.append('=').append(qty).append('\n');
+        });
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
                     .digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
@@ -124,6 +142,19 @@ public final class OrderValidation {
             throw new ValidationException("주문 수량이 너무 커요.");
         }
         return quantityByProductId;
+    }
+
+    /** Like {@link #aggregateQuantities} but keyed by (productId, optionId): two options of one product are separate stock rows. */
+    public static Map<StockKey, Integer> aggregateLines(List<OrderLine> lines) {
+        Map<StockKey, Integer> quantityByKey = new LinkedHashMap<>();
+        try {
+            for (OrderLine line : lines) {
+                quantityByKey.merge(new StockKey(line.productId(), line.optionId()), line.quantity(), Math::addExact);
+            }
+        } catch (ArithmeticException e) {
+            throw new ValidationException("주문 수량이 너무 커요.");
+        }
+        return quantityByKey;
     }
 
     private static boolean isBlank(String value) {

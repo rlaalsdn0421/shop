@@ -6,6 +6,7 @@ import com.shop.backend.domain.entity.ProductSort;
 import com.shop.backend.domain.error.ValidationException;
 import com.shop.backend.domain.entity.ProductImage;
 import com.shop.backend.infrastructure.repository.ProductImageRepository;
+import com.shop.backend.infrastructure.repository.ProductOptionRepository;
 import com.shop.backend.infrastructure.repository.ProductRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -38,7 +39,8 @@ class ProductServiceTest {
 
     private final ProductRepository repository = mock(ProductRepository.class);
     private final ProductImageRepository imageRepository = mock(ProductImageRepository.class);
-    private final ProductService service = new ProductService(repository, imageRepository, CLOCK);
+    private final ProductOptionRepository optionRepository = mock(ProductOptionRepository.class);
+    private final ProductService service = new ProductService(repository, imageRepository, optionRepository, CLOCK);
     private final Page<Product> page = new PageImpl<>(List.of());
 
     private static Product product(String id) {
@@ -277,7 +279,7 @@ class ProductServiceTest {
     void 성공_정가와_정규화된_해시태그로_상품을_저장한다() {
         when(repository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Product saved = service.createProduct("n", "d", 7500, "http://img", null, 3, " 신발 ", 10000, List.of(" ##여름 ", "#Sale", "sale"));
+        Product saved = service.createProduct("n", "d", 7500, "http://img", null, 3, " 신발 ", 10000, List.of(" ##여름 ", "#Sale", "sale"), null);
 
         assertThat(saved.getOriginalPrice()).isEqualTo(10000);
         assertThat(saved.getDiscountRate()).isEqualTo(25);
@@ -289,7 +291,7 @@ class ProductServiceTest {
     void 성공_정가와_해시태그가_없으면_할인_없는_상품으로_저장한다() {
         when(repository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Product saved = service.createProduct("n", "d", 7500, "http://img", null, 3, null, null, null);
+        Product saved = service.createProduct("n", "d", 7500, "http://img", null, 3, null, null, null, null);
 
         assertThat(saved.getOriginalPrice()).isNull();
         assertThat(saved.getDiscountRate()).isNull();
@@ -298,14 +300,14 @@ class ProductServiceTest {
 
     @Test
     void 실패_정가가_판매가_이하면_저장하지_않는다() {
-        assertThatThrownBy(() -> service.createProduct("n", "d", 7500, "http://img", null, 3, null, 7500, null))
+        assertThatThrownBy(() -> service.createProduct("n", "d", 7500, "http://img", null, 3, null, 7500, null, null))
                 .isInstanceOf(ValidationException.class);
         verify(repository, never()).save(any());
     }
 
     @Test
     void 실패_해시태그가_잘못되면_저장하지_않는다() {
-        assertThatThrownBy(() -> service.createProduct("n", "d", 7500, "http://img", null, 3, null, null, List.of("a", "b", "c", "d")))
+        assertThatThrownBy(() -> service.createProduct("n", "d", 7500, "http://img", null, 3, null, null, List.of("a", "b", "c", "d"), null))
                 .isInstanceOf(ValidationException.class);
         verify(repository, never()).save(any());
     }
@@ -318,7 +320,7 @@ class ProductServiceTest {
             org.springframework.test.util.ReflectionTestUtils.setField(p, "id", "pid");
             return p;
         });
-        return service.createProduct("n", "d", 7500, imageUrl, imageUrls, 3, null, null, null);
+        return service.createProduct("n", "d", 7500, imageUrl, imageUrls, 3, null, null, null, null);
     }
 
     @SuppressWarnings("unchecked")

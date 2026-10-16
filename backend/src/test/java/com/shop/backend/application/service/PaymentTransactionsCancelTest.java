@@ -8,6 +8,7 @@ import com.shop.backend.domain.error.OrderNotCancellableException;
 import com.shop.backend.domain.error.OrderNotFoundException;
 import com.shop.backend.domain.error.PaymentNeedsReviewException;
 import com.shop.backend.infrastructure.repository.OrderRepository;
+import com.shop.backend.infrastructure.repository.ProductOptionRepository;
 import com.shop.backend.infrastructure.repository.ProductRepository;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
@@ -46,10 +47,12 @@ class PaymentTransactionsCancelTest {
     private OrderRepository orderRepository;
     @Mock
     private ProductRepository productRepository;
+    @Mock
+    private ProductOptionRepository productOptionRepository;
     private final EntityManager em = mock(EntityManager.class, Answers.RETURNS_DEEP_STUBS);
 
     private PaymentTransactions tx() {
-        return new PaymentTransactions(orderRepository, productRepository, em, Clock.fixed(NOW, ZoneOffset.UTC));
+        return new PaymentTransactions(orderRepository, productRepository, productOptionRepository, em, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     /** Lines are added in descending product id order on purpose. */

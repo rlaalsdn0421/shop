@@ -3,6 +3,8 @@ package com.shop.backend.domain.entity;
 import com.shop.backend.domain.error.ValidationException;
 
 import java.text.Normalizer;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -52,6 +54,97 @@ public final class ProductValidation {
             }
             return t;
         }).toList();
+    }
+
+    public static final int MAX_OPTIONS = 50;
+    static final int MAX_OPTION_NAME_LENGTH = 30;
+    private static final Pattern COLOR_HEX = Pattern.compile("#[0-9A-Fa-f]{6}");
+
+    /**
+     * Cleans and validates the options of a new product (product_options, V18): 1..50 entries. Names are NFC
+     * normalized and trimmed (blank = absent), at most 30 chars, and each option needs a color name or a size. A color
+     * code (#RRGGBB) is only allowed together with a color name. Price is >= 0; the original price is absent or above
+     * the price; stock is >= 0. No two options may share the same (color, size), compared case-insensitively. All
+     * options of a product must be shaped alike (all have a color or none, all have a size or none) so the
+     * storefront's color/size selectors make sense. The DB enforces the single-option rules too, but this runs first
+     * so the client gets a Korean 400 instead of a constraint error.
+     */
+    public static List<NewProductOption> normalizeOptions(List<NewProductOption> raw) {
+        if (raw == null || raw.isEmpty() || raw.size() > MAX_OPTIONS) {
+            throw new ValidationException("옵션은 1~" + MAX_OPTIONS + "개까지 등록할 수 있어요.");
+        }
+        List<NewProductOption> cleaned = new ArrayList<>();
+        Set<List<String>> combos = new HashSet<>();
+        for (NewProductOption option : raw) {
+            if (option == null) {
+                throw new ValidationException("옵션 정보가 올바르지 않아요.");
+            }
+            String color = cleanOptionText(option.colorName());
+            String size = cleanOptionText(option.sizeLabel());
+            String hex = option.colorHex() == null || option.colorHex().isBlank() ? null : option.colorHex().trim();
+            if (color == null && size == null) {
+                throw new ValidationException("옵션에는 색상 이름이나 사이즈가 하나는 있어야 해요.");
+            }
+            if (hex != null && (color == null || !COLOR_HEX.matcher(hex).matches())) {
+                throw new ValidationException("색상 코드는 색상 이름과 함께 #RRGGBB 형식으로 입력해 주세요.");
+            }
+            Integer price = option.price();
+            if (price == null || price < 0) {
+                throw new ValidationException("옵션 가격이 올바르지 않습니다.");
+            }
+            if (option.originalPrice() != null && option.originalPrice() <= price) {
+                throw new ValidationException("옵션 정가는 판매가보다 커야 해요.");
+            }
+            if (option.stock() == null || option.stock() < 0) {
+                throw new ValidationException("옵션 재고 수량이 올바르지 않습니다.");
+            }
+            List<String> combo = List.of(color == null ? "" : color.toLowerCase(Locale.ROOT),
+                    size == null ? "" : size.toLowerCase(Locale.ROOT));
+            if (!combos.add(combo)) {
+                throw new ValidationException("같은 색상과 사이즈 조합의 옵션이 중복되어 있어요.");
+            }
+            cleaned.add(new NewProductOption(color, hex, size, price, option.originalPrice(), option.stock()));
+        }
+        boolean firstHasColor = cleaned.get(0).colorName() != null;
+        boolean firstHasSize = cleaned.get(0).sizeLabel() != null;
+        for (NewProductOption option : cleaned) {
+            if ((option.colorName() != null) != firstHasColor || (option.sizeLabel() != null) != firstHasSize) {
+                throw new ValidationException("모든 옵션이 색상과 사이즈를 같은 방식으로 입력해야 해요.");
+            }
+        }
+        return List.copyOf(cleaned);
+    }
+
+    /** Any control, format (zero-width, bidi), unassigned, private-use or separator character other than the plain space. */
+    private static final Pattern OPTION_TEXT_FORBIDDEN = Pattern.compile("[\\p{C}\\p{Z}&&[^ ]]");
+    private static final Pattern LETTER_OR_DIGIT = Pattern.compile("[\\p{L}\\p{N}]");
+
+    /**
+     * One option text (color name or size): Unicode NFC, strip, blank = absent. Rejects control/format/separator
+     * characters (NUL, tab, newline, zero-width, bidi overrides, NBSP-like spaces; only the plain space is allowed
+     * inside), collapses runs of spaces to one (so "화이트  M" equals "화이트 M"), then enforces at most 30 chars and at
+     * least one letter or digit. The limit counts UTF-16 units (String.length), so an emoji counts 2: deliberately
+     * stricter than the DB's VARCHAR(30), which counts code points, and never looser.
+     */
+    private static String cleanOptionText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String t = Normalizer.normalize(value, Normalizer.Form.NFC).strip();
+        if (t.isEmpty()) {
+            return null;
+        }
+        if (OPTION_TEXT_FORBIDDEN.matcher(t).find()) {
+            throw new ValidationException("옵션 이름에 쓸 수 없는 문자가 있어요.");
+        }
+        t = t.replaceAll(" {2,}", " ");
+        if (t.length() > MAX_OPTION_NAME_LENGTH) {
+            throw new ValidationException("색상 이름과 사이즈는 " + MAX_OPTION_NAME_LENGTH + "자 이하로 입력해 주세요.");
+        }
+        if (!LETTER_OR_DIGIT.matcher(t).find()) {
+            throw new ValidationException("옵션 이름에는 글자나 숫자가 하나는 있어야 해요.");
+        }
+        return t;
     }
 
     public static void validateNewProduct(String name, String description, Integer price, String imageUrl, Integer stock,

@@ -8,6 +8,7 @@ import com.shop.backend.domain.error.InvalidOrderStateException;
 import com.shop.backend.domain.error.OrderNotFoundException;
 import com.shop.backend.domain.error.ValidationException;
 import com.shop.backend.infrastructure.repository.OrderRepository;
+import com.shop.backend.infrastructure.repository.ProductOptionRepository;
 import com.shop.backend.infrastructure.repository.ProductRepository;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
@@ -44,11 +45,13 @@ class OrderServiceAdminTest {
     @Mock
     private ProductRepository productRepository;
     @Mock
+    private ProductOptionRepository productOptionRepository;
+    @Mock
     private OrderRepository orderRepository;
     private final EntityManager em = mock(EntityManager.class, Answers.RETURNS_DEEP_STUBS);
 
     private OrderService service() {
-        return new OrderService(productRepository, orderRepository, em, Clock.fixed(NOW, ZoneOffset.UTC));
+        return new OrderService(productRepository, productOptionRepository, orderRepository, em, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private static Order order(String id, String status, Instant createdAt) {

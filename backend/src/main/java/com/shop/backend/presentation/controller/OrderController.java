@@ -33,7 +33,7 @@ public class OrderController {
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @RequestBody OrderDtos.OrderRequest request, Authentication authentication) {
         var lines = request.items() == null ? null
-                : request.items().stream().map(i -> new OrderLine(i.productId(), i.quantity())).toList();
+                : request.items().stream().map(i -> new OrderLine(i.productId(), i.quantity(), i.optionId())).toList();
         // JwtAuthFilter sets the user id as the principal (its name); SecurityConfig guarantees it is present
         var order = orderService.createOrder(authentication.getName(), idempotencyKey,
                 request.customerName(), request.customerPhone(), request.customerAddress(), lines);
