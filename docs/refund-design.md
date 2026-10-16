@@ -46,7 +46,7 @@
 | `GET /api/admin/orders?status=&size=&cursor=` | 주문 목록(최신순, 키셋 페이지네이션, 상태 필터). 항목: 주문 id, 상태, 주문자 이름·연락처·주소, 총액, 상품 요약, 생성·결제·배송 시각 |
 | `POST /api/admin/orders/{id}/ship` | `PAID → SHIPPED` |
 | `POST /api/admin/orders/{id}/deliver` | `SHIPPED → DELIVERED` |
-| `POST /api/admin/orders/{id}/refund` | 배송 후 전액 환불: `SHIPPED`/`DELIVERED → CANCELING → REFUNDED`(2절과 같은 3단계, 요청자 판매자, 재고 복구 없음). 본문 `{ "reason": "필수" }` |
+| `POST /api/admin/orders/{id}/refund` | 전액 환불(2절과 같은 3단계, 요청자 판매자). 본문 `{ "reason": "필수" }`. `PAID → CANCELING → CANCELLED`(배송 전 판매자 취소, **재고 복구**), `SHIPPED`/`DELIVERED → CANCELING → REFUNDED`(반품 검수 전제, 재고 복구 없음). 이미 `CANCELLED`/`REFUNDED`면 200으로 그대로(멱등), `PENDING_PAYMENT`/`EXPIRED`/`PAYMENT_REVIEW`는 409 |
 
 - 모든 상태 전이는 주문 행 `FOR UPDATE` 아래에서 현재 상태를 확인한다. 잘못된 상태는 409 `INVALID_ORDER_STATE`.
 - 주문자 개인정보(이름·연락처·주소)를 반환하므로 관리자 목록 응답에는 `Cache-Control: no-store`를 붙인다.
@@ -55,7 +55,7 @@
 
 - 주문 상세: `PAID`일 때 "주문 취소" 버튼(확인 창 + 선택 사유). 상태 문구 추가: `CANCELING` "취소 처리 중", `CANCELLED` "주문 취소됨(환불 완료)", `SHIPPED` "배송 중", `DELIVERED` "배송 완료", `REFUNDED` "환불 완료". `SHIPPED`/`DELIVERED`에는 "교환·환불은 연락처로 신청해 주세요" 안내.
 - 주문 목록: 새 상태 문구 반영.
-- 관리자: `/admin/orders` 화면(상태 탭, 목록, 상태에 맞는 버튼 "배송 시작" / "배송 완료" / "환불"). `ADMIN`/`SELLER`만(기존 관리자 상품 화면과 같은 방식으로 보호).
+- 관리자: `/admin/orders` 화면(상태 탭, 목록, 상태에 맞는 버튼 "배송 시작" + "취소·환불"(PAID) / "배송 완료" / "환불"). `ADMIN`/`SELLER`만(기존 관리자 상품 화면과 같은 방식으로 보호).
 - 환불 시점 안내는 약속하지 않는다: "카드사에 따라 며칠 걸릴 수 있어요".
 
 ## 6. 약관·안내 문구(같은 PR에서 수정)

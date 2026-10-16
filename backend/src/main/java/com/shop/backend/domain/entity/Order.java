@@ -254,23 +254,26 @@ public class Order {
     }
 
     /**
-     * Seller refund, first step: SHIPPED/DELIVERED -> CANCELING. Returns true when the provider cancel must (still) be
-     * done, false when it is already REFUNDED. Also resumes ANY stuck CANCELING order, including one a customer started
-     * from PAID (provider timeout, killed instance, failed revert): finishCancel then yields CANCELLED + stock back.
-     * A plain PAID order is still refused (the customer cancels those, or the seller ships them).
+     * Seller cancel/refund, first step: PAID or SHIPPED/DELIVERED -> CANCELING (cancel_from remembers which). Returns
+     * true when the provider cancel must (still) be done, false when it is already final (REFUNDED, or CANCELLED by the
+     * customer or an earlier seller cancel: answered idempotently, no second stock restore). Also resumes ANY stuck
+     * CANCELING order, whatever started it (provider timeout, killed instance, failed revert). finishCancel then yields
+     * CANCELLED + stock back for a PAID origin (same as the customer cancel) and REFUNDED without stock for a shipped one.
+     * PENDING_PAYMENT, EXPIRED and PAYMENT_REVIEW are refused (no captured, settled payment to cancel here). The caller
+     * holds the order row lock, so this cannot interleave with ship() or a customer cancel.
      */
     public boolean beginRefund(String reason) {
-        if (STATUS_REFUNDED.equals(status)) {
+        if (STATUS_REFUNDED.equals(status) || STATUS_CANCELLED.equals(status)) {
             return false;
         }
-        if (STATUS_SHIPPED.equals(status) || STATUS_DELIVERED.equals(status)) {
+        if (STATUS_PAID.equals(status) || STATUS_SHIPPED.equals(status) || STATUS_DELIVERED.equals(status)) {
             enterCanceling(reason);
             return true;
         }
         if (STATUS_CANCELING.equals(status)) {
             return true;
         }
-        throw new InvalidOrderStateException("배송이 시작된 주문만 환불할 수 있어요.");
+        throw new InvalidOrderStateException("결제가 완료된 주문만 취소·환불할 수 있어요.");
     }
 
     private void enterCanceling(String reason) {
