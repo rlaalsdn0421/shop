@@ -91,3 +91,18 @@ describe("ProductCard", () => {
     expect(screen.queryByText("순위")).not.toBeInTheDocument();
   });
 });
+
+describe("ProductCard 가격 범위", () => {
+  it("성공: 옵션 가격이 다르면 가격 뒤에 ~를 붙인다", () => {
+    render(<ProductCard {...base} price={23000} priceVaries />);
+    expect(screen.getByText("23,000원~")).toBeInTheDocument();
+  });
+
+  it("실패: priceVaries가 false이거나 없으면 ~가 없다", () => {
+    const { rerender } = render(<ProductCard {...base} price={23000} priceVaries={false} />);
+    expect(screen.getByText("23,000원")).toBeInTheDocument();
+    rerender(<ProductCard {...base} price={23000} />);
+    expect(screen.getByText("23,000원")).toBeInTheDocument();
+    expect(screen.queryByText(/~/)).not.toBeInTheDocument();
+  });
+});

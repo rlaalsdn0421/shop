@@ -743,3 +743,141 @@ describe("CartView 결제", () => {
     expect(requestPayment).not.toHaveBeenCalled();
   });
 });
+
+type StoredItem = { productId: string; name: string; price: number; imageUrl: string; quantity: number; optionId?: string; optionLabel?: string };
+const stored = (over: Partial<StoredItem> = {}): StoredItem => ({
+  productId: "p1",
+  name: "린넨 셔츠",
+  price: 8000,
+  imageUrl: "https://example.com/a.jpg",
+  quantity: 1,
+  ...over,
+});
+
+async function renderCartItems(items: StoredItem[]) {
+  localStorage.setItem("shop-cart", JSON.stringify(items));
+  const view = render(
+    <CartProvider>
+      <CartView />
+    </CartProvider>
+  );
+  await userEvent.type(await screen.findByLabelText("이름"), "홍길동");
+  await userEvent.type(screen.getByLabelText("연락처"), "010-0000-0000");
+  await userEvent.type(screen.getByLabelText("배송 주소"), "서울시 테스트구");
+  return view;
+}
+
+const sentBody = (n = 0) => JSON.parse(vi.mocked(fetch).mock.calls[n][1]?.body as string);
+const storedHash = () => JSON.parse(sessionStorage.getItem("shop-order-attempt")!).fingerprintHash;
+
+describe("CartView 옵션 상품", () => {
+  it("성공: 옵션 이름을 상품명 아래에 보여주고, 옵션 없는 줄에는 아무것도 더하지 않는다", async () => {
+    await renderCartItems([stored({ optionId: "o1", optionLabel: "화이트 / M" }), stored({ productId: "p2", name: "양말" })]);
+    expect(screen.getByText("화이트 / M")).toBeInTheDocument();
+    expect(screen.getAllByText("린넨 셔츠")).toHaveLength(1);
+    expect(screen.getByText("양말").parentElement).toHaveTextContent(/^양말8,000원$/);
+  });
+
+  it("성공: 주문 줄에는 옵션이 있을 때만 optionId를 넣는다", async () => {
+    mockReplies({ status: 201, body: PAID_ORDER });
+    await renderCartItems([stored({ optionId: "o1", optionLabel: "화이트 / M", quantity: 2 }), stored({ productId: "p2" })]);
+    await submit();
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    expect(sentBody().items).toEqual([
+      { productId: "p1", optionId: "o1", quantity: 2 },
+      { productId: "p2", quantity: 1 },
+    ]);
+    expect(Object.keys(sentBody().items[1])).toEqual(["productId", "quantity"]);
+  });
+
+  it("성공: 옵션 없는 장바구니의 멱등 지문은 옵션이 생기기 전과 같다(저장된 해시 고정값)", async () => {
+    mockReplies({ status: 500, body: {} });
+    await renderCartItems([stored()]);
+    await submit();
+    await screen.findByRole("alert");
+    // sha256 of ["홍길동","010-0000-0000","서울시 테스트구",["p1:1"]], the string built before options existed
+    expect(storedHash()).toBe("ac275af49a0af7a0f7a05251bb1767ff7eae1a9c7cd1fe1d7ce437b4373b5ca8");
+  });
+
+  it("성공: 옵션이 있으면 지문이 달라지고, 옵션만 바꿔도 새 키로 보낸다", async () => {
+    mockReplies({ status: 500, body: {} });
+    const first = await renderCartItems([stored({ optionId: "o1", optionLabel: "화이트 / M" })]);
+    await submit();
+    await screen.findByRole("alert");
+    expect(storedHash()).toBe("f28d92c93034000c741880668f58e60e86f122cc939b493ba1bed3cfb5717082");
+    first.unmount();
+    localStorage.clear();
+    await renderCartItems([stored({ optionId: "o2", optionLabel: "화이트 / L" })]);
+    await submit();
+    await waitFor(() => expect(keys()).toHaveLength(2));
+    expect(keys()[1]).not.toBe(keys()[0]);
+  });
+
+  it("성공: 같은 옵션 장바구니를 다시 보내면 같은 키를 쓴다", async () => {
+    mockReplies({ status: 500, body: {} });
+    await renderCartItems([stored({ optionId: "o1", optionLabel: "화이트 / M" })]);
+    await submit();
+    await screen.findByRole("alert");
+    await submit();
+    await waitFor(() => expect(keys()).toHaveLength(2));
+    expect(keys()[1]).toBe(keys()[0]);
+  });
+
+  it("성공: 한 상품의 옵션 두 줄은 따로 보이고 따로 지워진다", async () => {
+    await renderCartItems([
+      stored({ optionId: "o1", optionLabel: "화이트 / M" }),
+      stored({ optionId: "o2", optionLabel: "블랙 / M" }),
+    ]);
+    expect(screen.getAllByText("린넨 셔츠")).toHaveLength(2);
+    await userEvent.click(screen.getAllByRole("button", { name: "삭제" })[0]);
+    expect(screen.getAllByText("린넨 셔츠")).toHaveLength(1);
+    expect(screen.queryByText("화이트 / M")).not.toBeInTheDocument();
+    expect(screen.getByText("블랙 / M")).toBeInTheDocument();
+  });
+
+  it("성공: 수량 버튼은 같은 상품의 다른 옵션 줄을 건드리지 않는다", async () => {
+    await renderCartItems([
+      stored({ optionId: "o1", optionLabel: "화이트 / M" }),
+      stored({ optionId: "o2", optionLabel: "블랙 / M" }),
+    ]);
+    await userEvent.click(screen.getAllByRole("button", { name: "수량 증가" })[1]);
+    const counts = screen.getAllByRole("button", { name: "수량 증가" }).map((b) => b.previousElementSibling?.textContent);
+    expect(counts).toEqual(["1", "2"]);
+  });
+
+  it("실패: '옵션을 선택해 주세요.' 400이면 안내와 옵션 없는 상품 링크를 보이고 새 키를 쓴다", async () => {
+    mockReplies({ status: 400, body: { error: "옵션을 선택해 주세요." } });
+    await renderCartItems([stored({ optionId: "o9", optionLabel: "블랙 / S", productId: "p9", name: "니트" }), stored()]);
+    await submit();
+    expect(await screen.findByRole("alert")).toHaveTextContent("옵션을 고르지 않은 상품이 있어요");
+    expect(screen.getByRole("link", { name: "린넨 셔츠 옵션 선택하러 가기" })).toHaveAttribute("href", "/products/p1");
+    expect(screen.queryByRole("link", { name: /니트/ })).not.toBeInTheDocument();
+    expect(sessionStorage.getItem("shop-order-attempt")).toBeNull();
+    expect(screen.getByRole("button", { name: "주문하기" })).toBeEnabled();
+  });
+
+  it("실패: '선택한 옵션을 찾을 수 없어요.' 400이면 안내와 옵션이 담긴 상품 링크를 보인다", async () => {
+    mockReplies({ status: 400, body: { error: "선택한 옵션을 찾을 수 없어요." } });
+    await renderCartItems([stored({ optionId: "gone", optionLabel: "블랙 / S", productId: "p9", name: "니트" }), stored()]);
+    await submit();
+    expect(await screen.findByRole("alert")).toHaveTextContent("선택한 옵션이 더 이상 없어요");
+    expect(screen.getByRole("link", { name: "니트 옵션 선택하러 가기" })).toHaveAttribute("href", "/products/p9");
+    expect(screen.queryByRole("link", { name: /린넨 셔츠/ })).not.toBeInTheDocument();
+  });
+
+  it("실패: 품절 400은 서버 문구를 그대로 보이고 옵션 링크는 없다", async () => {
+    mockReplies({ status: 409, body: { error: "재고가 부족합니다: 린넨 셔츠 (화이트 / M)" } });
+    await renderCartItems([stored({ optionId: "o1", optionLabel: "화이트 / M" })]);
+    await submit();
+    expect(await screen.findByRole("alert")).toHaveTextContent("재고가 부족합니다: 린넨 셔츠 (화이트 / M)");
+    expect(screen.queryByRole("link", { name: /옵션 선택하러 가기/ })).not.toBeInTheDocument();
+  });
+
+  it("실패: 다른 오류 문구에는 옵션 링크를 보이지 않는다", async () => {
+    mockReplies({ status: 400, body: { error: "주문에 실패했습니다." } });
+    await renderCartItems([stored()]);
+    await submit();
+    await screen.findByRole("alert");
+    expect(screen.queryByRole("link", { name: /옵션 선택하러 가기/ })).not.toBeInTheDocument();
+  });
+});

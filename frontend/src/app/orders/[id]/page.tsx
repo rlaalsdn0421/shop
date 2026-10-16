@@ -446,6 +446,7 @@ function OrderComplete({ id, token }: { id: string; token: string }) {
           <div key={item.id} className="flex justify-between text-sm">
             <span>
               {item.productName} x {item.quantity}
+              {item.optionLabel && <span className="block text-xs text-gray-500">{item.optionLabel}</span>}
             </span>
             <span>{(item.price * item.quantity).toLocaleString()}원</span>
           </div>

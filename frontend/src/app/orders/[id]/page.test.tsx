@@ -204,3 +204,21 @@ describe("주문 완료 페이지", () => {
     expect(mocks.logout).not.toHaveBeenCalled();
   });
 });
+
+describe("주문 상세 옵션 이름", () => {
+  it("성공: 항목 이름 아래에 옵션 이름을 보인다", async () => {
+    mockFetch(200, { ...order, items: [{ ...order.items[0], optionLabel: "화이트 / M" }] });
+    render(<OrderComplete />);
+    expect(await screen.findByText("린넨 셔츠 x 2")).toBeInTheDocument();
+    expect(screen.getByText("화이트 / M")).toBeInTheDocument();
+    expect(screen.getByText("16,000원", { selector: "span" })).toBeInTheDocument();
+  });
+
+  it("실패: 옵션 이름이 null이거나 없으면(구버전) 옵션 줄이 없다", async () => {
+    mockFetch(200, { ...order, items: [{ ...order.items[0], optionLabel: null }, { id: "i2", quantity: 1, price: 1000, productName: "양말" }] });
+    render(<OrderComplete />);
+    const name = await screen.findByText("린넨 셔츠 x 2");
+    expect(name.querySelector("span")).toBeNull();
+    expect(screen.getByText("양말 x 1").querySelector("span")).toBeNull();
+  });
+});

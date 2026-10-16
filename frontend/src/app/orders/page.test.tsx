@@ -429,3 +429,24 @@ describe("주문내역 결제 상태", () => {
     expect(screen.queryByText(/SOMETHING_NEW/)).not.toBeInTheDocument();
   });
 });
+
+describe("주문내역 옵션 이름", () => {
+  it("성공: 첫 상품 이름 옆에 옵션 이름을 보인다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(reply(200, { orders: [order(1, { firstItemOptionLabel: "화이트 / M", itemCount: 3 })], nextCursor: null })));
+    render(<OrdersPage />);
+    const link = await screen.findByRole("link", { name: /상품1/ });
+    expect(link).toHaveTextContent("상품1(화이트 / M) 외 2건");
+    expect(screen.getByText("(화이트 / M)")).toBeInTheDocument();
+  });
+
+  it("실패: 옵션 이름이 null이거나 없으면(구버전 포함) 아무것도 더하지 않는다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(reply(200, { orders: [order(1, { firstItemOptionLabel: null }), order(2)], nextCursor: null }))
+    );
+    render(<OrdersPage />);
+    const link = await screen.findByRole("link", { name: /상품1/ });
+    expect(link).not.toHaveTextContent("(");
+    expect(screen.getByRole("link", { name: /상품2/ })).not.toHaveTextContent("(");
+  });
+});

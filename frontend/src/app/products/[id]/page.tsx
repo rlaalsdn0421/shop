@@ -20,6 +20,7 @@ export default async function ProductDetail({
   if (!product) notFound();
 
   const { rate, original } = discountView(product);
+  const hasOptions = (product.options?.length ?? 0) > 0;
   const tags = visibleHashtags(product.hashtags);
   const reviewCount = reviews?.reviewCount ?? 0;
   const average = (reviews?.averageRating ?? 0).toFixed(1);
@@ -58,21 +59,24 @@ export default async function ProductDetail({
           </p>
 
           <div>
-            <div className="flex flex-wrap items-baseline gap-x-2">
-              {rate !== null && (
-                <span className="text-2xl font-bold text-red-600">
-                  <span className="sr-only">할인율 </span>
-                  {rate}%
-                </span>
-              )}
-              <p className="text-3xl font-bold">{formatWon(product.price)}</p>
-              {original !== null && (
-                <del className="text-sm text-gray-400">
-                  <span className="sr-only">정가 </span>
-                  {formatWon(original)}
-                </del>
-              )}
-            </div>
+            {/* With options the purchase block shows the lowest price, then the chosen option's price. */}
+            {!hasOptions && (
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                {rate !== null && (
+                  <span className="text-2xl font-bold text-red-600">
+                    <span className="sr-only">할인율 </span>
+                    {rate}%
+                  </span>
+                )}
+                <p className="text-3xl font-bold">{formatWon(product.price)}</p>
+                {original !== null && (
+                  <del className="text-sm text-gray-400">
+                    <span className="sr-only">정가 </span>
+                    {formatWon(original)}
+                  </del>
+                )}
+              </div>
+            )}
             <p className="mt-1 text-sm text-gray-600">{shippingNote}</p>
           </div>
 
@@ -103,6 +107,8 @@ export default async function ProductDetail({
             price={product.price}
             imageUrl={product.imageUrl}
             stock={product.stock}
+            options={product.options}
+            priceVaries={product.priceVaries}
           />
         </div>
       </div>

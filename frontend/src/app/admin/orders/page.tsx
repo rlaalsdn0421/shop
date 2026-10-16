@@ -233,6 +233,9 @@ function AdminOrderList({ token }: { token: string }) {
                 </div>
                 <div className="font-medium">
                   {o.firstItemName}
+                  {o.firstItemOptionLabel && (
+                    <span className="ml-1 font-normal text-gray-500">({o.firstItemOptionLabel})</span>
+                  )}
                   {o.itemCount > 1 ? ` 외 ${o.itemCount - 1}건` : ""}
                 </div>
                 <div>

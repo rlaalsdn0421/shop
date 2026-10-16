@@ -329,3 +329,267 @@ describe("AdminProductForm 이미지 여러 장", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 });
+
+describe("AdminProductForm 옵션", () => {
+  async function fillBase() {
+    await userEvent.type(screen.getByLabelText("상품명"), "린넨 셔츠");
+    await userEvent.type(screen.getByLabelText("상품 설명"), "시원한 셔츠");
+    await userEvent.type(screen.getByLabelText("이미지 주소 1"), "https://example.com/a.jpg");
+  }
+  const type = (label: string, value: string) => userEvent.type(screen.getByLabelText(label), value);
+  async function fillRow(n: number, v: { color?: string; size?: string; price?: string; original?: string; stock?: string }) {
+    if (v.color) await type(`옵션 ${n} 색상 이름`, v.color);
+    if (v.size) await type(`옵션 ${n} 사이즈`, v.size);
+    if (v.price) await type(`옵션 ${n} 가격`, v.price);
+    if (v.original) await type(`옵션 ${n} 정가 (선택)`, v.original);
+    if (v.stock) await type(`옵션 ${n} 재고`, v.stock);
+  }
+  const optionsToggle = () => screen.getByLabelText("옵션 사용");
+  const addRow = () => userEvent.click(screen.getByRole("button", { name: "옵션 추가" }));
+  const note = () => screen.getByText(/개 옵션 ·/).textContent;
+
+  it("성공: 옵션 사용을 켜면 단일 가격·정가·재고 칸이 사라지고 옵션 행이 나온다", async () => {
+    render(<AdminProductForm />);
+    expect(optionsToggle()).not.toBeChecked();
+    expect(screen.queryByLabelText("색상 옵션 사용")).not.toBeInTheDocument();
+    await userEvent.click(optionsToggle());
+    expect(screen.queryByLabelText("가격")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("정가 (선택)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("재고 수량")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("색상 옵션 사용")).toBeChecked();
+    expect(screen.getByLabelText("사이즈 옵션 사용")).toBeChecked();
+    for (const label of ["색상 이름", "색상 선택", "사이즈", "가격", "정가 (선택)", "재고"]) {
+      expect(screen.getByLabelText(`옵션 1 ${label}`)).toBeInTheDocument();
+    }
+    await userEvent.click(optionsToggle());
+    expect(screen.getByLabelText("가격")).toBeInTheDocument();
+    expect(screen.getByLabelText("재고 수량")).toBeInTheDocument();
+    expect(screen.queryByLabelText("옵션 1 가격")).not.toBeInTheDocument();
+  });
+
+  it("성공: 색상과 사이즈 옵션을 보내며 최저가와 재고 합계도 최상위에 함께 보낸다", async () => {
+    mockFetchOnce(201, {});
+    render(<AdminProductForm />);
+    await fillBase();
+    await userEvent.click(optionsToggle());
+    await fillRow(1, { color: "화이트", size: "M", price: "25000", original: "30000", stock: "3" });
+    fireEvent.change(screen.getByLabelText("옵션 1 색상 선택"), { target: { value: "#ffffff" } });
+    await addRow();
+    await fillRow(2, { color: " 블랙 ", size: "M", price: "23000", stock: "10" });
+    await submit();
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/admin/products"));
+    expect(sentBody()).toEqual({
+      name: "린넨 셔츠",
+      description: "시원한 셔츠",
+      price: 23000,
+      imageUrl: "https://example.com/a.jpg",
+      imageUrls: ["https://example.com/a.jpg"],
+      stock: 13,
+      category: "",
+      options: [
+        { colorName: "화이트", colorHex: "#ffffff", sizeLabel: "M", price: 25000, originalPrice: 30000, stock: 3 },
+        { colorName: "블랙", sizeLabel: "M", price: 23000, stock: 10 },
+      ],
+    });
+  });
+
+  it("성공: 사이즈만 쓰면 색상 칸이 없고 요청에도 색상 필드가 없다", async () => {
+    mockFetchOnce(201, {});
+    render(<AdminProductForm />);
+    await fillBase();
+    await userEvent.click(optionsToggle());
+    await userEvent.click(screen.getByLabelText("색상 옵션 사용"));
+    expect(screen.queryByLabelText("옵션 1 색상 이름")).not.toBeInTheDocument();
+    await fillRow(1, { size: "FREE", price: "9000", stock: "4" });
+    await submit();
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    expect(sentBody().options).toEqual([{ sizeLabel: "FREE", price: 9000, stock: 4 }]);
+  });
+
+  it("성공: 색상만 쓰면 사이즈 칸이 없고 색 선택을 지우면 색 코드를 보내지 않는다", async () => {
+    mockFetchOnce(201, {});
+    render(<AdminProductForm />);
+    await fillBase();
+    await userEvent.click(optionsToggle());
+    await userEvent.click(screen.getByLabelText("사이즈 옵션 사용"));
+    expect(screen.queryByLabelText("옵션 1 사이즈")).not.toBeInTheDocument();
+    await fillRow(1, { color: "민트", price: "9000", stock: "4" });
+    expect(screen.getByText("색 선택 안 함 (글자 칩)")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("옵션 1 색상 선택"), { target: { value: "#00ff00" } });
+    expect(screen.getByText("#00ff00")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "옵션 1 색상 지우기" }));
+    expect(screen.getByText("색 선택 안 함 (글자 칩)")).toBeInTheDocument();
+    await submit();
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    expect(sentBody().options).toEqual([{ colorName: "민트", price: 9000, stock: 4 }]);
+  });
+
+  it("성공: 옵션을 켰다 꺼도 옛 방식 요청에는 options가 없다", async () => {
+    mockFetchOnce(201, {});
+    render(<AdminProductForm />);
+    await userEvent.click(optionsToggle());
+    await userEvent.click(optionsToggle());
+    await fillRequired();
+    await submit();
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    expect(sentBody()).toEqual({
+      name: "린넨 셔츠",
+      description: "시원한 셔츠",
+      price: 8000,
+      imageUrl: "https://example.com/a.jpg",
+      imageUrls: ["https://example.com/a.jpg"],
+      stock: 5,
+      category: "",
+    });
+  });
+
+  it("실패: 색상과 사이즈를 둘 다 끄면 안내를 보이고 요청하지 않으며 색상 체크박스로 포커스를 옮긴다", async () => {
+    mockFetchOnce(201, {});
+    render(<AdminProductForm />);
+    await fillBase();
+    await userEvent.click(optionsToggle());
+    await userEvent.click(screen.getByLabelText("색상 옵션 사용"));
+    await userEvent.click(screen.getByLabelText("사이즈 옵션 사용"));
+    expect(screen.getByRole("alert")).toHaveTextContent("색상 또는 사이즈 중 하나는 사용해야 해요.");
+    await submit();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("색상 옵션 사용")).toHaveFocus();
+  });
+
+  it("실패: 비어 있는 옵션 행은 제출 전에는 조용하고, 제출하면 인라인 오류와 첫 칸 포커스가 생기며 요청하지 않는다", async () => {
+    mockFetchOnce(201, {});
+    render(<AdminProductForm />);
+    await fillBase();
+    await userEvent.click(optionsToggle());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await submit();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("alert").map((a) => a.textContent)).toEqual([
+      "색상 이름을 입력해 주세요.",
+      "사이즈를 입력해 주세요.",
+      "가격은 0 이상의 정수로 입력해 주세요.",
+      "재고는 0 이상의 정수로 입력해 주세요.",
+    ]);
+    const colorInput = screen.getByLabelText("옵션 1 색상 이름");
+    expect(colorInput).toHaveFocus();
+    expect(colorInput).toHaveAttribute("aria-invalid", "true");
+    expect(colorInput).toHaveAccessibleDescription("색상 이름을 입력해 주세요.");
+  });
+
+  it("실패: 오류가 있는 첫 칸으로 포커스를 옮기고, 고치면 오류가 사라진다", async () => {
+    mockFetchOnce(201, {});
+    render(<AdminProductForm />);
+    await fillBase();
+    await userEvent.click(optionsToggle());
+    await fillRow(1, { color: "화이트", size: "M", price: "25000", stock: "3" });
+    await addRow();
+    await fillRow(2, { color: "블랙", size: "M", price: "25000", original: "20000", stock: "3" });
+    await submit();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("정가는 판매가보다 커야 해요.");
+    expect(screen.getByLabelText("옵션 2 정가 (선택)")).toHaveFocus();
+    await userEvent.clear(screen.getByLabelText("옵션 2 정가 (선택)"));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("실패: 같은 색상·사이즈 조합은 공백과 대소문자 차이가 있어도 중복 오류가 난다", async () => {
+    mockFetchOnce(201, {});
+    render(<AdminProductForm />);
+    await fillBase();
+    await userEvent.click(optionsToggle());
+    await fillRow(1, { color: "White", size: "m", price: "1000", stock: "1" });
+    await addRow();
+    await fillRow(2, { color: " white ", size: "M", price: "1000", stock: "1" });
+    await submit();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("같은 색상과 사이즈 조합의 옵션이 이미 있어요.");
+    expect(screen.getByLabelText("옵션 2 색상 이름")).toHaveFocus();
+  });
+
+  it("실패: 31자 이름과 쓸 수 없는 문자는 막는다", async () => {
+    mockFetchOnce(201, {});
+    render(<AdminProductForm />);
+    await fillBase();
+    await userEvent.click(optionsToggle());
+    await fillRow(1, { color: "가".repeat(31), size: "M", price: "1000", stock: "1" });
+    await submit();
+    expect(screen.getByRole("alert")).toHaveTextContent("30자 이하");
+    expect(fetch).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("옵션 1 색상 이름"), { target: { value: "화이트​" } });
+    expect(screen.getByRole("alert")).toHaveTextContent("옵션 이름에 쓸 수 없는 문자가 있어요.");
+  });
+
+  it("성공: 행을 추가하고 삭제하며, 행이 하나뿐이면 삭제 버튼이 없다", async () => {
+    render(<AdminProductForm />);
+    await userEvent.click(optionsToggle());
+    expect(screen.queryByRole("button", { name: /옵션 1 삭제/ })).not.toBeInTheDocument();
+    await addRow();
+    expect(screen.getByLabelText("옵션 2 색상 이름")).toHaveFocus();
+    await type("옵션 2 색상 이름", "블랙");
+    await userEvent.click(screen.getByRole("button", { name: "옵션 1 삭제" }));
+    // The remaining row keeps its own text and is renumbered.
+    expect(screen.queryByLabelText("옵션 2 색상 이름")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("옵션 1 색상 이름")).toHaveValue("블랙");
+    expect(screen.queryByRole("button", { name: /삭제/ })).not.toBeInTheDocument();
+  });
+
+  it("실패: 옵션은 50개까지만 추가할 수 있다", async () => {
+    render(<AdminProductForm />);
+    await userEvent.click(optionsToggle());
+    // fireEvent: 49 userEvent clicks (each re-rendering up to 50 rows) would time out
+    for (let i = 1; i < 50; i++) fireEvent.click(screen.getByText("옵션 추가"));
+    expect(screen.getByLabelText("옵션 50 색상 이름")).toBeInTheDocument();
+    expect(screen.getByText("옵션 추가")).toBeDisabled();
+    expect(screen.getByText("옵션은 최대 50개까지 등록할 수 있어요.")).toBeInTheDocument();
+  }, 30_000);
+
+  it("성공: 옵션 개수·최저가·재고 합계를 바로 보여준다", async () => {
+    render(<AdminProductForm />);
+    await userEvent.click(optionsToggle());
+    expect(note()).toBe("1개 옵션 · 최저가 - · 재고 합계 0개");
+    await fillRow(1, { price: "30000", stock: "2" });
+    await addRow();
+    await fillRow(2, { price: "20000", stock: "3" });
+    expect(note()).toBe("2개 옵션 · 최저가 20,000원 · 재고 합계 5개");
+  });
+
+  it("성공: 이미지 여러 장과 함께 옵션을 보내도 imageUrls가 유지된다", async () => {
+    mockFetchOnce(201, {});
+    render(<AdminProductForm />);
+    await fillBase();
+    await userEvent.click(screen.getByRole("button", { name: "이미지 추가" }));
+    await type("이미지 주소 2", "https://example.com/b.jpg");
+    await userEvent.click(optionsToggle());
+    await fillRow(1, { color: "화이트", size: "M", price: "1000", stock: "1" });
+    await submit();
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    expect(sentBody()).toMatchObject({
+      imageUrl: "https://example.com/a.jpg",
+      imageUrls: ["https://example.com/a.jpg", "https://example.com/b.jpg"],
+    });
+  });
+
+  it("실패: 서버가 거절하면 role=alert로 메시지를 보이고 다시 제출할 수 있다", async () => {
+    mockFetchOnce(400, { error: "같은 색상과 사이즈 조합의 옵션이 중복되어 있어요." });
+    render(<AdminProductForm />);
+    await fillBase();
+    await userEvent.click(optionsToggle());
+    await fillRow(1, { color: "화이트", size: "M", price: "1000", stock: "1" });
+    await submit();
+    expect(await screen.findByRole("alert")).toHaveTextContent("중복되어 있어요");
+    expect(screen.getByRole("button", { name: "등록하기" })).toBeEnabled();
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("성공: 옵션을 켜면 옛 가격 입력의 오류는 제출을 막지 않는다", async () => {
+    mockFetchOnce(201, {});
+    render(<AdminProductForm />);
+    await fillBase();
+    fireEvent.change(screen.getByLabelText("가격"), { target: { value: "99999999999" } });
+    await userEvent.click(optionsToggle());
+    await fillRow(1, { color: "화이트", size: "M", price: "1000", stock: "1" });
+    await submit();
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    expect(sentBody().price).toBe(1000);
+  });
+});

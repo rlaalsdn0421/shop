@@ -11,12 +11,13 @@ type Props = {
   originalPrice?: number | null;
   discountRate?: number | null;
   hashtags?: string[];
+  priceVaries?: boolean;
   rank?: number;
 };
 
 // The whole card is one link. A heart button (name row, right side) is planned; it will
 // need to sit outside the link, so keep the text block as its own element.
-export function ProductCard({ id, name, price, imageUrl, originalPrice, discountRate, hashtags, rank }: Props) {
+export function ProductCard({ id, name, price, imageUrl, originalPrice, discountRate, hashtags, priceVaries, rank }: Props) {
   const { rate, original } = discountView({ price, originalPrice, discountRate });
   const tags = visibleHashtags(hashtags);
   return (
@@ -47,7 +48,10 @@ export function ProductCard({ id, name, price, imageUrl, originalPrice, discount
               {rate}%
             </span>
           )}
-          <span className="text-[15px] font-bold text-neutral-900">{formatWon(price)}</span>
+          <span className="text-[15px] font-bold text-neutral-900">
+            {formatWon(price)}
+            {priceVaries ? "~" : ""}
+          </span>
           {original !== null && (
             <del className="text-xs text-neutral-400">
               <span className="sr-only">정가 </span>
