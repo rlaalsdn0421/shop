@@ -5,7 +5,16 @@ import { useRouter } from "next/navigation";
 import { useRequireRole } from "@/auth/AuthContext";
 import { CATEGORIES } from "@/lib/categories";
 import { parseHashtags } from "@/lib/hashtags";
-import { MAX_PRICE } from "@/lib/price";
+import {
+  MAX_OPTIONS,
+  OPTION_FIELD_ORDER,
+  buildOptionLines,
+  summarizeOptions,
+  validateOptionRows,
+  type OptionField,
+  type OptionRow,
+} from "@/lib/adminOptions";
+import { MAX_PRICE, formatWon } from "@/lib/price";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080";
 const MAX_IMAGES = 10;
@@ -19,6 +28,16 @@ function FieldError({ id, message }: { id: string; message: string | null }) {
     </p>
   );
 }
+
+const emptyOptionRow = (key: number): OptionRow => ({
+  key,
+  colorName: "",
+  colorHex: "",
+  sizeLabel: "",
+  price: "",
+  originalPrice: "",
+  stock: "",
+});
 
 export function AdminProductForm() {
   const router = useRouter();
@@ -37,6 +56,17 @@ export function AdminProductForm() {
   const nextRowKey = useRef(1);
   const imageInputs = useRef<(HTMLInputElement | null)[]>([]);
   const focusRow = useRef<number | null>(null);
+  // Options: when on, the rows below replace the single price / original price / stock inputs.
+  const [useOptions, setUseOptions] = useState(false);
+  const [useColor, setUseColor] = useState(true);
+  const [useSize, setUseSize] = useState(true);
+  const [optionRows, setOptionRows] = useState<OptionRow[]>([emptyOptionRow(0)]);
+  const nextOptionKey = useRef(1);
+  const optionInputs = useRef(new Map<string, HTMLInputElement>());
+  const focusOption = useRef<string | null>(null);
+  const colorToggleRef = useRef<HTMLInputElement>(null);
+  // Row errors stay hidden until the first submit, so an empty new row is not scolded while the admin is still typing.
+  const [optionsTried, setOptionsTried] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   // The ref blocks a second submit in the same tick, before the disabled button re-renders.
@@ -64,6 +94,17 @@ export function AdminProductForm() {
   const duplicateRow = (i: number) => imageUrls[i] !== "" && imageUrls.indexOf(imageUrls[i]) < i;
   const firstDuplicate = imageUrls.findIndex((_, i) => duplicateRow(i));
 
+  const dims = { useColor, useSize };
+  const optionErrors = useOptions ? validateOptionRows(optionRows, dims) : [];
+  const optionSummary = summarizeOptions(optionRows);
+  const noDimension = useOptions && !useColor && !useSize;
+
+  useEffect(() => {
+    if (focusOption.current === null) return;
+    optionInputs.current.get(focusOption.current)?.focus();
+    focusOption.current = null;
+  }, [optionRows]);
+
   useEffect(() => {
     if (focusRow.current === null) return;
     imageInputs.current[focusRow.current]?.focus();
@@ -81,13 +122,44 @@ export function AdminProductForm() {
     setImageRows(imageRows.filter((_, i) => i !== index));
   }
 
+  function addOptionRow() {
+    if (optionRows.length >= MAX_OPTIONS) return;
+    const key = nextOptionKey.current++;
+    focusOption.current = `${key}:${useColor ? "colorName" : "sizeLabel"}`;
+    setOptionRows([...optionRows, emptyOptionRow(key)]);
+  }
+
+  function removeOptionRow(index: number) {
+    const target = optionRows[index > 0 ? index - 1 : 1];
+    focusOption.current = target ? `${target.key}:${useColor ? "colorName" : "sizeLabel"}` : null;
+    setOptionRows(optionRows.filter((_, i) => i !== index));
+  }
+
+  function updateOptionRow(key: number, patch: Partial<OptionRow>) {
+    setOptionRows((rows) => rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    if (useOptions) {
+      setOptionsTried(true);
+      if (noDimension) {
+        colorToggleRef.current?.focus();
+        return;
+      }
+      for (let i = 0; i < optionRows.length; i++) {
+        const field = OPTION_FIELD_ORDER.find((f) => optionErrors[i]?.[f]);
+        if (field) {
+          optionInputs.current.get(`${optionRows[i].key}:${field}`)?.focus();
+          return;
+        }
+      }
+    }
     // Never silent: put the cursor on the first invalid field (its message is already shown).
-    const firstInvalid = priceError
+    const firstInvalid = !useOptions && priceError
       ? priceRef
-      : originalPriceError
+      : !useOptions && originalPriceError
         ? originalPriceRef
         : hashtagError
           ? hashtagsRef
@@ -119,14 +191,17 @@ export function AdminProductForm() {
         body: JSON.stringify({
           name: form.name,
           description: form.description,
-          price: Number(form.price),
-          ...(form.originalPrice !== "" ? { originalPrice: Number(form.originalPrice) } : {}),
+          // With options the top-level price (lowest option) and stock (sum) are still sent, so a backend that
+          // does not know options yet validates and stores the product the way it always did.
+          price: useOptions ? optionSummary.lowest : Number(form.price),
+          ...(!useOptions && form.originalPrice !== "" ? { originalPrice: Number(form.originalPrice) } : {}),
           ...(tags.length > 0 ? { hashtags: tags } : {}),
           // Both on purpose: an older backend only reads imageUrl, a newer one reads imageUrls.
           imageUrl: urls[0],
           imageUrls: urls,
-          stock: Number(form.stock),
+          stock: useOptions ? Math.min(optionSummary.stock, MAX_PRICE) : Number(form.stock),
           category: form.category,
+          ...(useOptions ? { options: buildOptionLines(optionRows, dims) } : {}),
         }),
       });
       const data = await res.json();
@@ -149,7 +224,7 @@ export function AdminProductForm() {
   if (!ready || !session) return null;
 
   return (
-    <div className="max-w-md mx-auto flex flex-col gap-4">
+    <div className={`${useOptions ? "max-w-2xl" : "max-w-md"} mx-auto flex flex-col gap-4`}>
       <h1 className="text-xl font-bold">상품 등록</h1>
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
         <label htmlFor="product-name" className="sr-only">상품명</label>
@@ -172,43 +247,168 @@ export function AdminProductForm() {
           maxLength={2000}
           required
         />
-        <div>
-          <label htmlFor="product-price" className="sr-only">가격</label>
-          <input
-            id="product-price"
-            ref={priceRef}
-            className="w-full border rounded px-3 py-2 text-sm"
-            placeholder="가격"
-            type="number"
-            min={0}
-            max={MAX_PRICE}
-            step={1}
-            value={form.price}
-            onChange={(e) => setForm({ ...form, price: e.target.value })}
-            aria-invalid={priceError ? true : undefined}
-            aria-describedby={priceError ? "product-price-error" : undefined}
-            required
-          />
-          <FieldError id="product-price-error" message={priceError} />
-        </div>
-        <div>
-          <label htmlFor="product-original-price" className="sr-only">정가 (선택)</label>
-          <input
-            id="product-original-price"
-            ref={originalPriceRef}
-            className="w-full border rounded px-3 py-2 text-sm"
-            placeholder="정가 (선택, 판매가보다 커야 해요)"
-            type="number"
-            min={minOriginalPrice ?? 1}
-            max={MAX_PRICE}
-            step={1}
-            value={form.originalPrice}
-            onChange={(e) => setForm({ ...form, originalPrice: e.target.value })}
-            aria-invalid={originalPriceError ? true : undefined}
-            aria-describedby={originalPriceError ? "product-original-price-error" : undefined}
-          />
-          <FieldError id="product-original-price-error" message={originalPriceError} />
-        </div>
+        <fieldset className="flex flex-col gap-2">
+          <legend className="sr-only">판매 옵션</legend>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={useOptions} onChange={(e) => setUseOptions(e.target.checked)} />
+            옵션 사용
+          </label>
+          {useOptions && (
+            <div className="flex flex-wrap gap-4 pl-6 text-sm">
+              <label className="flex items-center gap-2">
+                <input ref={colorToggleRef} type="checkbox" checked={useColor} onChange={(e) => setUseColor(e.target.checked)} />
+                색상 옵션 사용
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={useSize} onChange={(e) => setUseSize(e.target.checked)} />
+                사이즈 옵션 사용
+              </label>
+            </div>
+          )}
+          {noDimension && (
+            <p role="alert" className="pl-6 text-sm text-red-600">
+              색상 또는 사이즈 중 하나는 사용해야 해요.
+            </p>
+          )}
+        </fieldset>
+        {useOptions ? (
+          <fieldset className="flex flex-col gap-3">
+            <legend className="sr-only">옵션 (최대 {MAX_OPTIONS}개)</legend>
+            {optionRows.map((row, i) => {
+              const n = i + 1;
+              const errors = optionsTried ? (optionErrors[i] ?? {}) : {};
+              const text = (field: OptionField, label: string, placeholder: string) => {
+                const id = `product-option-${row.key}-${field}`;
+                const message = errors[field];
+                return (
+                  <div>
+                    <label htmlFor={id} className="sr-only">{`옵션 ${n} ${label}`}</label>
+                    <input
+                      id={id}
+                      ref={(el) => {
+                        if (el) optionInputs.current.set(`${row.key}:${field}`, el);
+                        else optionInputs.current.delete(`${row.key}:${field}`);
+                      }}
+                      className="w-full border rounded px-3 py-2 text-sm"
+                      placeholder={placeholder}
+                      inputMode={field === "colorName" || field === "sizeLabel" ? undefined : "numeric"}
+                      value={row[field]}
+                      onChange={(e) => updateOptionRow(row.key, { [field]: e.target.value })}
+                      aria-invalid={message ? true : undefined}
+                      aria-describedby={message ? `${id}-error` : undefined}
+                    />
+                    {message && (
+                      <p id={`${id}-error`} role="alert" className="mt-1 text-sm text-red-600">
+                        {message}
+                      </p>
+                    )}
+                  </div>
+                );
+              };
+              return (
+                <div key={row.key} className="flex flex-col gap-2 rounded border p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">옵션 {n}</span>
+                    {optionRows.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeOptionRow(i)}
+                        aria-label={`옵션 ${n} 삭제`}
+                        className="border rounded px-3 py-1 text-sm"
+                      >
+                        삭제
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {useColor && text("colorName", "색상 이름", "색상 이름")}
+                    {useColor && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <label htmlFor={`product-option-${row.key}-hex`} className="sr-only">{`옵션 ${n} 색상 선택`}</label>
+                        <input
+                          id={`product-option-${row.key}-hex`}
+                          type="color"
+                          value={row.colorHex || "#000000"}
+                          onChange={(e) => updateOptionRow(row.key, { colorHex: e.target.value })}
+                          className="h-9 w-12 shrink-0 cursor-pointer"
+                        />
+                        <span>{row.colorHex || "색 선택 안 함 (글자 칩)"}</span>
+                        {row.colorHex && (
+                          <button
+                            type="button"
+                            onClick={() => updateOptionRow(row.key, { colorHex: "" })}
+                            aria-label={`옵션 ${n} 색상 지우기`}
+                            className="border rounded px-2 py-1 text-xs"
+                          >
+                            지우기
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {useSize && text("sizeLabel", "사이즈", "사이즈")}
+                    {text("price", "가격", "가격")}
+                    {text("originalPrice", "정가 (선택)", "정가 (선택)")}
+                    {text("stock", "재고", "재고 수량")}
+                  </div>
+                </div>
+              );
+            })}
+            <button
+              type="button"
+              onClick={addOptionRow}
+              disabled={optionRows.length >= MAX_OPTIONS}
+              className="self-start border rounded px-3 py-2 text-sm disabled:opacity-50"
+            >
+              옵션 추가
+            </button>
+            {optionRows.length >= MAX_OPTIONS && (
+              <p role="status" className="text-sm text-gray-600">옵션은 최대 {MAX_OPTIONS}개까지 등록할 수 있어요.</p>
+            )}
+            <p role="status" className="text-sm text-gray-600">
+              {`${optionSummary.count}개 옵션 · 최저가 ${optionSummary.lowest === null ? "-" : formatWon(optionSummary.lowest)} · 재고 합계 ${optionSummary.stock.toLocaleString("ko-KR")}개`}
+            </p>
+          </fieldset>
+        ) : (
+          <>
+          <div>
+            <label htmlFor="product-price" className="sr-only">가격</label>
+            <input
+              id="product-price"
+              ref={priceRef}
+              className="w-full border rounded px-3 py-2 text-sm"
+              placeholder="가격"
+              type="number"
+              min={0}
+              max={MAX_PRICE}
+              step={1}
+              value={form.price}
+              onChange={(e) => setForm({ ...form, price: e.target.value })}
+              aria-invalid={priceError ? true : undefined}
+              aria-describedby={priceError ? "product-price-error" : undefined}
+              required
+            />
+            <FieldError id="product-price-error" message={priceError} />
+          </div>
+          <div>
+            <label htmlFor="product-original-price" className="sr-only">정가 (선택)</label>
+            <input
+              id="product-original-price"
+              ref={originalPriceRef}
+              className="w-full border rounded px-3 py-2 text-sm"
+              placeholder="정가 (선택, 판매가보다 커야 해요)"
+              type="number"
+              min={minOriginalPrice ?? 1}
+              max={MAX_PRICE}
+              step={1}
+              value={form.originalPrice}
+              onChange={(e) => setForm({ ...form, originalPrice: e.target.value })}
+              aria-invalid={originalPriceError ? true : undefined}
+              aria-describedby={originalPriceError ? "product-original-price-error" : undefined}
+            />
+            <FieldError id="product-original-price-error" message={originalPriceError} />
+          </div>
+          </>
+        )}
         <div>
           <label htmlFor="product-hashtags" className="sr-only">해시태그 (최대 3개, 공백으로 구분)</label>
           <input
@@ -274,18 +474,22 @@ export function AdminProductForm() {
             <p role="status" className="text-sm text-gray-600">이미지는 최대 {MAX_IMAGES}장까지 등록할 수 있어요.</p>
           )}
         </fieldset>
-        <label htmlFor="product-stock" className="sr-only">재고 수량</label>
-        <input
-          id="product-stock"
-          className="border rounded px-3 py-2 text-sm"
-          placeholder="재고 수량"
-          type="number"
-          min={0}
-          step={1}
-          value={form.stock}
-          onChange={(e) => setForm({ ...form, stock: e.target.value })}
-          required
-        />
+        {!useOptions && (
+          <>
+            <label htmlFor="product-stock" className="sr-only">재고 수량</label>
+            <input
+              id="product-stock"
+              className="border rounded px-3 py-2 text-sm"
+              placeholder="재고 수량"
+              type="number"
+              min={0}
+              step={1}
+              value={form.stock}
+              onChange={(e) => setForm({ ...form, stock: e.target.value })}
+              required
+            />
+          </>
+        )}
         <label htmlFor="product-category" className="sr-only">카테고리</label>
         <select
           id="product-category"

@@ -160,3 +160,26 @@ describe("상품 상세 페이지 레이아웃", () => {
     expect(screen.queryByRole("list", { name: "상품 이미지 목록" })).not.toBeInTheDocument();
   });
 });
+
+describe("상품 상세 페이지 옵션", () => {
+  it("성공: 옵션 상품은 위쪽 큰 가격을 그리지 않는다(가격은 구매 블록이 선택 전 최저가, 선택 후 옵션 가격으로 보인다)", async () => {
+    const option = { id: "o1", colorName: "화이트", colorHex: "#FFFFFF", sizeLabel: "M", price: 23000, originalPrice: null, discountRate: null, stock: 3 };
+    mockBackend({ ...product, price: 23000, priceVaries: true, options: [option] });
+    await renderDetail();
+    expect(screen.queryByText("23,000원")).not.toBeInTheDocument();
+    expect(screen.queryByText("23,000원~")).not.toBeInTheDocument();
+  });
+
+  it("성공: 옵션 없는 상품은 위쪽에 가격을 그대로 보인다", async () => {
+    mockBackend({ ...product, price: 23000, options: [] });
+    await renderDetail();
+    expect(screen.getByText("23,000원")).toBeInTheDocument();
+  });
+
+  it("실패: options와 priceVaries가 없는(구버전) 응답도 평소처럼 보인다", async () => {
+    mockBackend(product);
+    await renderDetail();
+    expect(screen.getByText("8,000원")).toBeInTheDocument();
+    expect(screen.queryByText(/~/)).not.toBeInTheDocument();
+  });
+});

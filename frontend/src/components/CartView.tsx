@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useCart } from "@/cart/CartContext";
+import { cartLineKey, useCart } from "@/cart/CartContext";
 import { useAuth, useRequireRole } from "@/auth/AuthContext";
 import { PaymentMethodSelect } from "@/components/PaymentMethodSelect";
 import { AuthError } from "@/lib/api";
@@ -26,6 +26,10 @@ import {
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080";
 const ORDER_TIMEOUT_MS = 20_000;
 
+// The server's two refusals about options (OrderService); the cart then points at the product to choose again.
+const OPTION_MISSING = "옵션을 선택해 주세요.";
+const OPTION_NOT_FOUND = "선택한 옵션을 찾을 수 없어요.";
+
 export function CartView() {
   const { items, setQuantity, remove, totalAmount, clear } = useCart();
   const { session, ready } = useRequireRole(["ADMIN", "SELLER", "USER"]);
@@ -44,6 +48,8 @@ export function CartView() {
   const [unconfirmedId, setUnconfirmedId] = useState<string | null>(null);
   // An order the server refused to take payment for (e.g. PAYMENT_REVIEW): the user is pointed at its detail page.
   const [stuckOrderId, setStuckOrderId] = useState<string | null>(null);
+  // Set when the server refused a line because of its option; the matching cart lines get a link back to the product.
+  const [optionProblem, setOptionProblem] = useState<"missing" | "notFound" | null>(null);
 
   // Coming back through the back/forward cache restores the page as it was while the browser was leaving for the payment page.
   useEffect(() => {
@@ -66,6 +72,7 @@ export function CartView() {
     e.preventDefault();
     setError("");
     setStuckOrderId(null);
+    setOptionProblem(null);
 
     if (!session || unconfirmedId) return;
     // An order nobody can pay would only hold stock, so nothing is created without a usable payment setup.
@@ -89,12 +96,18 @@ export function CartView() {
     const customerName = form.name.trim();
     const customerPhone = form.phone.trim();
     const customerAddress = form.address.trim();
-    const orderItems = items.map((i) => ({ productId: i.productId, quantity: i.quantity }));
+    // optionId is sent only for option lines, so a cart without options produces the same request as before options existed.
+    const orderItems = items.map((i) => ({
+      productId: i.productId,
+      ...(i.optionId ? { optionId: i.optionId } : {}),
+      quantity: i.quantity,
+    }));
+    // Option-less lines keep the old "productId:quantity" form (stored attempts stay valid); option lines add "@optionId".
     const fingerprint = JSON.stringify([
       customerName,
       customerPhone,
       customerAddress,
-      orderItems.map((i) => `${i.productId}:${i.quantity}`).sort(),
+      orderItems.map((i) => (i.optionId ? `${i.productId}@${i.optionId}:${i.quantity}` : `${i.productId}:${i.quantity}`)).sort(),
     ]);
     // True while the browser is leaving for the payment page: the form must stay locked until it is gone.
     let redirected = false;
@@ -157,7 +170,15 @@ export function CartView() {
         // The server definitively refused this request, so the next attempt gets a new key.
         attempt.current = null;
         saveAttempt(null);
-        setError(serverMessage ?? "주문에 실패했습니다.");
+        if (serverMessage === OPTION_MISSING) setOptionProblem("missing");
+        else if (serverMessage === OPTION_NOT_FOUND) setOptionProblem("notFound");
+        setError(
+          serverMessage === OPTION_MISSING
+            ? "옵션을 고르지 않은 상품이 있어요. 상품 페이지에서 옵션을 선택해 다시 담아 주세요."
+            : serverMessage === OPTION_NOT_FOUND
+              ? "선택한 옵션이 더 이상 없어요. 상품 페이지에서 옵션을 다시 선택해 담고, 이 장바구니 항목은 삭제해 주세요."
+              : (serverMessage ?? "주문에 실패했습니다.")
+        );
         return;
       }
     } catch (e) {
@@ -256,17 +277,22 @@ export function CartView() {
     return <p className="text-gray-600">장바구니가 비어있습니다.</p>;
   }
   const shippingFee = shippingFeeFor(totalAmount);
+  // The server does not say which line it meant: offer every line that could be it (no option chosen / an option that may be gone).
+  const optionLinks = optionProblem
+    ? [...new Map(items.filter((i) => !!i.optionId === (optionProblem === "notFound")).map((i) => [i.productId, i])).values()]
+    : [];
 
   return (
     <div className="grid sm:grid-cols-3 gap-8">
       <div className="sm:col-span-2 flex flex-col gap-4">
         {items.map((item) => (
-          <div key={item.productId} className="flex items-center gap-4 border-b pb-4">
+          <div key={cartLineKey(item)} className="flex items-center gap-4 border-b pb-4">
             <div className="relative w-20 h-20 bg-gray-100 rounded overflow-hidden shrink-0">
               <Image src={item.imageUrl} alt={item.name} fill className="object-cover" unoptimized />
             </div>
             <div className="flex-1">
               <p className="font-medium text-sm">{item.name}</p>
+              {item.optionLabel && <p className="text-xs text-gray-500">{item.optionLabel}</p>}
               <p className="text-sm text-gray-600">{item.price.toLocaleString()}원</p>
             </div>
             <div className="flex items-center gap-2">
@@ -274,7 +300,7 @@ export function CartView() {
                 aria-label="수량 감소"
                 disabled={locked}
                 className="w-7 h-7 border rounded"
-                onClick={() => setQuantity(item.productId, item.quantity - 1)}
+                onClick={() => setQuantity(item.productId, item.quantity - 1, item.optionId)}
               >
                 -
               </button>
@@ -283,7 +309,7 @@ export function CartView() {
                 aria-label="수량 증가"
                 disabled={locked}
                 className="w-7 h-7 border rounded"
-                onClick={() => setQuantity(item.productId, item.quantity + 1)}
+                onClick={() => setQuantity(item.productId, item.quantity + 1, item.optionId)}
               >
                 +
               </button>
@@ -291,7 +317,7 @@ export function CartView() {
             <button
               disabled={locked}
               className="text-sm text-gray-400 hover:text-red-600"
-              onClick={() => remove(item.productId)}
+              onClick={() => remove(item.productId, item.optionId)}
             >
               삭제
             </button>
@@ -352,6 +378,17 @@ export function CartView() {
           onChange={(e) => setForm({ ...form, address: e.target.value })}
         />
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+        {optionLinks.length > 0 && (
+          <ul className="flex flex-col gap-1 text-sm">
+            {optionLinks.map((i) => (
+              <li key={cartLineKey(i)}>
+                <Link href={`/products/${encodeURIComponent(i.productId)}`} className="underline">
+                  {i.name} 옵션 선택하러 가기
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
         {stuckOrderId && (
           <Link href={`/orders/${encodeURIComponent(stuckOrderId)}`} className="text-sm underline">
             주문 상세에서 확인하기

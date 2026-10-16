@@ -64,11 +64,24 @@ export type Product = {
   originalPrice?: number | null;
   discountRate?: number | null;
   hashtags?: string[];
+  // Optional on purpose: an older backend does not send it. True = options have different prices, so `price` is the lowest ("N원~").
+  priceVaries?: boolean;
 };
 
 export type ProductPage = {
   items: Product[];
   hasMore: boolean;
+};
+
+export type ProductOption = {
+  id: string;
+  colorName: string | null;
+  colorHex: string | null;
+  sizeLabel: string | null;
+  price: number;
+  originalPrice?: number | null;
+  discountRate?: number | null;
+  stock: number;
 };
 
 export type ProductDetail = Product & {
@@ -78,6 +91,8 @@ export type ProductDetail = Product & {
   category?: string | null;
   // Optional on purpose: an older backend does not send it; the page then falls back to [imageUrl].
   images?: string[];
+  // Optional on purpose: an older backend does not send it; a missing value is the same as no options (see lib/options.ts).
+  options?: ProductOption[];
 };
 
 export type AdminProduct = {
@@ -93,6 +108,8 @@ export type OrderItem = {
   quantity: number;
   price: number;
   productName: string;
+  // Optional on purpose: an older backend does not send it. "화이트 / M" snapshot, null for a product without options.
+  optionLabel?: string | null;
 };
 
 export type Order = {
@@ -120,6 +137,7 @@ export type OrderSummary = {
   expiresAt?: string | null;
   itemCount: number;
   firstItemName: string;
+  firstItemOptionLabel?: string | null; // like OrderItem.optionLabel
 };
 
 export type OrderSummaryPage = {
@@ -141,6 +159,7 @@ export type AdminOrder = {
   customerAddress: string;
   itemCount: number;
   firstItemName: string;
+  firstItemOptionLabel?: string | null; // like OrderItem.optionLabel
 };
 
 export type AdminOrderPage = {

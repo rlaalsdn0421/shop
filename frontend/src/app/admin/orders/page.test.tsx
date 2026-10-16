@@ -650,3 +650,21 @@ describe("멈춘 취소 이어서 처리", () => {
     expect(screen.queryByRole("button", { name: /이어서 처리/ })).not.toBeInTheDocument();
   });
 });
+
+describe("관리자 주문 옵션 이름", () => {
+  it("성공: 첫 상품 이름 옆에 옵션 이름을 보인다", async () => {
+    mockApi([page([order(1, { firstItemOptionLabel: "블랙 / L", itemCount: 2 })])]);
+    render(<AdminOrdersPage />);
+    const c = await card(/상품1/);
+    expect(c.getByText("(블랙 / L)")).toBeInTheDocument();
+    expect(c.getByText(/상품1/)).toHaveTextContent("상품1(블랙 / L) 외 1건");
+  });
+
+  it("실패: 옵션 이름이 null이거나 없으면 괄호를 그리지 않는다", async () => {
+    mockApi([page([order(1, { firstItemOptionLabel: null }), order(2)])]);
+    render(<AdminOrdersPage />);
+    const first = await card(/^상품1/);
+    expect(first.getByText(/^상품1/).textContent).toBe("상품1");
+    expect((await card(/^상품2/)).getByText(/^상품2/).textContent).toBe("상품2");
+  });
+});
