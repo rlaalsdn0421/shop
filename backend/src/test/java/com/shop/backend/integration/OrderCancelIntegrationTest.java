@@ -1283,9 +1283,9 @@ class OrderCancelIntegrationTest extends PostgresIntegrationTest {
     }
 
     @Test
-    void 실패_배송_전_상태의_환불은_INVALID_ORDER_STATE이고_포트원도_부르지_않으며_행과_재고는_그대로다() {
+    void 실패_결제_전_만료_결제확인_상태의_환불은_INVALID_ORDER_STATE이고_포트원도_부르지_않으며_행과_재고는_그대로다() {
         product("p1", 10);
-        for (String status : List.of("PENDING_PAYMENT", "PAID", "EXPIRED", "PAYMENT_REVIEW", "CANCELLED")) {
+        for (String status : List.of("PENDING_PAYMENT", "EXPIRED", "PAYMENT_REVIEW")) {
             Placed p = paid(data.user(), line("p1", 1));
             forceStatus(p.orderId(), status);
             Map<String, Object> before = row(p.orderId());
@@ -1528,7 +1528,7 @@ class OrderCancelIntegrationTest extends PostgresIntegrationTest {
     }
 
     @Test
-    void 성공_고객_취소와_관리자_환불_시도가_PAID_주문에서_동시에_와도_거부되거나_이어받을_뿐_취소는_한_번만_반영된다() throws Exception {
+    void 성공_고객_취소와_관리자_취소가_PAID_주문에서_동시에_와도_둘_다_CANCELLED이고_취소는_한_번만_반영된다() throws Exception {
         for (int round = 0; round < 20; round++) {
             newRound();
             product("p1", 10);
@@ -1538,11 +1538,10 @@ class OrderCancelIntegrationTest extends PostgresIntegrationTest {
                     () -> cancelService.cancelByCustomer(p.orderId(), p.userId(), "사유"),
                     () -> cancelService.refundByAdmin(p.orderId(), "판매자 사유")));
 
-            // The seller either came first (PAID: refused) or found the customer's CANCELING order and resumed it.
+            // Whoever locks the order row first starts the cancel; the other resumes the CANCELING order or finds it
+            // CANCELLED. Neither is ever refused, and the stock below is restored exactly once.
             assertThat(results.get(0)).as("round %d", round).isEqualTo("CANCELLED");
-            assertThat(results.get(1)).as("round %d", round)
-                    .satisfiesAnyOf(r -> assertThat(r).isInstanceOf(InvalidOrderStateException.class),
-                            r -> assertThat(r).isEqualTo("CANCELLED"));
+            assertThat(results.get(1)).as("round %d", round).isEqualTo("CANCELLED");
             assertThat(status(p.orderId())).as("round %d", round).isEqualTo("CANCELLED");
             assertThat(stock("p1")).as("round %d: restored exactly once", round).isEqualTo(10);
             assertThat(gateway.cancelCalls).as("round %d", round).isNotEmpty().hasSizeLessThanOrEqualTo(2);

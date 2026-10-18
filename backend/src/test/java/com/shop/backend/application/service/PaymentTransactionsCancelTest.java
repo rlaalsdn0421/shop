@@ -121,10 +121,23 @@ class PaymentTransactionsCancelTest {
     }
 
     @Test
-    void 실패_결제완료_주문은_판매자_환불을_시작할_수_없다() {
-        when(orderRepository.findByIdForUpdate("o1")).thenReturn(Optional.of(order(Order.STATUS_PAID)));
+    void 성공_결제완료_주문도_판매자가_취소를_시작할_수_있고_직전_상태와_사유가_남는다() {
+        Order order = order(Order.STATUS_PAID);
+        when(orderRepository.findByIdForUpdate("o1")).thenReturn(Optional.of(order));
 
-        assertThatThrownBy(() -> tx().beginCancel("o1", null, "x")).isInstanceOf(InvalidOrderStateException.class);
+        assertThat(tx().beginCancel("o1", null, "품절")).isEqualTo(new PaymentTransactions.CancelStart(Order.STATUS_CANCELING, true));
+        assertThat(order.getCancelFrom()).isEqualTo(Order.STATUS_PAID);
+        assertThat(order.getCancelReason()).isEqualTo("품절");
+        verify(productRepository, never()).incrementStock(anyString(), anyInt());
+    }
+
+    @Test
+    void 성공_이미_취소된_주문의_판매자_취소는_할_일_없음이고_결제전_상태는_거부한다() {
+        when(orderRepository.findByIdForUpdate("done")).thenReturn(Optional.of(order(Order.STATUS_CANCELLED)));
+        when(orderRepository.findByIdForUpdate("pending")).thenReturn(Optional.of(order(Order.STATUS_PENDING_PAYMENT)));
+
+        assertThat(tx().beginCancel("done", null, "x")).isEqualTo(new PaymentTransactions.CancelStart(Order.STATUS_CANCELLED, false));
+        assertThatThrownBy(() -> tx().beginCancel("pending", null, "x")).isInstanceOf(InvalidOrderStateException.class);
     }
 
     // revertCancel
@@ -203,15 +216,14 @@ class PaymentTransactionsCancelTest {
     }
 
     @Test
-    void 성공_판매자_환불은_멈춘_결제완료발_취소중_주문을_이어받고_결제완료_주문은_거부한다() {
+    void 성공_판매자_환불은_멈춘_결제완료발_취소중_주문을_이어받고_사유는_고객이_남긴_것을_유지한다() {
         Order stuck = order(Order.STATUS_PAID, "pA");
         stuck.beginCustomerCancel("고객");
         when(orderRepository.findByIdForUpdate("stuck")).thenReturn(Optional.of(stuck));
-        when(orderRepository.findByIdForUpdate("plain")).thenReturn(Optional.of(order(Order.STATUS_PAID)));
 
         assertThat(tx().beginCancel("stuck", null, "판매자")).isEqualTo(
                 new PaymentTransactions.CancelStart(Order.STATUS_CANCELING, true));
-        assertThatThrownBy(() -> tx().beginCancel("plain", null, "판매자")).isInstanceOf(InvalidOrderStateException.class);
+        assertThat(stuck.getCancelReason()).isEqualTo("고객");
     }
 
     // applyPaid must never move an order that has already moved past PAID

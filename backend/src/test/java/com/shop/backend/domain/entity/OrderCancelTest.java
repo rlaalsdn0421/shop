@@ -132,8 +132,8 @@ class OrderCancelTest {
     // seller refund
 
     @Test
-    void 성공_배송중_배송완료_주문의_환불은_취소중으로_바꾸고_직전_상태를_남긴다() {
-        for (String from : List.of(Order.STATUS_SHIPPED, Order.STATUS_DELIVERED)) {
+    void 성공_결제완료_배송중_배송완료_주문의_판매자_취소_환불은_취소중으로_바꾸고_직전_상태와_사유를_남긴다() {
+        for (String from : List.of(Order.STATUS_PAID, Order.STATUS_SHIPPED, Order.STATUS_DELIVERED)) {
             Order order = withStatus(from);
             assertThat(order.beginRefund("하자")).as(from).isTrue();
             assertThat(order.getStatus()).isEqualTo(Order.STATUS_CANCELING);
@@ -143,18 +143,95 @@ class OrderCancelTest {
     }
 
     @Test
-    void 성공_이미_환불된_주문의_환불은_할_일_없음으로_멱등이고_취소중이면_이어서_처리한다() {
-        assertThat(withStatus(Order.STATUS_REFUNDED).beginRefund("x")).isFalse();
+    void 성공_이미_환불되거나_취소된_주문의_판매자_환불은_할_일_없음으로_멱등이고_취소중이면_이어서_처리한다() {
+        for (String done : List.of(Order.STATUS_REFUNDED, Order.STATUS_CANCELLED)) {
+            Order order = withStatus(done);
+            assertThat(order.beginRefund("x")).as(done).isFalse();
+            assertThat(order.getStatus()).as(done).isEqualTo(done);
+            assertThat(order.getCancelFrom()).as(done).isNull();
+            assertThat(order.getCancelReason()).as(done).isNull();
+        }
         assertThat(canceling(Order.STATUS_DELIVERED).beginRefund("x")).isTrue();
     }
 
     @Test
-    void 실패_배송_전이거나_이미_끝난_주문은_환불할_수_없다() {
-        for (String status : List.of(Order.STATUS_PENDING_PAYMENT, Order.STATUS_PAID, Order.STATUS_EXPIRED,
-                Order.STATUS_PAYMENT_REVIEW, Order.STATUS_CANCELLED)) {
+    void 실패_결제_전이거나_만료_결제확인_상태의_주문은_판매자_환불을_거부하고_상태는_그대로다() {
+        for (String status : List.of(Order.STATUS_PENDING_PAYMENT, Order.STATUS_EXPIRED, Order.STATUS_PAYMENT_REVIEW)) {
             Order order = withStatus(status);
-            assertThatThrownBy(() -> order.beginRefund("x")).as(status).isInstanceOf(InvalidOrderStateException.class);
+            assertThatThrownBy(() -> order.beginRefund("x")).as(status).isInstanceOf(InvalidOrderStateException.class)
+                    .hasMessage("결제가 완료된 주문만 취소·환불할 수 있어요.");
+            assertThat(order.getStatus()).as(status).isEqualTo(status);
+            assertThat(order.getCancelFrom()).as(status).isNull();
         }
+    }
+
+    @Test
+    void 성공_판매자_환불은_9개_상태_모두에서_정해진_대로_동작한다() {
+        for (String status : Order.STATUSES) {
+            Order order = withStatus(status);
+            if (status.equals(Order.STATUS_CANCELING)) {
+                ReflectionTestUtils.setField(order, "cancelFrom", Order.STATUS_PAID);
+            }
+            boolean accepted = List.of(Order.STATUS_PAID, Order.STATUS_SHIPPED, Order.STATUS_DELIVERED, Order.STATUS_CANCELING,
+                    Order.STATUS_REFUNDED, Order.STATUS_CANCELLED).contains(status);
+            if (!accepted) {
+                assertThatThrownBy(() -> order.beginRefund("x")).as(status).isInstanceOf(InvalidOrderStateException.class);
+                continue;
+            }
+            boolean callProvider = !status.equals(Order.STATUS_REFUNDED) && !status.equals(Order.STATUS_CANCELLED);
+            assertThat(order.beginRefund("x")).as(status).isEqualTo(callProvider);
+        }
+        assertThat(Order.STATUSES).hasSize(9);
+    }
+
+    @Test
+    void 성공_결제완료_판매자_취소는_고객_취소와_같이_CANCELLED와_재고_복구로_끝난다() {
+        Order seller = withStatus(Order.STATUS_PAID);
+        Order customer = withStatus(Order.STATUS_PAID);
+
+        assertThat(seller.beginRefund("품절")).isTrue();
+        assertThat(customer.beginCustomerCancel("품절")).isTrue();
+
+        assertThat(seller.finishCancel(NOW)).isEqualTo(customer.finishCancel(NOW)).isEqualTo(Order.CancelOutcome.RESTORE_STOCK);
+        assertThat(seller.getStatus()).isEqualTo(Order.STATUS_CANCELLED).isEqualTo(customer.getStatus());
+        assertThat(seller.getCancelledAt()).isEqualTo(NOW);
+        assertThat(seller.getCancelFrom()).isEqualTo(Order.STATUS_PAID);
+        // a second webhook / retry changes nothing and restores nothing
+        assertThat(seller.finishCancel(NOW.plusSeconds(60))).isEqualTo(Order.CancelOutcome.ALREADY_FINAL);
+        assertThat(seller.getCancelledAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void 성공_배송_후_판매자_환불은_REFUNDED이고_재고_복구_없음이다() {
+        for (String from : List.of(Order.STATUS_SHIPPED, Order.STATUS_DELIVERED)) {
+            Order order = withStatus(from);
+            order.beginRefund("하자");
+
+            assertThat(order.finishCancel(NOW)).as(from).isEqualTo(Order.CancelOutcome.NO_STOCK_CHANGE);
+            assertThat(order.getStatus()).as(from).isEqualTo(Order.STATUS_REFUNDED);
+        }
+    }
+
+    @Test
+    void 실패_판매자가_취소를_시작한_뒤에는_배송을_시작할_수_없다() {
+        Order order = withStatus(Order.STATUS_PAID);
+        order.beginRefund("품절");
+
+        assertThatThrownBy(() -> order.ship(NOW)).isInstanceOf(InvalidOrderStateException.class);
+        assertThat(order.getStatus()).isEqualTo(Order.STATUS_CANCELING);
+        order.finishCancel(NOW);
+        assertThatThrownBy(() -> order.ship(NOW)).isInstanceOf(InvalidOrderStateException.class);
+        assertThat(order.getStatus()).isEqualTo(Order.STATUS_CANCELLED);
+    }
+
+    @Test
+    void 성공_판매자가_취소를_시작한_PAID_주문을_고객이_이어받아_취소해도_같은_결과다() {
+        Order order = withStatus(Order.STATUS_PAID);
+        order.beginRefund("품절");
+
+        assertThat(order.beginCustomerCancel("고객")).isTrue();
+        assertThat(order.getCancelReason()).isEqualTo("품절");
+        assertThat(order.finishCancel(NOW)).isEqualTo(Order.CancelOutcome.RESTORE_STOCK);
     }
 
     @Test
@@ -170,12 +247,13 @@ class OrderCancelTest {
     }
 
     @Test
-    void 실패_결제완료_주문은_판매자_환불로_바로_취소되지_않는다() {
+    void 성공_결제완료_주문은_판매자가_바로_취소를_시작할_수_있다() {
         Order order = withStatus(Order.STATUS_PAID);
 
-        assertThatThrownBy(() -> order.beginRefund("x")).isInstanceOf(InvalidOrderStateException.class);
-        assertThat(order.getStatus()).isEqualTo(Order.STATUS_PAID);
-        assertThat(order.getCancelFrom()).isNull();
+        assertThat(order.beginRefund("품절")).isTrue();
+        assertThat(order.getStatus()).isEqualTo(Order.STATUS_CANCELING);
+        assertThat(order.getCancelFrom()).isEqualTo(Order.STATUS_PAID);
+        assertThat(order.getCancelReason()).isEqualTo("품절");
     }
 
     // revert

@@ -178,6 +178,16 @@ class AdminOrderControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "SELLER")
+    void 성공_판매자가_배송_전_결제완료_주문을_취소하면_200과_취소됨을_돌려준다() throws Exception {
+        when(orderCancelService.refundByAdmin("o1", "품절")).thenReturn(Order.STATUS_CANCELLED);
+
+        mockMvc.perform(post("/api/admin/orders/o1/refund").contentType("application/json").content("{\"reason\":\"품절\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+    }
+
+    @Test
     @WithMockUser(roles = "ADMIN")
     void 실패_환불에_사유가_없거나_본문이_없으면_400이다() throws Exception {
         when(orderCancelService.refundByAdmin(anyString(), any())).thenThrow(new ValidationException("사유를 입력해 주세요."));
@@ -192,7 +202,7 @@ class AdminOrderControllerTest {
     @Test
     @WithMockUser(roles = "ADMIN")
     void 실패_환불할_수_없는_상태는_409이고_포트원_장애는_503이다() throws Exception {
-        when(orderCancelService.refundByAdmin("o1", "x")).thenThrow(new InvalidOrderStateException("배송이 시작된 주문만 환불할 수 있어요."));
+        when(orderCancelService.refundByAdmin("o1", "x")).thenThrow(new InvalidOrderStateException("결제가 완료된 주문만 취소·환불할 수 있어요."));
         when(orderCancelService.refundByAdmin("o2", "x")).thenThrow(new CancelProviderUnavailableException(false));
 
         mockMvc.perform(post("/api/admin/orders/o1/refund").contentType("application/json").content("{\"reason\":\"x\"}"))

@@ -224,7 +224,10 @@ function AdminOrderList({ token }: { token: string }) {
             const late = now - deliveredAt > SEVEN_DAYS_MS;
             // A cancel stuck at the provider (CANCELING) is finished through the same refund call.
             const resuming = o.status === "CANCELING";
-            const canRefund = o.status === "SHIPPED" || o.status === "DELIVERED" || resuming;
+            // A PAID order (not shipped yet) is cancelled and fully refunded through the same call; the server restores its stock.
+            const paid = o.status === "PAID";
+            const canRefund = paid || o.status === "SHIPPED" || o.status === "DELIVERED" || resuming;
+            const openLabel = paid ? "취소·환불" : resuming ? "취소 이어서 처리" : "환불";
             return (
               <li key={o.id} className="border rounded p-4 flex flex-col gap-2 text-sm">
                 <div className="flex justify-between text-xs text-gray-500">
@@ -281,10 +284,10 @@ function AdminOrderList({ token }: { token: string }) {
                       id={`refund-open-${o.id}`}
                       onClick={() => openRefund(o)}
                       disabled={isBusy}
-                      aria-label={`${isBusy ? "처리 중 " : ""}${resuming ? "취소 이어서 처리" : "환불"} - 주문 ${short}`}
+                      aria-label={`${isBusy ? "처리 중 " : ""}${openLabel} - 주문 ${short}`}
                       className="border rounded px-3 py-1 disabled:opacity-50"
                     >
-                      {resuming ? "취소 이어서 처리" : "환불"}
+                      {openLabel}
                     </button>
                   )}
                 </div>
@@ -296,9 +299,11 @@ function AdminOrderList({ token }: { token: string }) {
                       <p className="text-amber-700">수령 후 7일이 지났어요. 판매자 재량으로 환불할 수 있어요</p>
                     )}
                     <p>
-                      {resuming
-                        ? "멈춰 있는 취소를 이어서 처리해요. 결제 금액 전액이 환불돼요."
-                        : "결제 금액 전액을 환불해요. 되돌릴 수 없어요."}
+                      {paid
+                        ? "배송 전 주문을 취소하고 전액 환불해요. 재고가 돌아와요."
+                        : resuming
+                          ? "멈춰 있는 취소를 이어서 처리해요. 결제 금액 전액이 환불돼요."
+                          : "결제 금액 전액을 환불해요. 되돌릴 수 없어요."}
                     </p>
                     <label htmlFor={`refund-reason-${o.id}`}>환불 사유</label>
                     <input
@@ -315,10 +320,10 @@ function AdminOrderList({ token }: { token: string }) {
                       <button
                         type="submit"
                         disabled={isBusy}
-                        aria-label={`${isBusy ? "환불 처리 중 " : ""}${resuming ? "이어서 처리 확정" : "환불 확정"} - 주문 ${short}`}
+                        aria-label={`${isBusy ? "환불 처리 중 " : ""}${paid ? "취소·환불 확정" : resuming ? "이어서 처리 확정" : "환불 확정"} - 주문 ${short}`}
                         className="bg-black text-white rounded px-3 py-1 disabled:opacity-50"
                       >
-                        {isBusy ? "환불 처리 중..." : resuming ? "이어서 처리 확정" : "환불 확정"}
+                        {isBusy ? "환불 처리 중..." : paid ? "취소·환불 확정" : resuming ? "이어서 처리 확정" : "환불 확정"}
                       </button>
                       <button
                         type="button"
