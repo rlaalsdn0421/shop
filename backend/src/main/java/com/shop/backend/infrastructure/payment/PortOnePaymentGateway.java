@@ -114,6 +114,11 @@ public class PortOnePaymentGateway implements PaymentGateway {
             if (isAlreadyCancelled(e)) {
                 return; // someone (console, webhook race, an earlier try of ours) already cancelled it: that is the goal
             }
+            // The provider (or the PG's test environment) may have cancelled it without telling us, and answers with some
+            // other 4xx than PAYMENT_ALREADY_CANCELLED: the payment's own status decides.
+            if (e.getStatusCode().is4xxClientError() && cancelledAtProvider(paymentId)) {
+                return;
+            }
             // status only: the message/body may echo request details
             logger.error("PortOne cancel failed: status={}", e.getStatusCode().value());
             // 5xx (incl. proxy 502/504): the cancel may have gone through, so the outcome is unknown; 4xx is a definite refusal
@@ -126,6 +131,15 @@ public class PortOnePaymentGateway implements PaymentGateway {
     }
 
     record CancelRequest(String reason, String requester) {
+    }
+
+    /** True only when the provider itself reports the payment fully cancelled; any lookup trouble counts as "not known". */
+    private boolean cancelledAtProvider(String paymentId) {
+        try {
+            return find(paymentId).map(p -> "CANCELLED".equals(p.status())).orElse(false);
+        } catch (PaymentProviderUnavailableException e) {
+            return false;
+        }
     }
 
     private static boolean isAlreadyCancelled(RestClientResponseException e) {

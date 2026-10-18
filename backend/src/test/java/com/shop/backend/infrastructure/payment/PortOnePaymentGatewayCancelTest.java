@@ -30,6 +30,8 @@ class PortOnePaymentGatewayCancelTest {
     private volatile int status = 200;
     private volatile long sleepMillis = 0;
     private volatile String body = "{\"cancellation\":{\"status\":\"SUCCEEDED\",\"id\":\"c1\",\"totalAmount\":13500}}";
+    // When set, GET /payments/{id} answers 200 with this body; otherwise GET gets the same status/body as the cancel POST.
+    private volatile String lookupBody = null;
 
     @BeforeEach
     void start() throws IOException {
@@ -45,9 +47,10 @@ class PortOnePaymentGatewayCancelTest {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            boolean lookup = lookupBody != null && "GET".equals(exchange.getRequestMethod());
+            byte[] bytes = (lookup ? lookupBody : body).getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
-            exchange.sendResponseHeaders(status, bytes.length == 0 ? -1 : bytes.length);
+            exchange.sendResponseHeaders(lookup ? 200 : status, bytes.length == 0 ? -1 : bytes.length);
             if (bytes.length > 0) {
                 exchange.getResponseBody().write(bytes);
             }
@@ -103,6 +106,43 @@ class PortOnePaymentGatewayCancelTest {
                     .isInstanceOfSatisfying(CancelProviderUnavailableException.class,
                             e -> assertThat(e.isOutcomeUnknown()).isFalse());
         }
+    }
+
+    @Test
+    void 성공_다른_4xx로_거절돼도_결제가_이미_취소됨이면_성공으로_본다() {
+        status = 409;
+        body = "{\"type\":\"PAYMENT_NOT_PAID\",\"message\":\"cancelled by the PG\"}";
+        lookupBody = "{\"status\":\"CANCELLED\",\"id\":\"o1\",\"storeId\":\"s1\",\"amount\":{\"total\":13500},\"currency\":\"KRW\"}";
+
+        assertThatCode(() -> gateway("test-secret").cancel("o1", "x", PaymentGateway.Requester.ADMIN))
+                .doesNotThrowAnyException();
+        assertThat(method.get()).isEqualTo("GET");
+        assertThat(path.get()).isEqualTo("/payments/o1");
+    }
+
+    @Test
+    void 실패_4xx이고_결제가_취소됨이_아니면_거절로_본다() {
+        status = 409;
+        body = "{\"type\":\"PAYMENT_NOT_PAID\"}";
+        for (String state : new String[]{"PAID", "PARTIAL_CANCELLED", "READY", "FAILED"}) {
+            lookupBody = "{\"status\":\"" + state + "\",\"id\":\"o1\"}";
+            assertThatThrownBy(() -> gateway("test-secret").cancel("o1", "x", PaymentGateway.Requester.ADMIN))
+                    .as(state)
+                    .isInstanceOfSatisfying(CancelProviderUnavailableException.class,
+                            e -> assertThat(e.isOutcomeUnknown()).isFalse());
+        }
+    }
+
+    @Test
+    void 실패_5xx는_결제가_취소됨이어도_조회하지_않고_결과를_알_수_없는_장애로_둔다() {
+        status = 500;
+        body = "{\"type\":\"UNKNOWN\"}";
+        lookupBody = "{\"status\":\"CANCELLED\",\"id\":\"o1\"}";
+
+        assertThatThrownBy(() -> gateway("test-secret").cancel("o1", "x", PaymentGateway.Requester.ADMIN))
+                .isInstanceOfSatisfying(CancelProviderUnavailableException.class,
+                        e -> assertThat(e.isOutcomeUnknown()).isTrue());
+        assertThat(method.get()).isEqualTo("POST");
     }
 
     @Test
