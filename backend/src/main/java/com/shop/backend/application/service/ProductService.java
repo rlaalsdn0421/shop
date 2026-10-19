@@ -2,17 +2,28 @@ package com.shop.backend.application.service;
 
 import com.shop.backend.domain.entity.BestPeriod;
 import com.shop.backend.domain.entity.NewProductOption;
+import com.shop.backend.domain.entity.OptionEdit;
 import com.shop.backend.domain.entity.Product;
 import com.shop.backend.domain.entity.ProductImage;
 import com.shop.backend.domain.entity.ProductOption;
 import com.shop.backend.domain.entity.ProductSort;
 import com.shop.backend.domain.entity.ProductValidation;
+import com.shop.backend.domain.entity.StockKey;
+import com.shop.backend.domain.error.ProductNotFoundException;
+import com.shop.backend.domain.error.StockChangedException;
 import com.shop.backend.infrastructure.repository.ProductImageRepository;
 import com.shop.backend.infrastructure.repository.ProductOptionRepository;
 import com.shop.backend.infrastructure.repository.ProductRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.PersistenceException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.orm.jpa.EntityManagerFactoryUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,17 +40,21 @@ import java.util.stream.Collectors;
 @Service
 public class ProductService {
 
+    private static final Logger logger = LoggerFactory.getLogger(ProductService.class);
+
     private final ProductRepository productRepository;
     private final ProductImageRepository productImageRepository;
     private final ProductOptionRepository productOptionRepository;
     private final Clock clock;
+    private final EntityManager em;
 
     public ProductService(ProductRepository productRepository, ProductImageRepository productImageRepository,
-                          ProductOptionRepository productOptionRepository, Clock clock) {
+                          ProductOptionRepository productOptionRepository, Clock clock, EntityManager em) {
         this.productRepository = productRepository;
         this.productImageRepository = productImageRepository;
         this.productOptionRepository = productOptionRepository;
         this.clock = clock;
+        this.em = em;
     }
 
     /**
@@ -87,6 +102,106 @@ public class ProductService {
             productOptionRepository.saveAll(rows);
         }
         return saved;
+    }
+
+    /**
+     * Admin edit, full replace of the editable fields (not the option set or names). One transaction: lock the product
+     * row, then its option rows one at a time in StockKey order (same order as order creation/cancel/expiry, so no
+     * deadlock; never one ORDER BY ... FOR UPDATE, the DB collation may differ from Java's String order). Stock is typed
+     * in; an item whose new stock differs from {@code expectedStock} is checked against the LOCKED current value and any
+     * mismatch throws {@link StockChangedException} (everything rolls back). An item whose stock the admin did not
+     * change keeps its current value, so a sale made meanwhile is not undone. Stock is read and written on the entities
+     * only: no @Modifying stock UPDATE may run in this transaction (it would leave stale in-memory stock to be re-saved).
+     * Products with options: products.price/original_price = cheapest option (first when tied), price_varies, stock 0.
+     */
+    @Transactional
+    public Product updateProduct(String id, String name, String description, String category, List<String> hashtags,
+                                 List<String> imageUrls, Integer price, Integer originalPrice, Integer stock,
+                                 Integer expectedStock, List<OptionEdit> options, String actor) {
+        // Pure input rules first: a bad body never takes a lock (or waits for one).
+        String normalizedCategory = category == null || category.trim().isEmpty() ? null : category.trim();
+        List<String> urls = ProductValidation.normalizeImageUrls(imageUrls);
+        List<String> normalizedTags = ProductValidation.normalizeHashtags(hashtags);
+        ProductValidation.validateProductText(name, description, urls.get(0));
+        ProductValidation.validateCategory(normalizedCategory);
+
+        // Transaction-scoped, same as OrderService/PaymentTransactions: a stuck lock holder fails this edit after 3 s (-> 503).
+        em.createNativeQuery("SET LOCAL lock_timeout = '3s'").executeUpdate();
+        // Product row first, then option rows in StockKey order. This ordering is deadlock-free against order creation only
+        // because Hibernate emits FOR NO KEY UPDATE for PESSIMISTIC_WRITE on Postgres, which does not conflict with the
+        // FOR KEY SHARE an order_items insert takes on the product row; a plain FOR UPDATE would deadlock.
+        // ProductEditIntegrationTest pins this.
+        Product product = findLocked(Product.class, id);
+        if (product == null) {
+            throw new ProductNotFoundException(id);
+        }
+        // ids only: an option entity loaded before its lock would keep stale stock after the lock is taken
+        List<String> optionIds = productOptionRepository.findIdsByProductIdOrderBySortOrder(id);
+        Map<String, OptionEdit> edits = ProductValidation.validateEditOptions(optionIds, price, originalPrice, stock,
+                expectedStock, options);
+        int oldPrice = product.getPrice();
+
+        int stockChanges = 0;
+        if (optionIds.isEmpty()) {
+            ProductValidation.validateNewProduct(name, description, price, urls.get(0), stock, normalizedCategory, originalPrice);
+            stockChanges += stock.equals(expectedStock) ? 0 : 1;
+            product.applyEdit(name, description, price, urls.get(0), storedStock(product.getStock(), stock, expectedStock),
+                    normalizedCategory, originalPrice, normalizedTags, false);
+        } else {
+            // sort_order order, so "cheapest, first when tied" matches registration
+            OptionEdit cheapest = optionIds.stream().map(edits::get).min(Comparator.comparing(OptionEdit::price)).orElseThrow();
+            ProductValidation.validateNewProduct(name, description, cheapest.price(), urls.get(0), 0, normalizedCategory,
+                    cheapest.originalPrice());
+            boolean priceVaries = edits.values().stream().anyMatch(o -> !o.price().equals(cheapest.price()));
+            List<String> lockOrder = optionIds.stream().map(oid -> new StockKey(id, oid)).sorted()
+                    .map(StockKey::optionId).toList();
+            for (String optionId : lockOrder) {
+                ProductOption option = findLocked(ProductOption.class, optionId);
+                if (option == null) {
+                    throw new ProductNotFoundException(id);
+                }
+                OptionEdit edit = edits.get(optionId);
+                stockChanges += edit.stock().equals(edit.expectedStock()) ? 0 : 1;
+                option.applyEdit(edit.price(), edit.originalPrice(), storedStock(option.getStock(), edit.stock(), edit.expectedStock()));
+            }
+            product.applyEdit(name, description, cheapest.price(), urls.get(0), 0, normalizedCategory,
+                    cheapest.originalPrice(), normalizedTags, priceVaries);
+        }
+
+        // bulk delete runs at once, so the new rows never meet the old ones in UNIQUE (product_id, sort_order)
+        productImageRepository.deleteAllByProductId(id);
+        List<ProductImage> rows = new ArrayList<>();
+        for (int i = 0; i < urls.size(); i++) {
+            rows.add(new ProductImage(id, urls.get(i), i));
+        }
+        productImageRepository.saveAll(rows);
+        logger.info("Product edited: productId={} actor={} price={}->{} stockChanges={} options={} images={}", id, actor,
+                oldPrice, product.getPrice(), stockChanges, optionIds.size(), urls.size());
+        return product;
+    }
+
+    /**
+     * em.find with a row lock. A bare EntityManager call is not translated by Spring (only repositories are), so a lock
+     * timeout is converted here to the PessimisticLockingFailureException that GlobalExceptionHandler maps to 503.
+     */
+    private <T> T findLocked(Class<T> type, String id) {
+        try {
+            return em.find(type, id, LockModeType.PESSIMISTIC_WRITE);
+        } catch (PersistenceException e) {
+            DataAccessException translated = EntityManagerFactoryUtils.convertJpaAccessExceptionIfPossible(e);
+            throw translated != null ? translated : e;
+        }
+    }
+
+    /** The stock to store: the typed one when it differs from what the admin saw (then that must still be current), else the current one. */
+    private static Integer storedStock(Integer current, Integer typed, Integer expected) {
+        if (typed.equals(expected)) {
+            return current;
+        }
+        if (!current.equals(expected)) {
+            throw new StockChangedException();
+        }
+        return typed;
     }
 
     /** Options of one product in display order; empty for products without options. */

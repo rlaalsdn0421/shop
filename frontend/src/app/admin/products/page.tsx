@@ -18,7 +18,7 @@ export default function AdminProductsPage() {
       .catch((e) => setError(e instanceof AuthError ? e.message : "상품 목록을 불러오지 못했습니다."));
   }, [session]);
 
-  if (!ready || !session) return null;
+  if (!ready || !session || session.role === "USER") return null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -42,6 +42,7 @@ export default function AdminProductsPage() {
               <th className="py-2">가격</th>
               <th className="py-2">재고</th>
               <th className="py-2">등록일</th>
+              <th className="py-2"><span className="sr-only">수정</span></th>
             </tr>
           </thead>
           <tbody>
@@ -52,6 +53,15 @@ export default function AdminProductsPage() {
                 <td className="py-2">{p.stock}</td>
                 <td className="py-2 text-gray-500">
                   {formatKoreanDate(p.createdAt)}
+                </td>
+                <td className="py-2 text-right">
+                  <Link
+                    href={`/admin/products/${encodeURIComponent(p.id)}/edit`}
+                    aria-label={`수정 - ${p.name}`}
+                    className="border rounded px-3 py-1"
+                  >
+                    수정
+                  </Link>
                 </td>
               </tr>
             ))}

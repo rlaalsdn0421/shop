@@ -1,6 +1,7 @@
 package com.shop.backend.presentation.dto;
 
 import com.shop.backend.domain.entity.NewProductOption;
+import com.shop.backend.domain.entity.OptionEdit;
 import com.shop.backend.domain.entity.Product;
 import com.shop.backend.domain.entity.ProductOption;
 import org.springframework.data.domain.Page;
@@ -84,6 +85,25 @@ public final class ProductDtos {
     public record NewProductRequest(String name, String description, Integer price, String imageUrl, List<String> imageUrls,
                                     Integer stock, String category, Integer originalPrice, List<String> hashtags,
                                     List<NewOptionRequest> options) {
+    }
+
+    /**
+     * Admin edit (PUT, full replace). Boxed so an absent field is null. Plain product: price/stock/expectedStock required,
+     * options absent. Product with options: only {@code options} (one entry per existing option id); the top-level
+     * price/originalPrice/stock/expectedStock must be absent. {@code expectedStock} = the stock the admin saw.
+     */
+    public record UpdateProductRequest(String name, String description, String category, List<String> hashtags,
+                                       List<String> imageUrls, Integer price, Integer originalPrice, Integer stock,
+                                       Integer expectedStock, List<UpdateOption> options) {
+        public record UpdateOption(String id, Integer price, Integer originalPrice, Integer stock, Integer expectedStock) {
+            OptionEdit toDomain() {
+                return new OptionEdit(id, price, originalPrice, stock, expectedStock);
+            }
+        }
+
+        public List<OptionEdit> optionEdits() {
+            return options == null ? null : options.stream().map(o -> o == null ? null : o.toDomain()).toList();
+        }
     }
 
     public record IdResponse(String id) {

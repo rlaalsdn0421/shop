@@ -330,6 +330,57 @@ describe("AdminProductForm 이미지 여러 장", () => {
   });
 });
 
+describe("AdminProductForm 재고 한도", () => {
+  const stockInput = () => screen.getByLabelText("재고 수량");
+  const TOO_MANY = "재고는 1,000,000개 이하로 입력해 주세요.";
+
+  it("실패: 재고가 1,000,000개를 넘으면 오류를 보여주고 요청하지 않고 재고 칸에 커서를 둔다", async () => {
+    mockFetchOnce(201, {});
+    render(<AdminProductForm />);
+    await fillRequired();
+    expect(stockInput()).toHaveAttribute("max", "1000000");
+    expect(stockInput()).not.toHaveAttribute("aria-invalid");
+    fireEvent.change(stockInput(), { target: { value: "1000001" } });
+    expect(messages()).toEqual([TOO_MANY]);
+    expect(stockInput()).toHaveAttribute("aria-invalid", "true");
+    expect(stockInput()).toHaveAccessibleDescription(TOO_MANY);
+    // The native max check would stop a click first, so submit the form directly to reach the guard.
+    fireEvent.submit(form());
+    expect(fetch).not.toHaveBeenCalled();
+    expect(stockInput()).toHaveFocus();
+  });
+
+  it("성공: 재고 1,000,000개는 통과하고, 고치면 오류가 사라진다", async () => {
+    mockFetchOnce(201, {});
+    render(<AdminProductForm />);
+    await fillRequired();
+    fireEvent.change(stockInput(), { target: { value: "1000001" } });
+    expect(messages()).toEqual([TOO_MANY]);
+    fireEvent.change(stockInput(), { target: { value: "1000000" } });
+    expect(messages()).toEqual([]);
+    expect(stockInput()).not.toHaveAttribute("aria-invalid");
+    expect(stockInput()).not.toHaveAttribute("aria-describedby");
+    await submit();
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/admin/products"));
+    expect(sentBody().stock).toBe(1000000);
+  });
+
+  it("성공: 옵션을 켜면 단일 재고 칸의 오류는 제출을 막지 않는다", async () => {
+    mockFetchOnce(201, {});
+    render(<AdminProductForm />);
+    await fillRequired();
+    fireEvent.change(stockInput(), { target: { value: "1000001" } });
+    await userEvent.click(screen.getByLabelText("옵션 사용"));
+    await userEvent.type(screen.getByLabelText("옵션 1 색상 이름"), "화이트");
+    await userEvent.type(screen.getByLabelText("옵션 1 사이즈"), "M");
+    await userEvent.type(screen.getByLabelText("옵션 1 가격"), "1000");
+    await userEvent.type(screen.getByLabelText("옵션 1 재고"), "4");
+    await submit();
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    expect(sentBody().stock).toBe(4);
+  });
+});
+
 describe("AdminProductForm 옵션", () => {
   async function fillBase() {
     await userEvent.type(screen.getByLabelText("상품명"), "린넨 셔츠");
@@ -579,6 +630,33 @@ describe("AdminProductForm 옵션", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("중복되어 있어요");
     expect(screen.getByRole("button", { name: "등록하기" })).toBeEnabled();
     expect(push).not.toHaveBeenCalled();
+  });
+
+  it("성공: 옵션 재고 합계가 1,000,000을 넘으면 최상위 재고는 1,000,000으로 줄여 보낸다", async () => {
+    mockFetchOnce(201, {});
+    render(<AdminProductForm />);
+    await fillBase();
+    await userEvent.click(optionsToggle());
+    await fillRow(1, { color: "화이트", size: "M", price: "1000", stock: "600000" });
+    await addRow();
+    await fillRow(2, { color: "블랙", size: "M", price: "1000", stock: "600000" });
+    await submit();
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    const body = sentBody();
+    expect(body.stock).toBe(1000000);
+    expect(body.options.map((o: { stock: number }) => o.stock)).toEqual([600000, 600000]);
+  });
+
+  it("실패: 옵션 한 줄의 재고가 1,000,000을 넘으면 그 칸에 오류를 보이고 요청하지 않는다", async () => {
+    mockFetchOnce(201, {});
+    render(<AdminProductForm />);
+    await fillBase();
+    await userEvent.click(optionsToggle());
+    await fillRow(1, { color: "화이트", size: "M", price: "1000", stock: "1000001" });
+    await submit();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("재고는 1,000,000개 이하로 입력해 주세요.");
+    expect(screen.getByLabelText("옵션 1 재고")).toHaveFocus();
   });
 
   it("성공: 옵션을 켜면 옛 가격 입력의 오류는 제출을 막지 않는다", async () => {

@@ -2,8 +2,11 @@ package com.shop.backend.presentation.controller;
 
 import com.shop.backend.application.service.ProductService;
 import com.shop.backend.presentation.dto.ProductDtos;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -32,6 +35,15 @@ public class AdminProductController {
         var product = productService.createProduct(
                 request.name(), request.description(), request.price(), request.imageUrl(), request.imageUrls(), request.stock(),
                 request.category(), request.originalPrice(), request.hashtags(), options);
+        return new ProductDtos.IdResponse(product.getId());
+    }
+
+    @PutMapping("/{id}")
+    public ProductDtos.IdResponse updateProduct(@PathVariable String id, @RequestBody ProductDtos.UpdateProductRequest request,
+                                                Authentication authentication) {
+        var product = productService.updateProduct(id, request.name(), request.description(), request.category(),
+                request.hashtags(), request.imageUrls(), request.price(), request.originalPrice(), request.stock(),
+                request.expectedStock(), request.optionEdits(), authentication.getName());
         return new ProductDtos.IdResponse(product.getId());
     }
 }

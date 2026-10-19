@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { MAX_PRICE } from "@/lib/price";
-import { buildOptionLines, cleanOptionText, summarizeOptions, validateOptionRows, type OptionRow } from "./adminOptions";
+import { MAX_STOCK, buildOptionLines, cleanOptionText, summarizeOptions, validateOptionRows, type OptionRow } from "./adminOptions";
 
 const row = (key: number, over: Partial<OptionRow> = {}): OptionRow => ({
   key,
@@ -48,7 +48,14 @@ describe("validateOptionRows", () => {
     expect(e.stock).toMatch(/0 이상의 정수/);
     expect(validateOptionRows([row(1, { price: "", stock: "" })], both)[0]).toMatchObject({ price: expect.any(String), stock: expect.any(String) });
     expect(validateOptionRows([row(1, { price: String(MAX_PRICE + 1) })], both)[0].price).toMatch(/이하로/);
-    expect(validateOptionRows([row(1, { price: String(MAX_PRICE), stock: String(MAX_PRICE) })], both)).toEqual([{}]);
+    expect(validateOptionRows([row(1, { price: String(MAX_PRICE), stock: String(MAX_STOCK) })], both)).toEqual([{}]);
+  });
+
+  it("실패: 가격 최댓값 초과는 가격은 문구, 재고는 1,000,000개 한도이고 그 값까지는 통과한다", () => {
+    expect(validateOptionRows([row(1, { price: String(MAX_PRICE + 1) })], both)[0].price).toBe("가격은 2,147,483,647원 이하로 입력해 주세요.");
+    expect(validateOptionRows([row(1, { stock: String(MAX_STOCK + 1) })], both)[0].stock).toBe("재고는 1,000,000개 이하로 입력해 주세요.");
+    expect(validateOptionRows([row(1, { stock: String(MAX_STOCK) })], both)).toEqual([{}]);
+    expect(MAX_STOCK).toBe(1_000_000);
   });
 
   it("실패: 정가는 비어 있거나 판매가보다 커야 한다", () => {

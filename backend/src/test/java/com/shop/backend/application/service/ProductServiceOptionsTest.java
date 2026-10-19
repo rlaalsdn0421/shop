@@ -32,7 +32,7 @@ class ProductServiceOptionsTest {
     private final ProductImageRepository imageRepository = mock(ProductImageRepository.class);
     private final ProductOptionRepository optionRepository = mock(ProductOptionRepository.class);
     private final ProductService service = new ProductService(repository, imageRepository, optionRepository,
-            Clock.fixed(Instant.parse("2026-10-15T00:00:00Z"), ZoneOffset.UTC));
+            Clock.fixed(Instant.parse("2026-10-15T00:00:00Z"), ZoneOffset.UTC), mock(jakarta.persistence.EntityManager.class));
 
     private static NewProductOption opt(String color, String size, int price, Integer original, int stock) {
         return new NewProductOption(color, color == null ? null : "#FFFFFF", size, price, original, stock);

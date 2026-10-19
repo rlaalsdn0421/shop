@@ -7,6 +7,7 @@ import { CATEGORIES } from "@/lib/categories";
 import { parseHashtags } from "@/lib/hashtags";
 import {
   MAX_OPTIONS,
+  MAX_STOCK,
   OPTION_FIELD_ORDER,
   buildOptionLines,
   summarizeOptions,
@@ -73,6 +74,7 @@ export function AdminProductForm() {
   const submitLock = useRef(false);
   const priceRef = useRef<HTMLInputElement>(null);
   const originalPriceRef = useRef<HTMLInputElement>(null);
+  const stockRef = useRef<HTMLInputElement>(null);
   const hashtagsRef = useRef<HTMLInputElement>(null);
 
   const { tags, error: hashtagError } = parseHashtags(form.hashtags);
@@ -80,6 +82,7 @@ export function AdminProductForm() {
   const minOriginalPrice = form.price !== "" ? Number(form.price) + 1 : undefined;
   const tooBig = `${MAX_PRICE.toLocaleString("ko-KR")}원 이하로 입력해 주세요.`;
   const priceError = Number(form.price) > MAX_PRICE ? `가격은 ${tooBig}` : null;
+  const stockError = Number(form.stock) > MAX_STOCK ? `재고는 ${MAX_STOCK.toLocaleString("ko-KR")}개 이하로 입력해 주세요.` : null;
   const originalPriceError =
     form.originalPrice === ""
       ? null
@@ -161,7 +164,9 @@ export function AdminProductForm() {
       ? priceRef
       : !useOptions && originalPriceError
         ? originalPriceRef
-        : hashtagError
+        : !useOptions && stockError
+          ? stockRef
+          : hashtagError
           ? hashtagsRef
           : null;
     if (firstInvalid) {
@@ -199,7 +204,7 @@ export function AdminProductForm() {
           // Both on purpose: an older backend only reads imageUrl, a newer one reads imageUrls.
           imageUrl: urls[0],
           imageUrls: urls,
-          stock: useOptions ? Math.min(optionSummary.stock, MAX_PRICE) : Number(form.stock),
+          stock: useOptions ? Math.min(optionSummary.stock, MAX_STOCK) : Number(form.stock),
           category: form.category,
           ...(useOptions ? { options: buildOptionLines(optionRows, dims) } : {}),
         }),
@@ -475,20 +480,25 @@ export function AdminProductForm() {
           )}
         </fieldset>
         {!useOptions && (
-          <>
+          <div className="flex flex-col">
             <label htmlFor="product-stock" className="sr-only">재고 수량</label>
             <input
               id="product-stock"
+              ref={stockRef}
               className="border rounded px-3 py-2 text-sm"
               placeholder="재고 수량"
               type="number"
               min={0}
+              max={MAX_STOCK}
               step={1}
               value={form.stock}
               onChange={(e) => setForm({ ...form, stock: e.target.value })}
+              aria-invalid={stockError ? true : undefined}
+              aria-describedby={stockError ? "product-stock-error" : undefined}
               required
             />
-          </>
+            <FieldError id="product-stock-error" message={stockError} />
+          </div>
         )}
         <label htmlFor="product-category" className="sr-only">카테고리</label>
         <select

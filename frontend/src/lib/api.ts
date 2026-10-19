@@ -248,6 +248,67 @@ export async function listAdminProducts(token: string): Promise<AdminProduct[]> 
   return res.json();
 }
 
+// Failed product edit. `message` is already Korean; code "STOCK_CHANGED" (HTTP 409) means stock moved since the form was loaded.
+export class ProductEditError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly code?: string
+  ) {
+    super(message);
+  }
+}
+
+export const STOCK_CHANGED = "STOCK_CHANGED";
+const STOCK_CHANGED_MESSAGE = "그 사이 재고가 바뀌었어요. 새로고침한 뒤 다시 입력해 주세요.";
+
+// expectedStock = the stock the form was loaded with (not the edited value); the server answers 409 if it moved.
+export type ProductEditOption = {
+  id: string;
+  price: number;
+  originalPrice: number | null;
+  stock: number;
+  expectedStock: number;
+};
+
+type ProductEditCommon = {
+  name: string;
+  description: string;
+  category: string | null;
+  hashtags: string[];
+  imageUrls: string[];
+};
+
+// A product without options sends price/stock at the top level; one with options sends `options` only.
+export type ProductEditBody = ProductEditCommon &
+  (
+    | { price: number; originalPrice: number | null; stock: number; expectedStock: number; options?: undefined }
+    | { options: ProductEditOption[] }
+  );
+
+export async function updateAdminProduct(id: string, body: ProductEditBody, token: string): Promise<{ id: string }> {
+  const res = await apiFetch(`/api/admin/products/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (res.status === 401 || res.status === 403) throw new AuthError();
+  const data = await res.json().catch(() => null);
+  if (res.ok && typeof data?.id === "string") return data;
+  const code = typeof data?.code === "string" ? data.code : undefined;
+  const serverMessage = typeof data?.error === "string" ? data.error : typeof data?.message === "string" ? data.message : null;
+  throw new ProductEditError(
+    res.status,
+    code === STOCK_CHANGED
+      ? STOCK_CHANGED_MESSAGE
+      : res.status === 404
+        ? "상품을 찾을 수 없어요."
+        : (res.status === 400 && serverMessage) || "저장하지 못했어요. 잠시 뒤 다시 시도해 주세요.",
+    code
+  );
+}
+
 export async function getOrder(id: string, token: string): Promise<Order | null> {
   const res = await apiFetch(`/api/orders/${encodeURIComponent(id)}`, {
     headers: { Authorization: `Bearer ${token}` },
