@@ -3,6 +3,8 @@ import { MAX_PRICE } from "@/lib/price";
 // Mirrors the server's ProductValidation.normalizeOptions so mistakes show up before the request.
 export const MAX_OPTIONS = 50;
 export const MAX_OPTION_NAME = 30;
+// Server limit for one stock line (it rejects more).
+export const MAX_STOCK = 1_000_000;
 
 export type OptionRow = {
   key: number;
@@ -22,7 +24,8 @@ export type OptionDims = { useColor: boolean; useSize: boolean };
 export const cleanOptionText = (v: string) => v.normalize("NFC").trim().replace(/ {2,}/g, " ");
 
 const isCount = (v: string) => /^\d+$/.test(v.trim());
-const tooBig = (what: string, unit: string) => `${what}는 ${MAX_PRICE.toLocaleString("ko-KR")}${unit} 이하로 입력해 주세요.`;
+const tooBig = (what: string, unit: string, topic: "은" | "는" = "는") =>
+  `${what}${topic} ${MAX_PRICE.toLocaleString("ko-KR")}${unit} 이하로 입력해 주세요.`;
 
 function nameError(cleaned: string, empty: string): string | null {
   if (cleaned === "") return empty;
@@ -48,7 +51,7 @@ export function validateOptionRows(rows: OptionRow[], { useColor, useSize }: Opt
       if (e) errors.sizeLabel = e;
     }
     if (!isCount(row.price)) errors.price = "가격은 0 이상의 정수로 입력해 주세요.";
-    else if (Number(row.price) > MAX_PRICE) errors.price = tooBig("가격", "원");
+    else if (Number(row.price) > MAX_PRICE) errors.price = tooBig("가격", "원", "은");
     const original = row.originalPrice.trim();
     if (original !== "") {
       if (!isCount(original)) errors.originalPrice = "정가는 정수로 입력해 주세요.";
@@ -56,7 +59,7 @@ export function validateOptionRows(rows: OptionRow[], { useColor, useSize }: Opt
       else if (!errors.price && !(Number(original) > Number(row.price))) errors.originalPrice = "정가는 판매가보다 커야 해요.";
     }
     if (!isCount(row.stock)) errors.stock = "재고는 0 이상의 정수로 입력해 주세요.";
-    else if (Number(row.stock) > MAX_PRICE) errors.stock = tooBig("재고", "개");
+    else if (Number(row.stock) > MAX_STOCK) errors.stock = `재고는 ${MAX_STOCK.toLocaleString("ko-KR")}개 이하로 입력해 주세요.`;
     // A repeated combination is flagged on the later row; rows with a name problem are reported for that first.
     if (!errors.colorName && !errors.sizeLabel) {
       const combo = JSON.stringify([useColor ? color.toLowerCase() : "", useSize ? size.toLowerCase() : ""]);
