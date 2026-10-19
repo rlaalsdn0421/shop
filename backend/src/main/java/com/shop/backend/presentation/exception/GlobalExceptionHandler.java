@@ -12,6 +12,7 @@ import com.shop.backend.domain.error.PaymentException;
 import com.shop.backend.domain.error.PaymentNotConfiguredException;
 import com.shop.backend.domain.error.PaymentProviderUnavailableException;
 import com.shop.backend.domain.error.ProductNotFoundException;
+import com.shop.backend.domain.error.StockChangedException;
 import com.shop.backend.domain.error.TooManyRequestsException;
 import com.shop.backend.domain.error.WithdrawalNotAllowedException;
 import com.shop.backend.presentation.dto.ErrorResponse;
@@ -69,6 +70,12 @@ public class GlobalExceptionHandler {
     // An action the order's current status does not allow (cancel after shipping, ship twice, ...): 409 with a code.
     @ExceptionHandler(OrderStateException.class)
     public ResponseEntity<ErrorResponse> handleOrderState(OrderStateException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(ex.getMessage(), ex.getCode()));
+    }
+
+    // The admin's stock input was based on an outdated stock: 409 with a code so the form can offer a reload.
+    @ExceptionHandler(StockChangedException.class)
+    public ResponseEntity<ErrorResponse> handleStockChanged(StockChangedException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(ex.getMessage(), ex.getCode()));
     }
 
@@ -186,7 +193,7 @@ public class GlobalExceptionHandler {
         if (uri.startsWith("/api/orders")) {
             message = "주문 처리 중 오류가 발생했습니다.";
         } else if (uri.startsWith("/api/admin/products")) {
-            message = "상품 등록 중 오류가 발생했습니다.";
+            message = "PUT".equals(request.getMethod()) ? "상품 수정 중 오류가 발생했습니다." : "상품 등록 중 오류가 발생했습니다.";
         } else {
             message = "요청 처리 중 오류가 발생했습니다.";
         }

@@ -89,6 +89,23 @@ public class Product {
         this.hashtags = hashtags == null || hashtags.isEmpty() ? null : String.join(" ", hashtags);
     }
 
+    /**
+     * Admin edit (full replace of the editable fields). Inputs must already be validated/normalized like at registration;
+     * {@code stock} is the value to store (the caller keeps the current one when the admin did not change it).
+     */
+    public void applyEdit(String name, String description, Integer price, String imageUrl, Integer stock, String category,
+                          Integer originalPrice, List<String> hashtags, boolean priceVaries) {
+        this.name = name;
+        this.description = description;
+        this.price = price;
+        this.imageUrl = imageUrl;
+        this.stock = stock;
+        this.category = category;
+        this.originalPrice = originalPrice;
+        this.hashtags = hashtags == null || hashtags.isEmpty() ? null : String.join(" ", hashtags);
+        this.priceVaries = priceVaries;
+    }
+
     @PrePersist
     void prePersist() {
         if (id == null) {

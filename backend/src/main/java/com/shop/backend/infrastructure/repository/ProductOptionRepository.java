@@ -13,6 +13,10 @@ public interface ProductOptionRepository extends JpaRepository<ProductOption, St
 
     List<ProductOption> findByProductIdOrderBySortOrderAsc(String productId);
 
+    /** Ids only, so no option entity is loaded (a later em.find with a row lock must read the row fresh). */
+    @Query("SELECT o.id FROM ProductOption o WHERE o.productId = :productId ORDER BY o.sortOrder")
+    List<String> findIdsByProductIdOrderBySortOrder(@Param("productId") String productId);
+
     List<ProductOption> findByProductIdIn(Collection<String> productIds);
 
     /** Summed option stock of every product that has options (admin list). */

@@ -40,7 +40,8 @@ class ProductServiceTest {
     private final ProductRepository repository = mock(ProductRepository.class);
     private final ProductImageRepository imageRepository = mock(ProductImageRepository.class);
     private final ProductOptionRepository optionRepository = mock(ProductOptionRepository.class);
-    private final ProductService service = new ProductService(repository, imageRepository, optionRepository, CLOCK);
+    private final ProductService service = new ProductService(repository, imageRepository, optionRepository, CLOCK,
+            mock(jakarta.persistence.EntityManager.class));
     private final Page<Product> page = new PageImpl<>(List.of());
 
     private static Product product(String id) {

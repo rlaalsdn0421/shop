@@ -61,6 +61,13 @@ public class ProductOption {
         this.sortOrder = sortOrder;
     }
 
+    /** Admin edit; names stay fixed (orders point at the option). Inputs already validated; {@code stock} is the value to store. */
+    public void applyEdit(Integer price, Integer originalPrice, Integer stock) {
+        this.price = price;
+        this.originalPrice = originalPrice;
+        this.stock = stock;
+    }
+
     @PrePersist
     void prePersist() {
         if (id == null) {

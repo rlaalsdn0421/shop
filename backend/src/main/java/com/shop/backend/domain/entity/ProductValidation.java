@@ -4,6 +4,7 @@ import com.shop.backend.domain.error.ValidationException;
 
 import java.text.Normalizer;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -20,6 +21,10 @@ public final class ProductValidation {
             "뷰티", "신발", "상의", "아우터", "바지", "원피스/스커트",
             "가방", "모자", "소품", "속옷/홈웨어", "스포츠/레저"
     );
+
+    /** Restock is {@code stock + quantity} in an int column; a huge typed stock would overflow it on a later cancel/expiry. */
+    public static final int MAX_STOCK = 1_000_000;
+    private static final String MAX_STOCK_MESSAGE = "재고 수량은 1,000,000개 이하로 입력해 주세요.";
 
     private static final int MAX_PAGE_SIZE = 50;
     private static final int MAX_BEST_SIZE = 20;
@@ -89,15 +94,7 @@ public final class ProductValidation {
                 throw new ValidationException("색상 코드는 색상 이름과 함께 #RRGGBB 형식으로 입력해 주세요.");
             }
             Integer price = option.price();
-            if (price == null || price < 0) {
-                throw new ValidationException("옵션 가격이 올바르지 않습니다.");
-            }
-            if (option.originalPrice() != null && option.originalPrice() <= price) {
-                throw new ValidationException("옵션 정가는 판매가보다 커야 해요.");
-            }
-            if (option.stock() == null || option.stock() < 0) {
-                throw new ValidationException("옵션 재고 수량이 올바르지 않습니다.");
-            }
+            validateOptionPriceStock(price, option.originalPrice(), option.stock());
             List<String> combo = List.of(color == null ? "" : color.toLowerCase(Locale.ROOT),
                     size == null ? "" : size.toLowerCase(Locale.ROOT));
             if (!combos.add(combo)) {
@@ -113,6 +110,71 @@ public final class ProductValidation {
             }
         }
         return List.copyOf(cleaned);
+    }
+
+    /** Price >= 0, original price absent or above the price, stock >= 0: the per-option number rules (register and edit). */
+    public static void validateOptionPriceStock(Integer price, Integer originalPrice, Integer stock) {
+        if (price == null || price < 0) {
+            throw new ValidationException("옵션 가격이 올바르지 않습니다.");
+        }
+        if (originalPrice != null && originalPrice <= price) {
+            throw new ValidationException("옵션 정가는 판매가보다 커야 해요.");
+        }
+        if (stock == null || stock < 0) {
+            throw new ValidationException("옵션 재고 수량이 올바르지 않습니다.");
+        }
+        if (stock > MAX_STOCK) {
+            throw new ValidationException(MAX_STOCK_MESSAGE);
+        }
+    }
+
+    public static void validateExpectedStock(Integer expectedStock) {
+        if (expectedStock == null || expectedStock < 0) {
+            throw new ValidationException("기준 재고 값이 올바르지 않습니다.");
+        }
+    }
+
+    /**
+     * Checks the shape of a product edit against the options the product really has ({@code productOptionIds}, empty =
+     * plain product) and the per-option numbers. A plain product takes no options; a product with options takes no
+     * top-level price/originalPrice/stock/expectedStock and exactly one entry per existing option id (no unknown,
+     * missing or duplicate ids). Returns the entries by id.
+     */
+    public static Map<String, OptionEdit> validateEditOptions(Collection<String> productOptionIds, Integer price,
+                                                              Integer originalPrice, Integer stock, Integer expectedStock,
+                                                              List<OptionEdit> options) {
+        if (options != null && options.size() > MAX_OPTIONS) {
+            throw new ValidationException("옵션은 1~" + MAX_OPTIONS + "개까지 등록할 수 있어요.");
+        }
+        boolean given = options != null && !options.isEmpty();
+        if (productOptionIds.isEmpty()) {
+            if (given) {
+                throw new ValidationException("이 상품은 옵션이 없어서 옵션을 함께 보낼 수 없어요.");
+            }
+            validateExpectedStock(expectedStock);
+            return Map.of();
+        }
+        if (price != null || originalPrice != null || stock != null || expectedStock != null) {
+            throw new ValidationException("옵션이 있는 상품은 가격과 재고를 옵션별로 입력해 주세요.");
+        }
+        if (!given) {
+            throw new ValidationException("옵션이 있는 상품은 모든 옵션의 정보를 보내야 해요.");
+        }
+        Map<String, OptionEdit> byId = new LinkedHashMap<>();
+        for (OptionEdit option : options) {
+            if (option == null || option.id() == null) {
+                throw new ValidationException("옵션 정보가 올바르지 않아요.");
+            }
+            if (byId.put(option.id(), option) != null) {
+                throw new ValidationException("같은 옵션이 중복되어 있어요.");
+            }
+            validateOptionPriceStock(option.price(), option.originalPrice(), option.stock());
+            validateExpectedStock(option.expectedStock());
+        }
+        if (!byId.keySet().equals(Set.copyOf(productOptionIds))) {
+            throw new ValidationException("옵션 목록이 상품의 옵션과 맞지 않아요. 새로고침한 뒤 다시 시도해 주세요.");
+        }
+        return byId;
     }
 
     /** Any control, format (zero-width, bidi), unassigned, private-use or separator character other than the plain space. */
@@ -147,21 +209,34 @@ public final class ProductValidation {
         return t;
     }
 
-    public static void validateNewProduct(String name, String description, Integer price, String imageUrl, Integer stock,
-                                          String category, Integer originalPrice) {
+    /** Name, description and representative image rules (pure input, no DB state): shared by register and edit. */
+    public static void validateProductText(String name, String description, String imageUrl) {
         if (isBlank(name) || isBlank(description) || isBlank(imageUrl)
                 || name.length() > 200 || description.length() > 2000 || imageUrl.length() > 2000) {
             throw new ValidationException("이름, 설명, 이미지 URL을 올바르게 입력해주세요.");
         }
+    }
+
+    /** {@code category} must already be trimmed; null/empty = no category. */
+    public static void validateCategory(String category) {
+        if (category != null && !category.isEmpty() && !ALLOWED_CATEGORIES.contains(category)) {
+            throw new ValidationException("올바르지 않은 카테고리입니다.");
+        }
+    }
+
+    public static void validateNewProduct(String name, String description, Integer price, String imageUrl, Integer stock,
+                                          String category, Integer originalPrice) {
+        validateProductText(name, description, imageUrl);
         if (price == null || price < 0) {
             throw new ValidationException("가격이 올바르지 않습니다.");
         }
         if (stock == null || stock < 0) {
             throw new ValidationException("재고 수량이 올바르지 않습니다.");
         }
-        if (category != null && !category.isEmpty() && !ALLOWED_CATEGORIES.contains(category)) {
-            throw new ValidationException("올바르지 않은 카테고리입니다.");
+        if (stock > MAX_STOCK) {
+            throw new ValidationException(MAX_STOCK_MESSAGE);
         }
+        validateCategory(category);
         // price >= 0 is checked above, so this also rules out zero/negative original prices
         if (originalPrice != null && originalPrice <= price) {
             throw new ValidationException("정가는 판매가보다 커야 해요.");
