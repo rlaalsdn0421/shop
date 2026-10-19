@@ -114,9 +114,10 @@ public class PortOnePaymentGateway implements PaymentGateway {
             if (isAlreadyCancelled(e)) {
                 return; // someone (console, webhook race, an earlier try of ours) already cancelled it: that is the goal
             }
-            // The provider (or the PG's test environment) may have cancelled it without telling us, and answers with some
-            // other 4xx than PAYMENT_ALREADY_CANCELLED: the payment's own status decides.
-            if (e.getStatusCode().is4xxClientError() && cancelledAtProvider(paymentId)) {
+            // The PG (or its test environment) may have cancelled it without telling us; PortOne then answers with some
+            // other 4xx, or a 502 wrapping the PG's "already cancelled" error, instead of PAYMENT_ALREADY_CANCELLED:
+            // the payment's own status decides, whatever the error was.
+            if (cancelledAtProvider(paymentId)) {
                 return;
             }
             // status only: the message/body may echo request details
