@@ -19,6 +19,8 @@ type CartContextValue = {
   remove: (productId: string, optionId?: string) => void;
   setQuantity: (productId: string, quantity: number, optionId?: string) => void;
   clear: () => void;
+  // Sets only the price of the matching lines (e.g. after the product's price was edited); unknown lines are ignored.
+  updatePrices: (changes: { productId: string; optionId?: string; newPrice: number }[]) => void;
   totalCount: number;
   totalAmount: number;
 };
@@ -80,12 +82,21 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const clear = () => setItems([]);
 
+  const updatePrices: CartContextValue["updatePrices"] = (changes) => {
+    setItems((prev) =>
+      prev.map((i) => {
+        const c = changes.find((c) => sameLine(i, c.productId, c.optionId));
+        return c ? { ...i, price: c.newPrice } : i;
+      })
+    );
+  };
+
   const totalCount = items.reduce((sum, i) => sum + i.quantity, 0);
   const totalAmount = items.reduce((sum, i) => sum + i.quantity * i.price, 0);
 
   return (
     <CartContext.Provider
-      value={{ items, add, remove, setQuantity, clear, totalCount, totalAmount }}
+      value={{ items, add, remove, setQuantity, clear, updatePrices, totalCount, totalAmount }}
     >
       {children}
     </CartContext.Provider>

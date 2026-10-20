@@ -232,8 +232,8 @@ export async function listBestProducts(period: BestPeriod, size = 4): Promise<Pr
   return data.items;
 }
 
-export async function getProduct(id: string): Promise<ProductDetail | null> {
-  const res = await apiFetch(`/api/products/${id}`);
+export async function getProduct(id: string, signal?: AbortSignal): Promise<ProductDetail | null> {
+  const res = await apiFetch(`/api/products/${id}`, signal ? { signal } : undefined);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error("상품 정보를 불러오지 못했습니다.");
   return res.json();
