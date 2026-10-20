@@ -70,6 +70,73 @@ describe("장바구니 항목 식별", () => {
   });
 });
 
+describe("장바구니 가격 갱신(updatePrices)", () => {
+  it("성공: 옵션 없는 줄은 가격만 바뀌고 수량·이름·옵션 필드는 그대로이며, 같은 상품의 옵션 줄은 건드리지 않는다", () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+    act(() => {
+      result.current.add(base, 3);
+      result.current.add(white, 2);
+    });
+    act(() => result.current.updatePrices([{ productId: "p1", newPrice: 7000 }]));
+    expect(result.current.items).toEqual([
+      { ...base, price: 7000, quantity: 3 },
+      { ...white, quantity: 2 },
+    ]);
+    expect(result.current.totalAmount).toBe(3 * 7000 + 2 * 9000);
+  });
+
+  it("성공: 옵션 줄은 optionId가 같은 줄만 가격이 바뀌고 수량·옵션 이름은 그대로다", () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+    act(() => {
+      result.current.add(white, 2);
+      result.current.add(black, 4);
+      result.current.add(base, 1);
+    });
+    act(() => result.current.updatePrices([{ productId: "p1", optionId: "o-b", newPrice: 9900 }]));
+    expect(result.current.items).toEqual([
+      { ...white, quantity: 2 },
+      { ...black, price: 9900, quantity: 4 },
+      { ...base, quantity: 1 },
+    ]);
+  });
+
+  it("성공: 한 번에 여러 줄을 각자의 새 가격으로 바꾼다", () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+    act(() => {
+      result.current.add(white);
+      result.current.add(black);
+    });
+    act(() =>
+      result.current.updatePrices([
+        { productId: "p1", optionId: "o-w", newPrice: 1 },
+        { productId: "p1", optionId: "o-b", newPrice: 2 },
+      ])
+    );
+    expect(result.current.items.map((i) => i.price)).toEqual([1, 2]);
+  });
+
+  it("실패: 장바구니에 없는 줄(다른 상품, 없는 옵션, 옵션 없는 줄 대 옵션 줄)이면 아무것도 바뀌지 않는다", () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+    act(() => result.current.add(white, 2));
+    const before = result.current.items;
+    act(() =>
+      result.current.updatePrices([
+        { productId: "other", newPrice: 1 },
+        { productId: "p1", optionId: "gone", newPrice: 1 },
+        { productId: "p1", newPrice: 1 },
+      ])
+    );
+    expect(result.current.items).toEqual(before);
+  });
+
+  it("성공: 바뀐 가격이 localStorage에도 저장된다", () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+    act(() => result.current.add(base, 2));
+    act(() => result.current.updatePrices([{ productId: "p1", newPrice: 6500 }]));
+    expect(stored()).toEqual([{ ...base, price: 6500, quantity: 2 }]);
+  });
+});
+
 describe("장바구니 저장", () => {
   it("성공: optionId와 optionLabel도 localStorage에 저장된다", () => {
     const { result } = renderHook(() => useCart(), { wrapper });

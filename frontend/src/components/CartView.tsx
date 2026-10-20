@@ -8,6 +8,7 @@ import { cartLineKey, useCart } from "@/cart/CartContext";
 import { useAuth, useRequireRole } from "@/auth/AuthContext";
 import { PaymentMethodSelect } from "@/components/PaymentMethodSelect";
 import { AuthError } from "@/lib/api";
+import { type PriceChange, fetchCurrentPrices, findPriceChanges } from "@/lib/cartPrices";
 import { type Attempt, readAttempt, saveAttempt, sha256Hex } from "@/lib/orderAttempt";
 import { FREE_SHIPPING_THRESHOLD } from "@/lib/constants";
 import { formatWon } from "@/lib/price";
@@ -30,8 +31,16 @@ const ORDER_TIMEOUT_MS = 20_000;
 const OPTION_MISSING = "옵션을 선택해 주세요.";
 const OPTION_NOT_FOUND = "선택한 옵션을 찾을 수 없어요.";
 
+type OrderReply = { status?: unknown; orderName?: unknown; totalAmount?: unknown; expiresAt?: unknown };
+
+// A payment window opened this close to the order's expiry could be paid after the order lapsed.
+const EXPIRY_MARGIN_MS = 30_000;
+// An unparsable or missing time counts as not lapsing.
+const lapsesSoon = (expiresAt: unknown) =>
+  typeof expiresAt === "string" && Date.parse(expiresAt) - Date.now() < EXPIRY_MARGIN_MS;
+
 export function CartView() {
-  const { items, setQuantity, remove, totalAmount, clear } = useCart();
+  const { items, setQuantity, remove, totalAmount, clear, updatePrices } = useCart();
   const { session, ready } = useRequireRole(["ADMIN", "SELLER", "USER"]);
   const { logout } = useAuth();
   const router = useRouter();
@@ -51,10 +60,68 @@ export function CartView() {
   // Set when the server refused a line because of its option; the matching cart lines get a link back to the product.
   const [optionProblem, setOptionProblem] = useState<"missing" | "notFound" | null>(null);
 
+  // Lines whose price was just corrected from the current product price (shown until the next submit attempt).
+  const [priceChanges, setPriceChanges] = useState<PriceChange[]>([]);
+  // The server's order total differed from what the shopper saw: the payment window waits for the shopper's click.
+  // `lines` ties the message to the cart contents it was made for (price edits alone do not clear it).
+  const [mismatch, setMismatch] = useState<{ orderId: string; data: OrderReply; lines: string } | null>(null);
+  const mounted = useRef(true);
+  const mountCheckDone = useRef(false);
+  // Only the newest price check may report; an older one finishing late is ignored.
+  const checkSeq = useRef(0);
+  const checkAbort = useRef<AbortController | null>(null);
+  // Bumped per submit and on a back/forward-cache restore: a submit that was waiting for the price check must not go on after either.
+  const submitSeq = useRef(0);
+  const noticeRef = useRef<HTMLDivElement>(null);
+  // What a mismatch message was made for: the cart lines (not their prices) and the trimmed delivery details.
+  const signatureOf = (list: typeof items) =>
+    JSON.stringify([list.map((i) => `${cartLineKey(i)}x${i.quantity}`), form.name.trim(), form.phone.trim(), form.address.trim()]);
+
+  // Corrects the cart prices from the current product prices; resolves true when any line changed. Never throws.
+  async function checkPrices(list: typeof items): Promise<boolean> {
+    const seq = ++checkSeq.current;
+    checkAbort.current?.abort();
+    const ctrl = new AbortController();
+    checkAbort.current = ctrl;
+    try {
+      const changes = findPriceChanges(list, await fetchCurrentPrices(list, ctrl.signal));
+      if (seq !== checkSeq.current || !mounted.current || changes.length === 0) return false;
+      updatePrices(changes);
+      setPriceChanges(changes);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      checkAbort.current?.abort();
+      // React's dev StrictMode runs effect, cleanup, effect: the aborted first check must be allowed to start again.
+      mountCheckDone.current = false;
+    };
+  }, []);
+
+  // The notice may be above the fold on a phone.
+  useEffect(() => {
+    if (priceChanges.length > 0) noticeRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [priceChanges]);
+
+  // Once, with the first non-empty cart (the cart is read from localStorage after the first render).
+  useEffect(() => {
+    if (!ready || !session || items.length === 0 || mountCheckDone.current) return;
+    mountCheckDone.current = true;
+    void checkPrices(items);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, session, items.length]);
+
   // Coming back through the back/forward cache restores the page as it was while the browser was leaving for the payment page.
   useEffect(() => {
     const onShow = (e: PageTransitionEvent) => {
       if (!e.persisted) return;
+      submitSeq.current++;
       submitLock.current = false;
       setSubmitting(false);
     };
@@ -73,6 +140,8 @@ export function CartView() {
     setError("");
     setStuckOrderId(null);
     setOptionProblem(null);
+    setPriceChanges([]);
+    setMismatch(null);
 
     if (!session || unconfirmedId) return;
     // An order nobody can pay would only hold stock, so nothing is created without a usable payment setup.
@@ -92,6 +161,9 @@ export function CartView() {
     if (submitLock.current) return;
     submitLock.current = true;
     setSubmitting(true);
+    const thisSubmit = ++submitSeq.current;
+    // What the shopper sees right now; taken before anything is awaited.
+    const expected = totalAmount + shippingFeeFor(totalAmount);
     // A key only vouches for identical content, so different content gets a new key.
     const customerName = form.name.trim();
     const customerPhone = form.phone.trim();
@@ -112,6 +184,14 @@ export function CartView() {
     // True while the browser is leaving for the payment page: the form must stay locked until it is gone.
     let redirected = false;
     try {
+      // A changed price is shown first and no order is made; the shopper presses 주문하기 again.
+      const changed = await checkPrices(items);
+      // The shopper left (or the page was restored from the bfcache) while waiting: no order, no payment window.
+      if (!mounted.current || thisSubmit !== submitSeq.current) return;
+      if (changed) {
+        setError("가격이 바뀌었어요. 위의 안내를 확인한 뒤 주문하기를 다시 눌러 주세요.");
+        return;
+      }
       // A reply of EXPIRED means the stored key points at a lapsed order; one retry with a fresh key creates a new one.
       for (let round = 0; round < 2; round++) {
         // Without SubtleCrypto the plain fingerprint is compared in memory only and never written to sessionStorage.
@@ -148,7 +228,7 @@ export function CartView() {
           // Remember which order this key created, so only a payment of that very order may empty the cart later.
           attempt.current = { ...attempt.current, orderId };
           if (hash) saveAttempt(attempt.current);
-          redirected = await continueToPayment(orderId, data, session.token, method);
+          redirected = await continueToPayment(orderId, data, session.token, method, expected);
           return;
         }
         if (res.status === 401 || res.status === 403) {
@@ -188,7 +268,8 @@ export function CartView() {
           : "네트워크 오류로 주문 결과를 확인하지 못했습니다. 다시 시도해주세요."
       );
     } finally {
-      if (!redirected) {
+      // After a bfcache restore the lock belongs to whatever submit started since, not to this one.
+      if (!redirected && thisSubmit === submitSeq.current) {
         submitLock.current = false;
         setSubmitting(false);
       }
@@ -214,6 +295,37 @@ export function CartView() {
     }
   }
 
+  // The shopper saw the server's amount and agreed: the same payment path as before, without the amount check.
+  async function handlePayServerAmount() {
+    if (!session || !mismatch || !method || submitLock.current) return;
+    // Never open a window for an order that is about to lapse.
+    if (lapsesSoon(mismatch.data.expiresAt)) {
+      setMismatch(null);
+      attempt.current = null;
+      saveAttempt(null);
+      setError("주문 시간이 지났어요. 다시 주문해 주세요.");
+      return;
+    }
+    submitLock.current = true;
+    setSubmitting(true);
+    setError("");
+    let redirected = false;
+    try {
+      redirected = await continueToPayment(mismatch.orderId, mismatch.data, session.token, method);
+    } catch (e) {
+      setError(
+        (e as { name?: string })?.name === "TimeoutError"
+          ? "응답이 늦어 결제 결과를 확인하지 못했습니다. 다시 시도해주세요."
+          : "네트워크 오류로 결제를 진행하지 못했습니다. 다시 시도해주세요."
+      );
+    } finally {
+      if (!redirected) {
+        submitLock.current = false;
+        setSubmitting(false);
+      }
+    }
+  }
+
   // Only the checkout that created this very order may empty the cart; any other paid order leaves it alone.
   function finishPaid(orderId: string) {
     setUnconfirmedId(null);
@@ -227,11 +339,14 @@ export function CartView() {
 
   // The cart is emptied only once the server confirmed PAID, so a payment that did not finish can be retried from it.
   // Resolves true when the browser is navigating to the payment page (keep the form locked).
+  // `expected` is the total the shopper saw when pressing 주문하기; when the server's total differs the window stays closed
+  // until the shopper confirms (handlePayServerAmount calls this without `expected`, which skips that check).
   async function continueToPayment(
     orderId: string,
-    data: { status?: unknown; orderName?: unknown; totalAmount?: unknown },
+    data: OrderReply,
     token: string,
-    method: PayMethod
+    method: PayMethod,
+    expected?: number
   ): Promise<boolean> {
     if (data.status !== "PAID" && data.status !== "PENDING_PAYMENT") {
       // A replay of this key would return the same dead order forever, so the stored key goes too.
@@ -239,6 +354,16 @@ export function CartView() {
       saveAttempt(null);
       setStuckOrderId(orderId);
       setError("이 주문은 결제를 진행할 수 없는 상태예요.");
+      return false;
+    }
+    if (
+      expected !== undefined &&
+      data.status === "PENDING_PAYMENT" &&
+      typeof data.totalAmount === "number" &&
+      data.totalAmount !== expected
+    ) {
+      setMismatch({ orderId, data, lines: signatureOf(items) });
+      void checkPrices(items);
       return false;
     }
     let result: PayResult = { kind: "paid" };
@@ -284,6 +409,19 @@ export function CartView() {
 
   return (
     <div className="grid sm:grid-cols-3 gap-8">
+      {priceChanges.length > 0 && (
+        <div ref={noticeRef} role="alert" className="sm:col-span-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <p className="font-medium">가격이 바뀐 상품이 있어요. 바뀐 가격을 확인해 주세요.</p>
+          <ul className="mt-1 flex flex-col gap-1">
+            {priceChanges.map((c) => (
+              <li key={cartLineKey(c)}>
+                {c.name}
+                {c.optionLabel ? ` (${c.optionLabel})` : ""}: {formatWon(c.oldPrice)} → {formatWon(c.newPrice)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="sm:col-span-2 flex flex-col gap-4">
         {items.map((item) => (
           <div key={cartLineKey(item)} className="flex items-center gap-4 border-b pb-4">
@@ -378,6 +516,21 @@ export function CartView() {
           onChange={(e) => setForm({ ...form, address: e.target.value })}
         />
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+        {mismatch && mismatch.lines === signatureOf(items) && typeof mismatch.data.totalAmount === "number" && (
+          <>
+            <p role="alert" className="text-sm text-red-600">
+              주문 금액이 장바구니와 달라요. 결제할 금액은 {formatWon(mismatch.data.totalAmount)}이에요.
+            </p>
+            <button
+              type="button"
+              onClick={handlePayServerAmount}
+              disabled={locked || !method}
+              className="bg-black text-white rounded py-3 disabled:opacity-50"
+            >
+              {formatWon(mismatch.data.totalAmount)} 결제하기
+            </button>
+          </>
+        )}
         {optionLinks.length > 0 && (
           <ul className="flex flex-col gap-1 text-sm">
             {optionLinks.map((i) => (
