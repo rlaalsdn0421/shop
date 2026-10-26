@@ -32,11 +32,12 @@ import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * Business-rule violations map to 400, except a missing product or order (404), invalid credentials (401), a withdrawal by
  * ADMIN/SELLER (403), a duplicate review, a reused Idempotency-Key or an unconfirmed/mismatched payment (409), a payment
- * provider outage or empty payment settings (503) and rate limiting (429); Spring picks the
+ * provider outage or empty payment settings (503), rate limiting (429) and an unknown route (404); Spring picks the
  * most specific handler, so those take precedence over the DomainException one below. Lock timeouts and deadlocks
  * map to 503.
  * Anything unexpected maps to 500 with a per-area message, matching the original API contract.
@@ -179,6 +180,14 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .header(HttpHeaders.RETRY_AFTER, "1")
                 .body(new ErrorResponse("요청이 몰려 처리하지 못했어요. 잠시 후 다시 시도해 주세요."));
+    }
+
+    // An unmatched route is the caller's mistake, not a server error: no stack trace, no ERROR log (anyone can hit this
+    // unauthenticated). Without this the catch-all below turns it into a 500.
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNoResource(NoResourceFoundException ex) {
+        logger.debug("No handler for {} /{}", ex.getHttpMethod(), ex.getResourcePath());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse("요청한 주소를 찾을 수 없습니다."));
     }
 
     @ExceptionHandler(Exception.class)
