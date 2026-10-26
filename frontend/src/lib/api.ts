@@ -393,6 +393,23 @@ export async function listAdminOrders(token: string, status?: string, cursor?: s
   return { orders: data.orders, nextCursor: data.nextCursor ?? null };
 }
 
+/**
+ * Cheap "is this admin/seller token still accepted?" probe (same endpoint the upload route asks). Throws AuthError on
+ * 401/403 and resolves otherwise; a network error or timeout also resolves, so the caller keeps its generic message.
+ */
+export async function checkAdminSession(token: string, signal?: AbortSignal): Promise<void> {
+  const timeout = AbortSignal.timeout(8_000);
+  try {
+    const res = await apiFetch("/api/admin/orders?size=1", {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    });
+    if (res.status === 401 || res.status === 403) throw new AuthError();
+  } catch (e) {
+    if (e instanceof AuthError) throw e;
+  }
+}
+
 export const shipOrder = (id: string, token: string) => postOrderAction(`${adminOrderPath(id)}/ship`, token);
 export const deliverOrder = (id: string, token: string) => postOrderAction(`${adminOrderPath(id)}/deliver`, token);
 export const refundOrder = (id: string, token: string, reason: string) =>
