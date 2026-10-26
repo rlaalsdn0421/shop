@@ -1,7 +1,22 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { ProductCard } from "./ProductCard";
 import { FREE_SHIPPING_THRESHOLD, SHIPPING_FEE } from "@/lib/constants";
+
+// The heart (WishButton) needs auth, router and wishlist; this file only checks the card, so they are inert fakes.
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("@/auth/AuthContext", () => ({ useAuth: () => ({ session: null }) }));
+vi.mock("@/wishlist/WishlistContext", () => ({
+  useWishlist: () => ({
+    ready: true,
+    loadFailed: false,
+    ids: new Set<string>(),
+    isWished: () => false,
+    toggle: vi.fn(),
+    pending: new Set<string>(),
+    lastError: null,
+  }),
+}));
 
 const base = { id: "p1", name: "린넨 셔츠", price: 12900, imageUrl: "https://example.com/a.jpg" };
 
@@ -28,11 +43,16 @@ describe("ProductCard", () => {
     expect(screen.queryByText("배송비 3,500원")).not.toBeInTheDocument();
   });
 
-  it("성공: 카드 전체가 상품 페이지로 가는 링크 하나다", () => {
+  it("성공: 카드 전체가 상품 페이지로 가는 링크 하나고, 하트 버튼은 그 링크 밖에 있다", () => {
     render(<ProductCard {...base} />);
     expect(screen.getAllByRole("link")).toHaveLength(1);
-    expect(screen.getByRole("link")).toHaveAttribute("href", "/products/p1");
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    const link = screen.getByRole("link");
+    expect(link).toHaveAttribute("href", "/products/p1");
+    const heart = screen.getByRole("button", { name: "찜하기 - 린넨 셔츠" });
+    expect(link).not.toContainElement(heart);
+    // Sibling of the link in the card wrapper, so the heart can sit over the image without nesting a button in an anchor.
+    expect(link.parentElement).toContainElement(heart);
+    expect(screen.getAllByRole("button")).toHaveLength(1);
   });
 
   it("성공: 할인율, 판매가, 취소선 정가를 보여주고 카드는 여전히 링크 하나다", () => {

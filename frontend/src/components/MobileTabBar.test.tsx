@@ -58,6 +58,16 @@ describe("MobileTabBar 주문 관리", () => {
   });
 });
 
+describe("MobileTabBar 찜", () => {
+  it("실패: 탭이 이미 가득해서 로그인해도 찜 탭은 넣지 않는다", async () => {
+    saveSession("USER");
+    renderBar();
+    await screen.findByRole("link", { name: /주문내역/ });
+    expect(document.querySelector('a[href="/wishlist"]')).toBeNull();
+    expect(screen.queryByRole("link", { name: /찜/ })).not.toBeInTheDocument();
+  });
+});
+
 describe("MobileTabBar 주문내역", () => {
   it("성공: 로그인 상태면 주문내역 탭이 /orders로 연결된다", async () => {
     localStorage.setItem(

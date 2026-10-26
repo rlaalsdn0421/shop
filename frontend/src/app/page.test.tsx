@@ -3,6 +3,9 @@ import { render, screen, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import Home from "./page";
 
+// The heart on each card is covered by WishButton.test.tsx; here it would only need auth/router/wishlist fakes.
+vi.mock("@/components/WishButton", () => ({ WishButton: () => null }));
+
 const item = (id: string, name: string) => ({
   id,
   name,

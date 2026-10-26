@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { CartProvider } from "@/cart/CartContext";
 import { AuthProvider } from "@/auth/AuthContext";
+import { WishlistProvider } from "@/wishlist/WishlistContext";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { MobileTabBar } from "@/components/MobileTabBar";
@@ -33,13 +34,15 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className="min-h-full flex flex-col">
         <AuthProvider>
           <CartProvider>
-            <Header />
-            <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6">
-              {children}
-            </main>
-            <Footer />
-            <MobileTabBar />
-            <ChatWidget />
+            <WishlistProvider>
+              <Header />
+              <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6">
+                {children}
+              </main>
+              <Footer />
+              <MobileTabBar />
+              <ChatWidget />
+            </WishlistProvider>
           </CartProvider>
         </AuthProvider>
       </body>

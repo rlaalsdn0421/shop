@@ -91,9 +91,14 @@ export default function AccountPage() {
         <p>
           <span className="text-gray-600">아이디</span> <span className="font-medium">{session.username}</span>
         </p>
-        <Link href="/orders" className="underline">
-          주문내역
-        </Link>
+        <span className="flex gap-3">
+          <Link href="/orders" className="underline">
+            주문내역
+          </Link>
+          <Link href="/wishlist" className="underline">
+            찜한 상품
+          </Link>
+        </span>
       </div>
 
       <section aria-labelledby="withdraw-title" className="flex flex-col gap-3 border-t pt-6">
