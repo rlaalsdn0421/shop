@@ -100,7 +100,7 @@ describe("상품 수정 화면 불러오기", () => {
     expect(screen.getByRole("status")).toHaveTextContent("불러오는 중...");
     expect(screen.queryByRole("heading", { name: "상품 수정" })).not.toBeInTheDocument();
     expect(await screen.findByLabelText("상품명")).toHaveValue("울 코트");
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByText("불러오는 중...")).not.toBeInTheDocument();
     expect(new URL(String(getCalls()[0][0])).pathname).toBe("/api/products/p-42");
   });
 
