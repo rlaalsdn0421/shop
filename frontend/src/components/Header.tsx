@@ -47,6 +47,11 @@ export function Header() {
                     주문내역
                   </Link>
                 </li>
+                <li>
+                  <Link href="/wishlist" className={utilityClass}>
+                    찜
+                  </Link>
+                </li>
                 <li className="text-neutral-500">
                   {/* Only customers can withdraw, so only they get the account page. */}
                   {session.role === "USER" ? (

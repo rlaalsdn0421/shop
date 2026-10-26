@@ -10,6 +10,8 @@ const auth = vi.hoisted(() => ({ session: null as null | { token: string } }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 vi.mock("@/cart/CartContext", () => ({ useCart: () => ({ add }) }));
 vi.mock("@/auth/AuthContext", () => ({ useAuth: () => ({ session: auth.session }) }));
+// The wish button is covered by AddToCartForm.test.tsx and WishButton.test.tsx; options logic does not touch it.
+vi.mock("@/components/WishButton", () => ({ WishButton: () => null }));
 
 const opt = (id: string, colorName: string | null, sizeLabel: string | null, stock: number, price = 23000, extra: Partial<ProductOption> = {}): ProductOption => ({
   id,

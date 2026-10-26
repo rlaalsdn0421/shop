@@ -9,6 +9,26 @@ const auth = vi.hoisted(() => ({ session: null as null | { token: string } }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 vi.mock("@/cart/CartContext", () => ({ useCart: () => ({ add }) }));
 vi.mock("@/auth/AuthContext", () => ({ useAuth: () => ({ session: auth.session }) }));
+// Controllable fake of the wishlist context; the real WishButton renders on top of it.
+const wish = vi.hoisted(() => ({
+  ready: true,
+  loadFailed: false,
+  wished: new Set<string>(),
+  toggle: vi.fn(),
+  pending: new Set<string>(),
+  lastError: null as null | { productId: string; message: string },
+}));
+vi.mock("@/wishlist/WishlistContext", () => ({
+  useWishlist: () => ({
+    ready: wish.ready,
+    loadFailed: wish.loadFailed,
+    ids: wish.wished,
+    isWished: (id: string) => wish.wished.has(id),
+    toggle: wish.toggle,
+    pending: wish.pending,
+    lastError: wish.lastError,
+  }),
+}));
 
 function renderForm(stock = 10) {
   render(<AddToCartForm id="p1" name="린넨 셔츠" price={8000} imageUrl="https://example.com/a.jpg" stock={stock} />);
@@ -18,6 +38,12 @@ const item = { productId: "p1", name: "린넨 셔츠", price: 8000, imageUrl: "h
 beforeEach(() => {
   push.mockClear();
   add.mockClear();
+  wish.toggle.mockClear();
+  wish.ready = true;
+  wish.loadFailed = false;
+  wish.wished = new Set();
+  wish.pending = new Set();
+  wish.lastError = null;
   auth.session = { token: "fake-token" };
 });
 
@@ -102,15 +128,54 @@ describe("AddToCartForm 버튼", () => {
     expect(push).toHaveBeenCalledWith("/login");
   });
 
-  it("실패: 찜하기는 준비 중이라 눌러도 아무 일도 없다", async () => {
+  it("성공: 찜하기는 더 이상 준비 중이 아니라 눌리고, 그 상품을 찜 토글할 뿐 담기나 이동은 없다", async () => {
     renderForm(10);
-    const wish = screen.getByRole("button", { name: /찜하기/ });
-    expect(wish).toBeDisabled();
-    expect(wish).toHaveAttribute("aria-disabled", "true");
-    expect(wish).toHaveAttribute("title", "준비 중이에요");
-    expect(wish).toHaveTextContent("준비 중이에요");
-    await userEvent.click(wish);
+    const button = screen.getByRole("button", { name: "찜하기 - 린넨 셔츠" });
+    expect(button).toBeEnabled();
+    expect(button).toHaveAttribute("aria-pressed", "false");
+    expect(button).toHaveTextContent("찜하기");
+    expect(screen.queryByText("준비 중이에요")).not.toBeInTheDocument();
+    await userEvent.click(button);
+    expect(wish.toggle).toHaveBeenCalledTimes(1);
+    expect(wish.toggle).toHaveBeenCalledWith("p1");
     expect(add).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("성공: 이미 찜한 상품이면 이름은 그대로고 aria-pressed=true로 보인다", () => {
+    wish.wished = new Set(["p1"]);
+    renderForm(10);
+    const button = screen.getByRole("button", { name: "찜하기 - 린넨 셔츠" });
+    expect(button).toHaveAttribute("aria-pressed", "true");
+    expect(button).toHaveTextContent("찜하기");
+    expect(screen.queryByRole("button", { name: /찜 해제/ })).not.toBeInTheDocument();
+  });
+
+  it("성공: 품절 상품도 찜할 수 있다 (구매 버튼만 막힌다)", async () => {
+    renderForm(0);
+    expect(screen.getByRole("button", { name: "구매하기" })).toBeDisabled();
+    const button = screen.getByRole("button", { name: "찜하기 - 린넨 셔츠" });
+    expect(button).toBeEnabled();
+    await userEvent.click(button);
+    expect(wish.toggle).toHaveBeenCalledWith("p1");
+  });
+
+  it("실패: 로그인하지 않았으면 찜하기는 찜하지 않고 로그인으로 보낸다", async () => {
+    auth.session = null;
+    renderForm(10);
+    await userEvent.click(screen.getByRole("button", { name: "찜하기 - 린넨 셔츠" }));
+    expect(wish.toggle).not.toHaveBeenCalled();
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(push).toHaveBeenCalledWith("/login");
+  });
+
+  it("실패: 찜 정보를 아직 못 불러왔으면 찜하기는 비활성이고 누르면 아무 일도 없다", async () => {
+    wish.ready = false;
+    renderForm(10);
+    const button = screen.getByRole("button", { name: "찜하기 - 린넨 셔츠" });
+    expect(button).toBeDisabled();
+    await userEvent.click(button);
+    expect(wish.toggle).not.toHaveBeenCalled();
     expect(push).not.toHaveBeenCalled();
   });
 });

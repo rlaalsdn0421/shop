@@ -92,7 +92,7 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void 모르는_주소는_메서드와_끝_슬래시가_달라도_404이다() throws Exception {
-        mockMvc.perform(put("/api/wishlist/a/b")).andExpect(status().isNotFound());
+        mockMvc.perform(put("/api/nothing/a/b")).andExpect(status().isNotFound());
         mockMvc.perform(get("/api/test/400/")).andExpect(status().isNotFound());
     }
 

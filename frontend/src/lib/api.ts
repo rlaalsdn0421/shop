@@ -415,6 +415,58 @@ export const deliverOrder = (id: string, token: string) => postOrderAction(`${ad
 export const refundOrder = (id: string, token: string, reason: string) =>
   postOrderAction(`${adminOrderPath(id)}/refund`, token, { reason });
 
+// Failed wishlist change. `message` is already Korean (the server's own sentence for the 200-item limit).
+export class WishlistError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string
+  ) {
+    super(message);
+  }
+}
+
+export async function getWishlistIds(token: string): Promise<string[]> {
+  const res = await apiFetch("/api/wishlist/ids", {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (res.status === 401 || res.status === 403) throw new AuthError();
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !Array.isArray(data?.ids)) throw new Error("찜 목록을 불러오지 못했습니다.");
+  return data.ids;
+}
+
+export async function listWishlist(token: string): Promise<Product[]> {
+  const res = await apiFetch("/api/wishlist", {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (res.status === 401 || res.status === 403) throw new AuthError();
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !Array.isArray(data)) throw new Error("찜한 상품을 불러오지 못했습니다.");
+  return data;
+}
+
+// PUT (add) and DELETE (remove) are both idempotent and answer 204. 401/403 is a session problem (AuthError).
+async function changeWish(method: "PUT" | "DELETE", productId: string, token: string): Promise<void> {
+  const res = await apiFetch(`/api/wishlist/${encodeURIComponent(productId)}`, {
+    method,
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (res.status === 401 || res.status === 403) throw new AuthError();
+  if (res.ok) return;
+  const data = await res.json().catch(() => null);
+  throw new WishlistError(
+    res.status,
+    (res.status === 400 && typeof data?.error === "string" && data.error) ||
+      (res.status === 404 ? "상품을 찾을 수 없어요." : "찜을 바꾸지 못했어요. 잠시 뒤 다시 시도해 주세요.")
+  );
+}
+
+export const addWish = (productId: string, token: string) => changeWish("PUT", productId, token);
+export const removeWish = (productId: string, token: string) => changeWish("DELETE", productId, token);
+
 export async function withdrawAccount(token: string, password: string): Promise<void> {
   const res = await apiFetch("/api/users/me", {
     method: "DELETE",

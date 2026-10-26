@@ -6,6 +6,7 @@ import { useCart } from "@/cart/CartContext";
 import { useAuth } from "@/auth/AuthContext";
 import type { ProductOption } from "@/lib/api";
 import { OptionSelector } from "@/components/OptionSelector";
+import { WishButton } from "@/components/WishButton";
 import { inStock, lowestPrice, optionLabel, optionsOf, resolveOption } from "@/lib/options";
 import { discountView, formatWon } from "@/lib/price";
 
@@ -159,19 +160,7 @@ export function AddToCartForm({ id, name, price, imageUrl, stock: productStock, 
           구매하기
         </button>
         <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            disabled
-            aria-disabled="true"
-            title="준비 중이에요"
-            className="flex flex-wrap items-center justify-center gap-x-1 border rounded py-3 text-gray-400 cursor-not-allowed"
-          >
-            <svg aria-hidden="true" viewBox="0 0 24 24" className="w-5 h-5 shrink-0 fill-none stroke-current" strokeWidth={2}>
-              <path d="M12 21s-7-4.4-9.3-9A5.3 5.3 0 0 1 12 6.6 5.3 5.3 0 0 1 21.3 12C19 16.6 12 21 12 21z" />
-            </svg>
-            <span className="whitespace-nowrap">찜하기</span>{" "}
-            <span className="text-xs whitespace-nowrap">(준비 중이에요)</span>
-          </button>
+          <WishButton variant="detail" productId={id} name={name} />
           <button
             type="button"
             disabled={soldOut || !ready}
