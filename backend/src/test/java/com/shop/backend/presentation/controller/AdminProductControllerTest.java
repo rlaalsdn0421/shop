@@ -476,4 +476,86 @@ class AdminProductControllerTest {
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.error").value("상품 등록 중 오류가 발생했습니다."));
     }
+
+    // ---- category regression: every request field must reach ITS parameter of the service ----
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    void 성공_등록_요청의_카테고리와_나머지_필드가_서비스의_올바른_위치로_넘어간다() throws Exception {
+        Product created = new Product("이름값", "설명값", 5000, "http://img/new", 10);
+        ReflectionTestUtils.setField(created, "id", "new-id");
+        when(productService.createProduct(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(created);
+        String body = """
+                {"name":"이름값","description":"설명값","price":5000,"imageUrl":"http://img/new","stock":10,
+                 "category":"스포츠/레저","originalPrice":8000,"hashtags":["#여름"]}
+                """;
+
+        mockMvc.perform(post("/api/admin/products").contentType("application/json").content(body))
+                .andExpect(status().isOk());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<String>> tags = ArgumentCaptor.forClass(List.class);
+        // order: name, description, price, imageUrl, imageUrls, stock, category, originalPrice, hashtags, options
+        verify(productService).createProduct(eq("이름값"), eq("설명값"), eq(5000), eq("http://img/new"), isNull(), eq(10),
+                eq("스포츠/레저"), eq(8000), tags.capture(), isNull());
+        assertThat(tags.getValue()).containsExactly("#여름");
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    void 성공_등록_요청에_카테고리가_없거나_비어_있으면_그_값_그대로_넘기고_다른_필드로_새지_않는다() throws Exception {
+        Product created = new Product("이름값", "설명값", 5000, "http://img/new", 10);
+        ReflectionTestUtils.setField(created, "id", "new-id");
+        when(productService.createProduct(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(created);
+        String omitted = """
+                {"name":"이름값","description":"설명값","price":5000,"imageUrl":"http://img/new","stock":10}
+                """;
+        String blank = """
+                {"name":"이름값","description":"설명값","price":5000,"imageUrl":"http://img/new","stock":10,"category":"  "}
+                """;
+
+        mockMvc.perform(post("/api/admin/products").contentType("application/json").content(omitted)).andExpect(status().isOk());
+        mockMvc.perform(post("/api/admin/products").contentType("application/json").content(blank)).andExpect(status().isOk());
+
+        // the service normalizes blank to NULL; the controller must not invent or move a category
+        verify(productService).createProduct(eq("이름값"), eq("설명값"), eq(5000), eq("http://img/new"), isNull(), eq(10),
+                isNull(), isNull(), isNull(), isNull());
+        verify(productService).createProduct(eq("이름값"), eq("설명값"), eq(5000), eq("http://img/new"), isNull(), eq(10),
+                eq("  "), isNull(), isNull(), isNull());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    void 성공_수정_요청의_카테고리와_나머지_필드가_서비스의_올바른_위치로_넘어간다() throws Exception {
+        when(productService.updateProduct(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(edited("p1"));
+        String body = """
+                {"name":"이름값","description":"설명값","category":"스포츠/레저","hashtags":["x"],
+                 "imageUrls":["https://img.example.com/a.png"],"price":12000,"originalPrice":15000,"stock":8,"expectedStock":10}
+                """;
+
+        mockMvc.perform(put("/api/admin/products/p1").contentType("application/json").content(body))
+                .andExpect(status().isOk());
+
+        // order: id, name, description, category, hashtags, imageUrls, price, originalPrice, stock, expectedStock, options, actor
+        verify(productService).updateProduct(eq("p1"), eq("이름값"), eq("설명값"), eq("스포츠/레저"), any(), any(),
+                eq(12000), eq(15000), eq(8), eq(10), isNull(), any());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    void 성공_수정_요청에_카테고리가_없으면_null로_넘기고_설명으로_대신_넘기지_않는다() throws Exception {
+        when(productService.updateProduct(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(edited("p1"));
+        String body = """
+                {"name":"이름값","description":"설명값","imageUrls":["https://img.example.com/a.png"],
+                 "price":12000,"stock":8,"expectedStock":10}
+                """;
+
+        mockMvc.perform(put("/api/admin/products/p1").contentType("application/json").content(body))
+                .andExpect(status().isOk());
+
+        verify(productService).updateProduct(eq("p1"), eq("이름값"), eq("설명값"), isNull(), isNull(), any(),
+                eq(12000), isNull(), eq(8), eq(10), isNull(), any());
+    }
 }
