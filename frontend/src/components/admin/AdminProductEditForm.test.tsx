@@ -4,6 +4,17 @@ import userEvent from "@testing-library/user-event";
 import { AdminProductEditForm } from "./AdminProductEditForm";
 import { MAX_PRICE } from "@/lib/price";
 import type { ProductDetail } from "@/lib/api";
+import { SESSION_EXPIRED, uploadProductImage } from "@/lib/imageUpload";
+
+vi.mock("@/lib/imageUpload", async (orig) => ({
+  ...(await orig<typeof import("@/lib/imageUpload")>()),
+  uploadProductImage: vi.fn(),
+}));
+const upload = vi.mocked(uploadProductImage);
+const blobUrl = (name: string) => `https://blob.example.com/${name}`;
+const KEPT = " 기존 사진은 그대로예요."; // appended when the row already has a picture
+const BAD_TYPE = "JPG, PNG, WEBP 사진만 올릴 수 있어요." + KEPT;
+const FAILED = "사진을 올리지 못했어요. 잠시 뒤 다시 시도해 주세요.";
 
 const mocks = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn(), onReload: vi.fn(), logout: vi.fn() }));
 vi.mock("@/auth/AuthContext", () => ({
@@ -67,10 +78,18 @@ const saveButton = () => screen.getByRole("button", { name: /저장/ });
 const save = () => userEvent.click(saveButton());
 const set = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
 const input = (label: string) => screen.getByLabelText(label);
-const imageInputs = () => screen.getAllByLabelText(/^이미지 주소 \d+$/) as HTMLInputElement[];
+const pickers = () => screen.getAllByLabelText(/^(대표 이미지|이미지 \d+) 선택$/);
+// Rows without a picture (empty extra rows) show no thumbnail.
+const thumbnails = () => screen.queryAllByRole("img").map((i) => i.getAttribute("src"));
+const photo = (name: string, type = "image/jpeg") => new File(["x"], name, { type });
+const pickPhoto = (label: string, name: string) => userEvent.upload(input(label), photo(name));
+// user-event drops files that do not match `accept`; the guard must also hold when the browser lets one through.
+const pickAnyFile = (label: string, file: File) => userEvent.setup({ applyAccept: false }).upload(input(label), file);
 
 beforeEach(() => {
   vi.unstubAllGlobals();
+  upload.mockReset();
+  upload.mockImplementation(async (file) => blobUrl(file.name));
   mocks.push.mockClear();
   mocks.refresh.mockClear();
   mocks.onReload.mockClear();
@@ -95,7 +114,7 @@ describe("AdminProductEditForm 초기값", () => {
     expect(input("상품 설명")).toHaveValue("시원한 셔츠");
     expect(input("카테고리")).toHaveValue("상의");
     expect(input("해시태그 (최대 3개, 공백으로 구분)")).toHaveValue("여름 린넨");
-    expect(imageInputs().map((i) => i.value)).toEqual([A, B]);
+    expect(thumbnails()).toEqual([A, B]);
     expect(input("가격")).toHaveValue(8000);
     expect(input("정가 (선택)")).toHaveValue(10000);
     expect(input("재고 수량")).toHaveValue(10);
@@ -104,7 +123,7 @@ describe("AdminProductEditForm 초기값", () => {
 
   it("성공: images가 없으면 imageUrl 한 줄, 정가·카테고리·해시태그가 비어 있으면 빈 칸이다", () => {
     renderForm(plain({ images: undefined, originalPrice: null, category: null, hashtags: undefined }));
-    expect(imageInputs().map((i) => i.value)).toEqual([A]);
+    expect(thumbnails()).toEqual([A]);
     expect(input("정가 (선택)")).toHaveValue(null);
     expect(input("카테고리")).toHaveValue("");
     expect(input("해시태그 (최대 3개, 공백으로 구분)")).toHaveValue("");
@@ -114,7 +133,7 @@ describe("AdminProductEditForm 초기값", () => {
 
   it("성공: images가 빈 배열이어도 imageUrl로 채운다", () => {
     renderForm(plain({ images: [] }));
-    expect(imageInputs().map((i) => i.value)).toEqual([A]);
+    expect(thumbnails()).toEqual([A]);
   });
 
   it("성공: 목록에 없는 카테고리는 추가 선택지로 남아 선택돼 있다", () => {
@@ -253,25 +272,24 @@ describe("AdminProductEditForm 요청 본문", () => {
 });
 
 describe("AdminProductEditForm 이미지 줄", () => {
-  it("성공: 추가한 줄은 순서대로 보내고 앞뒤 공백은 잘라서 보낸다", async () => {
+  it("성공: 추가한 줄에 사진을 올리면 순서대로 보낸다", async () => {
     mockFetch();
     renderForm();
     await userEvent.click(screen.getByRole("button", { name: "이미지 추가" }));
-    expect(imageInputs()).toHaveLength(3);
-    expect(imageInputs()[2]).toHaveFocus();
-    fireEvent.change(imageInputs()[0], { target: { value: `  ${A}  ` } });
-    fireEvent.change(imageInputs()[2], { target: { value: `\t${C} ` } });
+    expect(pickers()).toHaveLength(3);
+    expect(pickers()[2]).toHaveFocus();
+    await pickPhoto("이미지 3 선택", "c.jpg");
+    await waitFor(() => expect(thumbnails()).toEqual([A, B, blobUrl("c.jpg")]));
     await save();
     await waitFor(() => expect(mocks.push).toHaveBeenCalled());
-    expect(sentBody().imageUrls).toEqual([A, B, C]);
+    expect(sentBody().imageUrls).toEqual([A, B, blobUrl("c.jpg")]);
   });
 
-  it("성공: 비어 있는 추가 줄은 보내지 않는다", async () => {
+  it("성공: 사진을 올리지 않은 추가 줄은 보내지 않는다", async () => {
     mockFetch();
     renderForm();
     await userEvent.click(screen.getByRole("button", { name: "이미지 추가" }));
     await userEvent.click(screen.getByRole("button", { name: "이미지 추가" }));
-    fireEvent.change(imageInputs()[3], { target: { value: "   " } });
     await save();
     await waitFor(() => expect(mocks.push).toHaveBeenCalled());
     expect(sentBody().imageUrls).toEqual([A, B]);
@@ -280,16 +298,17 @@ describe("AdminProductEditForm 이미지 줄", () => {
   it("성공: 10장에 닿으면 추가 버튼이 꺼지고 안내가 보인다 (9장까지는 켜져 있다)", async () => {
     renderForm();
     const add = screen.getByRole("button", { name: "이미지 추가" });
+    const limit = "이미지는 최대 10장까지 등록할 수 있어요.";
     for (let i = 0; i < 7; i++) await userEvent.click(add);
-    expect(imageInputs()).toHaveLength(9);
+    expect(pickers()).toHaveLength(9);
     expect(add).toBeEnabled();
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByText(limit)).not.toBeInTheDocument();
     await userEvent.click(add);
-    expect(imageInputs()).toHaveLength(10);
+    expect(pickers()).toHaveLength(10);
     expect(add).toBeDisabled();
-    expect(screen.getByRole("status")).toHaveTextContent("이미지는 최대 10장까지 등록할 수 있어요.");
+    expect(screen.getByText(limit)).toBeInTheDocument();
     await userEvent.click(add);
-    expect(imageInputs()).toHaveLength(10);
+    expect(pickers()).toHaveLength(10);
   });
 
   it("성공: 처음부터 10장인 상품은 추가 버튼이 꺼져 있고 10장 모두 보낸다", async () => {
@@ -302,11 +321,11 @@ describe("AdminProductEditForm 이미지 줄", () => {
     expect(sentBody().imageUrls).toEqual(urls);
   });
 
-  it("성공: 가운데 줄을 지워도 나머지 줄의 입력값이 그대로 남고 그 순서로 보낸다", async () => {
+  it("성공: 가운데 줄을 지워도 나머지 줄의 사진이 그대로 남고 그 순서로 보낸다", async () => {
     mockFetch();
     renderForm(plain({ images: [A, B, C] }));
-    await userEvent.click(screen.getByRole("button", { name: "이미지 주소 2 삭제" }));
-    expect(imageInputs().map((i) => i.value)).toEqual([A, C]);
+    await userEvent.click(screen.getByRole("button", { name: "이미지 2 삭제" }));
+    expect(thumbnails()).toEqual([A, C]);
     await save();
     await waitFor(() => expect(mocks.push).toHaveBeenCalled());
     expect(sentBody().imageUrls).toEqual([A, C]);
@@ -315,7 +334,7 @@ describe("AdminProductEditForm 이미지 줄", () => {
   it("성공: 첫 줄을 지우면 다음 줄이 대표 이미지가 된다", async () => {
     mockFetch();
     renderForm();
-    await userEvent.click(screen.getByRole("button", { name: "이미지 주소 1 삭제" }));
+    await userEvent.click(screen.getByRole("button", { name: "이미지 1 삭제" }));
     await save();
     await waitFor(() => expect(mocks.push).toHaveBeenCalled());
     expect(sentBody().imageUrls).toEqual([B]);
@@ -323,8 +342,8 @@ describe("AdminProductEditForm 이미지 줄", () => {
 
   it("성공: 줄이 2개 이상일 때만 삭제 버튼이 있고, 하나 남으면 사라진다", async () => {
     renderForm();
-    expect(screen.getAllByRole("button", { name: /^이미지 주소 \d 삭제$/ })).toHaveLength(2);
-    await userEvent.click(screen.getByRole("button", { name: "이미지 주소 2 삭제" }));
+    expect(screen.getAllByRole("button", { name: /^이미지 \d 삭제$/ })).toHaveLength(2);
+    await userEvent.click(screen.getByRole("button", { name: "이미지 2 삭제" }));
     expect(screen.queryByRole("button", { name: /삭제$/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /이동$/ })).not.toBeInTheDocument();
   });
@@ -399,19 +418,31 @@ describe("AdminProductEditForm 검증 (요청을 보내지 않고 첫 잘못된 
     await expectBlocked("해시태그 (최대 3개, 공백으로 구분)", "해시태그는 글자, 숫자, 밑줄(_)만 쓸 수 있어요.");
   });
 
-  it("실패: 첫 번째 이미지 주소가 비어 있으면 오류 (공백뿐이어도)", async () => {
+  it("실패: 대표 이미지가 비어 있으면 오류, 사진을 올리면 오류가 사라지고 저장된다 (둘째 줄에 사진이 있어도)", async () => {
     mockFetch();
-    renderForm();
-    fireEvent.change(imageInputs()[0], { target: { value: "   " } });
-    await expectBlocked("이미지 주소 1", "첫 번째 이미지 주소를 입력해 주세요.");
+    renderForm(plain({ images: ["", B] }));
+    await expectBlocked("대표 이미지 선택", "대표 이미지를 올려 주세요.");
+    await pickPhoto("대표 이미지 선택", "new.jpg");
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    await save();
+    await waitFor(() => expect(mocks.push).toHaveBeenCalled());
+    expect(sentBody().imageUrls).toEqual([blobUrl("new.jpg"), B]);
   });
 
-  it("실패: 같은 이미지 주소를 또 쓰면 뒤쪽 줄에 오류 (공백을 잘라 비교)", async () => {
+  it("실패: 이미지가 하나도 없는 상품도 대표 이미지를 올리기 전에는 저장할 수 없다", async () => {
     mockFetch();
-    renderForm();
-    fireEvent.change(imageInputs()[1], { target: { value: ` ${A} ` } });
-    await expectBlocked("이미지 주소 2", "이미 입력한 이미지 주소예요.");
-    expect(input("이미지 주소 1")).not.toHaveAttribute("aria-invalid");
+    renderForm(plain({ images: undefined, imageUrl: "" }));
+    await expectBlocked("대표 이미지 선택", "대표 이미지를 올려 주세요.");
+  });
+
+  it("실패: 저장해 둔 목록에 같은 주소가 두 번 있으면 뒤쪽 줄에 오류, 줄을 지우면 사라진다", async () => {
+    mockFetch();
+    renderForm(plain({ images: [A, A] }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await expectBlocked("이미지 2 선택", "이미 올린 사진이에요.");
+    expect(input("대표 이미지 선택")).not.toHaveAttribute("aria-invalid");
+    await userEvent.click(screen.getByRole("button", { name: "이미지 2 삭제" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("실패: 가격이 비었거나 음수·소수·최댓값 초과이면 오류, 0과 최댓값은 통과", async () => {
@@ -532,9 +563,9 @@ describe("AdminProductEditForm 저장", () => {
     expect(saveButton()).toHaveTextContent("저장 중...");
     expect(saveButton()).toBeDisabled();
     expect(mocks.push).not.toHaveBeenCalled();
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByText("저장했어요. 상품 목록으로 돌아가요.")).not.toBeInTheDocument();
     await act(async () => finish());
-    expect(screen.getByRole("status")).toHaveTextContent("저장했어요. 상품 목록으로 돌아가요.");
+    expect(screen.getByText("저장했어요. 상품 목록으로 돌아가요.")).toBeInTheDocument();
     expect(mocks.push).toHaveBeenCalledWith("/admin/products");
     expect(mocks.refresh).toHaveBeenCalledTimes(1);
     // stays locked until the route changes: no second PUT
@@ -698,80 +729,160 @@ describe("AdminProductEditForm 저장", () => {
   });
 });
 
-describe("AdminProductEditForm 이미지 주소 형식", () => {
-  const SCHEME = "이미지 주소는 http:// 또는 https://로 시작해야 해요.";
+describe("AdminProductEditForm 이미지 올리기", () => {
+  // A pick that stays pending until resolved/rejected, to look at the state while uploading.
+  function pendingUpload() {
+    let resolve: (url: string) => void = () => {};
+    let reject: (e: Error) => void = () => {};
+    upload.mockImplementationOnce(
+      () =>
+        new Promise<string>((res, rej) => {
+          resolve = res;
+          reject = rej;
+        })
+    );
+    return { resolve: (url: string) => act(async () => resolve(url)), reject: (e: Error) => act(async () => reject(e)) };
+  }
 
-  it("실패: http(s)로 시작하지 않으면 그 줄에 오류를 붙이고 요청하지 않고 그 줄로 커서를 보낸다", async () => {
-    for (const bad of ["ftp://example.com/a.jpg", "example.com/a.jpg", "javascript:alert(1)", "httpx://example.com/a.jpg", "http:/example.com/a.jpg", "httpexample.com", "//example.com/a.jpg", "data:image/png;base64,AAAA"]) {
-      mockFetch();
-      const { unmount } = renderForm();
-      fireEvent.change(imageInputs()[1], { target: { value: bad } });
-      await save();
-      expect(fetch).not.toHaveBeenCalled();
-      expect(input("이미지 주소 2")).toHaveAttribute("aria-invalid", "true");
-      expect(input("이미지 주소 2")).toHaveAccessibleDescription(SCHEME);
-      expect(input("이미지 주소 2")).toHaveFocus();
-      expect(input("이미지 주소 1")).not.toHaveAttribute("aria-invalid");
-      unmount();
-    }
-  });
-
-  it("실패: 대표(첫) 이미지의 잘못된 형식도 막고, 오류가 둘이면 앞쪽 줄로 간다", async () => {
-    mockFetch();
-    renderForm(plain({ images: [A, B, C] }));
-    fireEvent.change(imageInputs()[2], { target: { value: "ftp://x/c.jpg" } });
-    fireEvent.change(imageInputs()[1], { target: { value: "ftp://x/b.jpg" } });
-    await save();
-    expect(input("이미지 주소 2")).toHaveFocus();
-    expect(screen.getAllByRole("alert").map((a) => a.textContent)).toEqual([SCHEME, SCHEME]);
-    fireEvent.change(imageInputs()[0], { target: { value: "www.example.com" } });
-    await save();
-    expect(input("이미지 주소 1")).toHaveFocus();
-    expect(input("이미지 주소 1")).toHaveAccessibleDescription(SCHEME);
-    expect(fetch).not.toHaveBeenCalled();
-  });
-
-  it("성공: 오류는 저장을 누르기 전에는 보이지 않고, 주소를 고치면 사라진다", async () => {
+  it("성공: 사진을 올리면 로그인 토큰으로 올리고 그 줄의 사진이 바뀌며 새 주소로 저장한다", async () => {
     mockFetch();
     renderForm();
-    fireEvent.change(imageInputs()[1], { target: { value: "ftp://x/b.jpg" } });
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(input("이미지 주소 2")).not.toHaveAttribute("aria-invalid");
-    await save();
-    expect(screen.getByRole("alert")).toHaveTextContent(SCHEME);
-    fireEvent.change(imageInputs()[1], { target: { value: B } });
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    const file = photo("new.jpg");
+    await userEvent.upload(input("대표 이미지 선택"), file);
+    await waitFor(() => expect(thumbnails()).toEqual([blobUrl("new.jpg"), B]));
+    expect(upload).toHaveBeenCalledWith(file, "fake-token", expect.any(AbortSignal));
     await save();
     await waitFor(() => expect(mocks.push).toHaveBeenCalled());
+    expect(sentBody().imageUrls).toEqual([blobUrl("new.jpg"), B]);
   });
 
-  it("성공: 대문자 HTTP://와 Https://, 앞뒤 공백이 있는 주소는 받아들인다", async () => {
+  it("성공: 올리지 않은 예전 주소의 사진도 미리보기가 보이고 그대로 저장된다", async () => {
     mockFetch();
     renderForm();
-    fireEvent.change(imageInputs()[0], { target: { value: " HTTP://EXAMPLE.com/a.jpg " } });
-    fireEvent.change(imageInputs()[1], { target: { value: "Https://example.com/b.jpg" } });
-    await save();
-    await waitFor(() => expect(mocks.push).toHaveBeenCalled());
-    expect(sentBody().imageUrls).toEqual(["HTTP://EXAMPLE.com/a.jpg", "Https://example.com/b.jpg"]);
-  });
-
-  it("성공: 비어 있는 추가 줄은 오류 없이 빠진다 (형식 검사 대상이 아니다)", async () => {
-    mockFetch();
-    renderForm();
-    await userEvent.click(screen.getByRole("button", { name: "이미지 추가" }));
+    expect(screen.getByAltText("이미지 1 미리보기")).toHaveAttribute("src", A);
+    expect(upload).not.toHaveBeenCalled();
     await save();
     await waitFor(() => expect(mocks.push).toHaveBeenCalled());
     expect(sentBody().imageUrls).toEqual([A, B]);
   });
 
-  it("실패: 형식이 틀린 같은 주소가 두 번이면 뒤쪽 줄에는 형식 오류가 중복 오류보다 먼저 나온다", async () => {
+  it("실패: JPG/PNG/WEBP가 아닌 파일은 안내만 보이고 올리지 않으며 기존 사진은 그대로다", async () => {
+    renderForm();
+    await pickAnyFile("대표 이미지 선택", photo("note.txt", "text/plain"));
+    expect(screen.getByText(BAD_TYPE)).toBeInTheDocument();
+    expect(input("대표 이미지 선택")).toHaveAccessibleDescription(BAD_TYPE);
+    expect(upload).not.toHaveBeenCalled();
+    expect(thumbnails()).toEqual([A, B]);
+  });
+
+  it("실패: 5MB를 넘는 파일은 안내만 보이고 올리지 않는다", async () => {
+    renderForm();
+    const big = photo("big.jpg");
+    Object.defineProperty(big, "size", { value: 5 * 1024 * 1024 + 1 });
+    await userEvent.upload(input("이미지 2 선택"), big);
+    expect(screen.getByText("사진은 5MB 이하만 올릴 수 있어요." + KEPT)).toBeInTheDocument();
+    expect(upload).not.toHaveBeenCalled();
+    expect(thumbnails()).toEqual([A, B]);
+  });
+
+  it("실패: 올리기에 실패하면 안내를 보이고 기존 사진은 그대로이며, 다시 올리면 안내가 사라진다", async () => {
+    upload.mockRejectedValueOnce(new Error(FAILED));
+    renderForm();
+    await userEvent.upload(input("대표 이미지 선택"), photo("new.jpg"));
+    expect(await screen.findByText(FAILED + KEPT)).toBeInTheDocument();
+    expect(thumbnails()).toEqual([A, B]);
+
+    await userEvent.upload(input("대표 이미지 선택"), photo("new.jpg"));
+    await waitFor(() => expect(thumbnails()).toEqual([blobUrl("new.jpg"), B]));
+    expect(screen.queryByText(FAILED + KEPT)).not.toBeInTheDocument();
+    expect(screen.getByText("사진을 올렸어요.")).toBeInTheDocument();
+  });
+
+  it("실패: 로그인 만료로 올리지 못하면 그 안내를 보여 주고 기존 사진은 그대로다", async () => {
+    upload.mockRejectedValueOnce(new Error(SESSION_EXPIRED));
+    renderForm();
+    await userEvent.upload(input("이미지 2 선택"), photo("b2.jpg"));
+    expect(await screen.findByText(SESSION_EXPIRED + KEPT)).toBeInTheDocument();
+    expect(thumbnails()).toEqual([A, B]);
+  });
+
+  it("성공: 저장 요청을 보내는 동안에는 파일 선택이 꺼져 있다", async () => {
+    const { finish } = pendingFetch();
+    renderForm();
+    expect(input("대표 이미지 선택")).toBeEnabled();
+    await save();
+    expect(input("대표 이미지 선택")).toBeDisabled();
+    expect(input("이미지 2 선택")).toBeDisabled();
+    await act(async () => finish());
+  });
+
+  it("성공: 올리고 나면 '사진을 올렸어요.'가 보이고 저장하기는 켜져 있으며, 그 줄을 지우면 안내도 사라진다", async () => {
+    renderForm();
+    await pickPhoto("이미지 2 선택", "b2.jpg");
+    expect(await screen.findByText("사진을 올렸어요.")).toBeInTheDocument();
+    expect(saveButton()).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "이미지 2 삭제" }));
+    expect(screen.queryByText("사진을 올렸어요.")).not.toBeInTheDocument();
+  });
+
+  it("성공: 올리는 중에는 저장하기가 꺼져 있고 저장해도 요청하지 않으며, 끝나면 켜진다", async () => {
     mockFetch();
     renderForm();
-    fireEvent.change(imageInputs()[0], { target: { value: "ftp://x/a.jpg" } });
-    fireEvent.change(imageInputs()[1], { target: { value: "ftp://x/a.jpg" } });
+    const pending = pendingUpload();
+    await userEvent.upload(input("이미지 2 선택"), photo("b2.jpg"));
+    expect(screen.getByText("올리는 중이에요...")).toBeInTheDocument();
+    expect(saveButton()).toBeDisabled();
+    fireEvent.submit(saveButton().closest("form")!);
+    expect(fetch).not.toHaveBeenCalled();
+
+    await pending.resolve(blobUrl("b2.jpg"));
+    expect(saveButton()).toBeEnabled();
     await save();
-    expect(input("이미지 주소 2")).toHaveAccessibleDescription(SCHEME);
-    expect(screen.queryByText("이미 입력한 이미지 주소예요.")).not.toBeInTheDocument();
+    await waitFor(() => expect(mocks.push).toHaveBeenCalled());
+    expect(sentBody().imageUrls).toEqual([A, blobUrl("b2.jpg")]);
+  });
+
+  it("실패: 올리기가 실패해도 저장하기는 다시 켜진다", async () => {
+    renderForm();
+    const pending = pendingUpload();
+    await userEvent.upload(input("이미지 2 선택"), photo("b2.jpg"));
+    expect(saveButton()).toBeDisabled();
+    await pending.reject(new Error(FAILED));
+    expect(saveButton()).toBeEnabled();
+  });
+
+  it("성공: 올리는 중에 그 줄을 지우면 취소되고 저장하기가 다시 켜진다 (늦은 응답 처리는 훅 테스트에서 확인)", async () => {
+    renderForm();
+    const pending = pendingUpload();
+    await userEvent.upload(input("이미지 2 선택"), photo("b2.jpg"));
+    const signal = upload.mock.calls[0][2]!;
+    await userEvent.click(screen.getByRole("button", { name: "이미지 2 삭제" }));
+    expect(signal.aborted).toBe(true);
+    expect(saveButton()).toBeEnabled();
+    await pending.resolve(blobUrl("b2.jpg"));
+    expect(thumbnails()).toEqual([A]);
+    expect(screen.queryByText("올리는 중이에요...")).not.toBeInTheDocument();
+  });
+
+  it("성공: 올리는 중에 줄을 옮겨도 늦게 끝난 사진은 옮겨진 같은 줄에 들어간다", async () => {
+    renderForm();
+    const pending = pendingUpload();
+    await userEvent.upload(input("이미지 2 선택"), photo("b2.jpg"));
+    await userEvent.click(screen.getByRole("button", { name: "이미지 2 위로 이동" }));
+    await pending.resolve(blobUrl("b2.jpg"));
+    expect(thumbnails()).toEqual([blobUrl("b2.jpg"), A]);
+  });
+
+  it("성공: 같은 줄에 다시 올리면 앞서 올리던 것은 취소되고 나중 사진만 남는다", async () => {
+    renderForm();
+    const first = pendingUpload();
+    await userEvent.upload(input("이미지 2 선택"), photo("slow.jpg"));
+    const firstSignal = upload.mock.calls[0][2]!;
+    await userEvent.upload(input("이미지 2 선택"), photo("fast.jpg"));
+    expect(firstSignal.aborted).toBe(true);
+    await waitFor(() => expect(thumbnails()).toEqual([A, blobUrl("fast.jpg")]));
+    await first.resolve(blobUrl("slow.jpg"));
+    expect(thumbnails()).toEqual([A, blobUrl("fast.jpg")]);
   });
 });
 
@@ -783,7 +894,7 @@ describe("AdminProductEditForm 이미지 순서", () => {
     renderForm();
     expect(screen.getByText("위로·아래로 버튼으로 순서를 바꿀 수 있어요.")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^이미지 \d+ (위로|아래로) 이동$/ })).toHaveLength(4);
-    await userEvent.click(screen.getByRole("button", { name: "이미지 주소 2 삭제" }));
+    await userEvent.click(screen.getByRole("button", { name: "이미지 2 삭제" }));
     expect(screen.queryByRole("button", { name: /(위로|아래로) 이동$/ })).not.toBeInTheDocument();
   });
 
@@ -801,26 +912,25 @@ describe("AdminProductEditForm 이미지 순서", () => {
     mockFetch();
     renderForm(plain({ images: [A, B, C] }));
     await userEvent.click(move(3, "위로"));
-    expect(imageInputs().map((i) => i.value)).toEqual([A, C, B]);
+    expect(thumbnails()).toEqual([A, C, B]);
     await userEvent.click(move(1, "아래로"));
-    expect(imageInputs().map((i) => i.value)).toEqual([C, A, B]);
+    expect(thumbnails()).toEqual([C, A, B]);
     await save();
     await waitFor(() => expect(mocks.push).toHaveBeenCalled());
     expect(sentBody().imageUrls).toEqual([C, A, B]);
   });
 
-  it("성공: 옮기기 전에 고친 내용과 옮긴 뒤에 입력한 내용이 사라지지 않는다", async () => {
+  it("성공: 옮기기 전에 바꾼 사진과 옮긴 뒤에 바꾼 사진이 사라지지 않는다", async () => {
     mockFetch();
     renderForm(plain({ images: [A, B] }));
-    fireEvent.change(imageInputs()[1], { target: { value: `${B}?v=2` } });
+    await pickPhoto("이미지 2 선택", "b2.jpg");
     await userEvent.click(move(2, "위로"));
-    expect(imageInputs().map((i) => i.value)).toEqual([`${B}?v=2`, A]);
-    await userEvent.click(imageInputs()[0]);
-    await userEvent.type(imageInputs()[0], "&x=1");
-    expect(imageInputs().map((i) => i.value)).toEqual([`${B}?v=2&x=1`, A]);
+    expect(thumbnails()).toEqual([blobUrl("b2.jpg"), A]);
+    await pickPhoto("대표 이미지 선택", "b3.jpg");
+    expect(thumbnails()).toEqual([blobUrl("b3.jpg"), A]);
     await save();
     await waitFor(() => expect(mocks.push).toHaveBeenCalled());
-    expect(sentBody().imageUrls).toEqual([`${B}?v=2&x=1`, A]);
+    expect(sentBody().imageUrls).toEqual([blobUrl("b3.jpg"), A]);
   });
 
   it("성공: 옮긴 줄의 같은 방향 버튼에 커서가 남고, 그 버튼이 꺼지면 반대쪽 버튼으로 간다", async () => {
@@ -836,53 +946,52 @@ describe("AdminProductEditForm 이미지 순서", () => {
     expect(move(4, "위로")).toHaveFocus();
   });
 
-  it("성공: 옮긴 줄의 URL과 오류 표시가 함께 움직인다", async () => {
+  it("성공: 옮긴 줄의 올리기 안내와 중복 오류 표시가 함께 움직인다", async () => {
     mockFetch();
     renderForm(plain({ images: [A, B] }));
-    fireEvent.change(imageInputs()[1], { target: { value: "ftp://x/b.jpg" } });
-    await save();
-    expect(input("이미지 주소 2")).toHaveAccessibleDescription("이미지 주소는 http:// 또는 https://로 시작해야 해요.");
+    await pickAnyFile("이미지 2 선택", photo("note.txt", "text/plain"));
+    expect(input("이미지 2 선택")).toHaveAccessibleDescription(BAD_TYPE);
     await userEvent.click(move(2, "위로"));
-    expect(input("이미지 주소 1")).toHaveValue("ftp://x/b.jpg");
-    expect(input("이미지 주소 1")).toHaveAccessibleDescription("이미지 주소는 http:// 또는 https://로 시작해야 해요.");
-    expect(input("이미지 주소 2")).not.toHaveAttribute("aria-invalid");
+    expect(input("대표 이미지 선택")).toHaveAccessibleDescription(BAD_TYPE);
+    expect(input("이미지 2 선택")).not.toHaveAttribute("aria-invalid");
+    expect(thumbnails()).toEqual([B, A]);
   });
 
-  it("성공: 줄을 지우면 앞 줄의 입력칸에, 첫 줄을 지우면 새 첫 줄에 커서가 간다", async () => {
+  it("성공: 줄을 지우면 앞 줄의 파일 선택에, 첫 줄을 지우면 새 첫 줄에 커서가 간다", async () => {
     renderForm(plain({ images: [A, B, C] }));
-    await userEvent.click(screen.getByRole("button", { name: "이미지 주소 2 삭제" }));
-    expect(input("이미지 주소 1")).toHaveFocus();
-    await userEvent.click(screen.getByRole("button", { name: "이미지 주소 1 삭제" }));
-    expect(imageInputs().map((i) => i.value)).toEqual([C]);
-    expect(input("이미지 주소 1")).toHaveFocus();
+    await userEvent.click(screen.getByRole("button", { name: "이미지 2 삭제" }));
+    expect(input("대표 이미지 선택")).toHaveFocus();
+    await userEvent.click(screen.getByRole("button", { name: "이미지 1 삭제" }));
+    expect(thumbnails()).toEqual([C]);
+    expect(input("대표 이미지 선택")).toHaveFocus();
   });
 
-  it("성공: 줄을 추가하면 새 마지막 줄에 커서가 가고, 바로 입력한 내용이 그대로 남는다", async () => {
+  it("성공: 줄을 추가하면 새 마지막 줄에 커서가 가고, 바로 올린 사진이 그대로 남는다", async () => {
     mockFetch();
     renderForm();
     await userEvent.click(screen.getByRole("button", { name: "이미지 추가" }));
-    expect(imageInputs()[2]).toHaveFocus();
-    await userEvent.keyboard(C);
-    expect(imageInputs().map((i) => i.value)).toEqual([A, B, C]);
+    expect(pickers()[2]).toHaveFocus();
+    await pickPhoto("이미지 3 선택", "c.jpg");
+    expect(thumbnails()).toEqual([A, B, blobUrl("c.jpg")]);
     await save();
     await waitFor(() => expect(mocks.push).toHaveBeenCalled());
-    expect(sentBody().imageUrls).toEqual([A, B, C]);
+    expect(sentBody().imageUrls).toEqual([A, B, blobUrl("c.jpg")]);
   });
 
-  it("성공: 같은 순간의 추가 두 번과 두 줄 입력도 모두 반영된다 (직전 상태 기준으로 계산)", async () => {
+  it("성공: 같은 순간의 추가 두 번과 두 줄 올리기도 모두 반영된다 (직전 상태 기준으로 계산)", async () => {
     renderForm();
     const add = screen.getByRole("button", { name: "이미지 추가" });
     await act(async () => {
       fireEvent.click(add);
       fireEvent.click(add);
     });
-    expect(imageInputs()).toHaveLength(4);
-    const [first, second] = imageInputs();
+    expect(pickers()).toHaveLength(4);
+    const [first, second] = pickers();
     await act(async () => {
-      fireEvent.change(first, { target: { value: `${A}?1` } });
-      fireEvent.change(second, { target: { value: `${B}?2` } });
+      fireEvent.change(first, { target: { files: [photo("x1.jpg")] } });
+      fireEvent.change(second, { target: { files: [photo("x2.jpg")] } });
     });
-    expect(imageInputs().slice(0, 2).map((i) => i.value)).toEqual([`${A}?1`, `${B}?2`]);
+    expect(thumbnails()).toEqual([blobUrl("x1.jpg"), blobUrl("x2.jpg")]);
   });
 
   it("성공: 연달아 두 번 눌러도 둘 다 반영된다 (직전 상태 기준으로 계산)", async () => {
@@ -894,7 +1003,7 @@ describe("AdminProductEditForm 이미지 순서", () => {
       fireEvent.click(up2);
     });
     // C moves above B -> [A, C, B]; then B (now last) moves above C -> [A, B, C]. A stale snapshot would give [B, A, C].
-    expect(imageInputs().map((i) => i.value)).toEqual([A, B, C]);
+    expect(thumbnails()).toEqual([A, B, C]);
   });
 });
 

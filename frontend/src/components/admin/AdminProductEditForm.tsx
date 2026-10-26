@@ -15,10 +15,9 @@ import { CATEGORIES } from "@/lib/categories";
 import { parseHashtags } from "@/lib/hashtags";
 import { validateOptionRows } from "@/lib/adminOptions";
 import { optionLabel, optionsOf } from "@/lib/options";
+import { IMAGE_HINT, ImagePicker, useImageUploads } from "./ImageUploader";
 
 const MAX_IMAGES = 10;
-// The server rejects any other scheme.
-const HTTP_URL = /^https?:\/\//i;
 
 // One price/original price/stock line: the single line of a product without options, or one option.
 type PriceRow = {
@@ -51,6 +50,7 @@ type Props = { product: ProductDetail; token: string; onReload: () => void };
 export function AdminProductEditForm({ product, token, onReload }: Props) {
   const router = useRouter();
   const { logout } = useAuth();
+  const uploads = useImageUploads(token);
   const options = optionsOf(product.options);
   const hasOptions = options.length > 0;
   const [name, setName] = useState(product.name);
@@ -108,12 +108,12 @@ export function AdminProductEditForm({ product, token, onReload }: Props) {
   const descriptionError =
     description.trim() === "" ? "상품 설명을 입력해 주세요." : description.length > 2000 ? "상품 설명은 2000자 이하로 입력해 주세요." : null;
   const rowErrors = checkRows(rows);
-  // Trimmed once; blank extra rows are dropped on save, a repeated address is flagged on the later row.
+  // Trimmed once; empty extra rows are dropped on save. Uploads never repeat, but a saved product may already
+  // hold the same address twice, so that is still flagged on the later row.
   const imageUrls = imageRows.map((row) => row.url.trim());
   const duplicateRow = (i: number) => imageUrls[i] !== "" && imageUrls.indexOf(imageUrls[i]) < i;
-  const badScheme = (i: number) => imageUrls[i] !== "" && !HTTP_URL.test(imageUrls[i]);
-  const firstImageProblem = imageUrls.findIndex((_, i) => badScheme(i) || duplicateRow(i));
-  const firstImageError = imageUrls[0] === "" ? "첫 번째 이미지 주소를 입력해 주세요." : null;
+  const firstImageProblem = imageUrls.findIndex((_, i) => duplicateRow(i));
+  const firstImageError = imageUrls[0] === "" ? "대표 이미지를 올려 주세요." : null;
 
   const rowId = (i: number, field: string) => (hasOptions ? `edit-option-${i}-${field}` : `edit-${field}`);
   const show = <T,>(v: T) => (tried ? v : undefined);
@@ -129,6 +129,7 @@ export function AdminProductEditForm({ product, token, onReload }: Props) {
   }
 
   function removeImageRow(key: number) {
+    uploads.cancel(key);
     // Set by the updater, which has run by the time the focus callback does (after the re-render).
     let removedAt = 0;
     focusAfter.current = (rs) => (rs.length > 0 ? `edit-image-${rs[Math.max(removedAt - 1, 0)].key}` : undefined);
@@ -161,7 +162,7 @@ export function AdminProductEditForm({ product, token, onReload }: Props) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (submitLock.current) return;
+    if (submitLock.current || uploads.busy) return;
     setTried(true);
     setError("");
     setCanReload(false);
@@ -316,28 +317,22 @@ export function AdminProductEditForm({ product, token, onReload }: Props) {
         </div>
         <fieldset className="flex flex-col gap-2">
           <legend className="text-sm font-medium mb-1">상품 이미지 (첫 번째가 대표 이미지, 최대 {MAX_IMAGES}장)</legend>
+          <p className="text-sm text-gray-600">{IMAGE_HINT}</p>
           <p className="text-sm text-gray-600">위로·아래로 버튼으로 순서를 바꿀 수 있어요.</p>
           {imageRows.map((row, i) => {
             const message =
-              show(i === 0 ? firstImageError : null) ??
-              (show(badScheme(i))
-                ? "이미지 주소는 http:// 또는 https://로 시작해야 해요."
-                : show(duplicateRow(i))
-                  ? "이미 입력한 이미지 주소예요."
-                  : null);
+              show(i === 0 ? firstImageError : null) ?? (show(duplicateRow(i)) ? "이미 올린 사진이에요." : null);
             return (
               <div key={row.key}>
-                <div className="flex gap-2">
-                  <label htmlFor={`edit-image-${row.key}`} className="sr-only">{`이미지 주소 ${i + 1}`}</label>
-                  <input
+                <div className="flex items-start gap-2">
+                  <ImagePicker
                     id={`edit-image-${row.key}`}
-                    className="min-w-0 flex-1 border rounded px-3 py-2 text-sm"
-                    placeholder={i === 0 ? "이미지 주소 (대표 이미지)" : `이미지 주소 ${i + 1}`}
-                    value={row.url}
-                    onChange={(e) => changeImageUrl(row.key, e.target.value)}
-                    maxLength={2000}
-                    aria-invalid={message ? true : undefined}
-                    aria-describedby={message ? `edit-image-${row.key}-error` : undefined}
+                    index={i + 1}
+                    url={row.url}
+                    status={uploads.status[row.key]}
+                    disabled={submitting}
+                    describedBy={message ? `edit-image-${row.key}-error` : undefined}
+                    onFile={(file) => uploads.pick(row.key, file, (url) => changeImageUrl(row.key, url))}
                   />
                   {imageRows.length > 1 && (
                     <>
@@ -364,7 +359,7 @@ export function AdminProductEditForm({ product, token, onReload }: Props) {
                       <button
                         type="button"
                         onClick={() => removeImageRow(row.key)}
-                        aria-label={`이미지 주소 ${i + 1} 삭제`}
+                        aria-label={`이미지 ${i + 1} 삭제`}
                         className="shrink-0 border rounded px-3 text-sm"
                       >
                         삭제
@@ -426,7 +421,7 @@ export function AdminProductEditForm({ product, token, onReload }: Props) {
             새로고침
           </button>
         )}
-        <button type="submit" disabled={submitting || stale} className="bg-black text-white rounded py-3 disabled:opacity-50">
+        <button type="submit" disabled={submitting || stale || uploads.busy} className="bg-black text-white rounded py-3 disabled:opacity-50">
           {submitting ? "저장 중..." : "저장하기"}
         </button>
       </form>

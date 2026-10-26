@@ -198,6 +198,7 @@ graph LR
 | 프론트엔드 | Vercel (Hobby) | `main` 머지 시 자동 배포, Root Directory `frontend`, `NEXT_PUBLIC_BACKEND_URL`로 백엔드 주소 지정 |
 | 백엔드 | Cloud Run (`us-east1`) | Docker 이미지(`backend/Dockerfile`, 멀티스테이지·non-root), 배포 후 스모크 테스트 |
 | DB | Neon Postgres | 기동 시 Flyway가 마이그레이션 실행 |
+| 상품 사진 | Vercel Blob | 관리자가 파일로 올리면 브라우저에서 Blob으로 직접 업로드, 백엔드엔 주소만 저장. 설정은 [docs/image-upload-setup.md](docs/image-upload-setup.md) |
 | 시크릿 | GCP Secret Manager | DB 접속 정보, `JWT_SECRET`, `ADMIN_PASSWORD`, `SELLER_PASSWORD` |
 
 - **머지 게이트**: `main`은 보호되어 있고, 백엔드(`test`)·프론트(`build-and-test`) CI가 모두 초록불이어야 머지할 수 있습니다(관리자 포함). CI 워크플로에는 `paths` 필터를 두지 않았습니다 — 필수 체크가 필터에 걸려 아예 실행되지 않으면 GitHub이 그 체크를 영원히 "대기"로 두어 문서만 고친 PR도 머지가 막히기 때문입니다.

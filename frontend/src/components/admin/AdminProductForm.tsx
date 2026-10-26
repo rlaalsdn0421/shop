@@ -16,6 +16,7 @@ import {
   type OptionRow,
 } from "@/lib/adminOptions";
 import { MAX_PRICE, formatWon } from "@/lib/price";
+import { IMAGE_HINT, ImagePicker, useImageUploads } from "./ImageUploader";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080";
 const MAX_IMAGES = 10;
@@ -55,6 +56,7 @@ export function AdminProductForm() {
   // Rows keep a stable key so deleting a middle row does not hand its input to the next one.
   const [imageRows, setImageRows] = useState([{ key: 0, url: "" }]);
   const nextRowKey = useRef(1);
+  const uploads = useImageUploads(session?.token ?? "");
   const imageInputs = useRef<(HTMLInputElement | null)[]>([]);
   const focusRow = useRef<number | null>(null);
   // Options: when on, the rows below replace the single price / original price / stock inputs.
@@ -92,10 +94,8 @@ export function AdminProductForm() {
           ? "정가는 판매가보다 커야 해요."
           : null;
 
-  // Trimmed once; blank extra rows are dropped on submit, a repeated address is flagged on the later row.
-  const imageUrls = imageRows.map((row) => row.url.trim());
-  const duplicateRow = (i: number) => imageUrls[i] !== "" && imageUrls.indexOf(imageUrls[i]) < i;
-  const firstDuplicate = imageUrls.findIndex((_, i) => duplicateRow(i));
+  // Rows without an uploaded image are dropped on submit. Uploads get a random name, so no duplicate check.
+  const imageUrls = imageRows.map((row) => row.url);
 
   const dims = { useColor, useSize };
   const optionErrors = useOptions ? validateOptionRows(optionRows, dims) : [];
@@ -121,6 +121,7 @@ export function AdminProductForm() {
   }
 
   function removeImageRow(index: number) {
+    uploads.cancel(imageRows[index].key);
     focusRow.current = Math.max(index - 1, 0);
     setImageRows(imageRows.filter((_, i) => i !== index));
   }
@@ -144,6 +145,7 @@ export function AdminProductForm() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (uploads.busy) return;
     setError("");
     if (useOptions) {
       setOptionsTried(true);
@@ -174,12 +176,8 @@ export function AdminProductForm() {
       return;
     }
     if (imageUrls[0] === "") {
-      setError("첫 번째 이미지 주소를 입력해 주세요.");
+      setError("대표 이미지를 올려 주세요.");
       imageInputs.current[0]?.focus();
-      return;
-    }
-    if (firstDuplicate >= 0) {
-      imageInputs.current[firstDuplicate]?.focus();
       return;
     }
     const urls = imageUrls.filter(Boolean);
@@ -430,43 +428,36 @@ export function AdminProductForm() {
         </div>
         <fieldset className="flex flex-col gap-2">
           <legend className="sr-only">상품 이미지 (첫 번째가 대표 이미지, 최대 {MAX_IMAGES}장)</legend>
-          {imageRows.map((row, i) => {
-            const duplicate = duplicateRow(i);
-            return (
-              <div key={row.key}>
-                <div className="flex gap-2">
-                  <label htmlFor={`product-image-${row.key}`} className="sr-only">{`이미지 주소 ${i + 1}`}</label>
-                  <input
-                    id={`product-image-${row.key}`}
-                    ref={(el) => {
-                      imageInputs.current[i] = el;
-                    }}
-                    className="min-w-0 flex-1 border rounded px-3 py-2 text-sm"
-                    placeholder={i === 0 ? "이미지 주소 (대표 이미지)" : `이미지 주소 ${i + 1}`}
-                    value={row.url}
-                    onChange={(e) =>
-                      setImageRows(imageRows.map((r) => (r.key === row.key ? { ...r, url: e.target.value } : r)))
-                    }
-                    maxLength={2000}
-                    required={i === 0}
-                    aria-invalid={duplicate ? true : undefined}
-                    aria-describedby={duplicate ? `product-image-${row.key}-error` : undefined}
-                  />
-                  {imageRows.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeImageRow(i)}
-                      aria-label={`이미지 주소 ${i + 1} 삭제`}
-                      className="shrink-0 border rounded px-3 text-sm"
-                    >
-                      삭제
-                    </button>
-                  )}
-                </div>
-                <FieldError id={`product-image-${row.key}-error`} message={duplicate ? "이미 입력한 이미지 주소예요." : null} />
-              </div>
-            );
-          })}
+          <p className="text-sm text-gray-600">{IMAGE_HINT}</p>
+          {imageRows.map((row, i) => (
+            <div key={row.key} className="flex items-start gap-2">
+              <ImagePicker
+                id={`product-image-${row.key}`}
+                index={i + 1}
+                url={row.url}
+                status={uploads.status[row.key]}
+                disabled={submitting}
+                inputRef={(el) => {
+                  imageInputs.current[i] = el;
+                }}
+                onFile={(file) =>
+                  uploads.pick(row.key, file, (url) =>
+                    setImageRows((rs) => rs.map((r) => (r.key === row.key ? { ...r, url } : r)))
+                  )
+                }
+              />
+              {imageRows.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeImageRow(i)}
+                  aria-label={`이미지 ${i + 1} 삭제`}
+                  className="shrink-0 border rounded px-3 py-2 text-sm"
+                >
+                  삭제
+                </button>
+              )}
+            </div>
+          ))}
           <button
             type="button"
             onClick={addImageRow}
@@ -517,7 +508,7 @@ export function AdminProductForm() {
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
         <button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || uploads.busy}
           className="bg-black text-white rounded py-3 disabled:opacity-50"
         >
           {submitting ? "등록 중..." : "등록하기"}

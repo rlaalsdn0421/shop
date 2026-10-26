@@ -1,7 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AdminProductForm } from "./AdminProductForm";
+import { SESSION_EXPIRED, uploadProductImage } from "@/lib/imageUpload";
+
+vi.mock("@/lib/imageUpload", async (orig) => ({
+  ...(await orig<typeof import("@/lib/imageUpload")>()),
+  uploadProductImage: vi.fn(),
+}));
+const upload = vi.mocked(uploadProductImage);
+const blobUrl = (name: string) => `https://blob.example.com/${name}`;
+const A = blobUrl("a.jpg");
+const B = blobUrl("b.jpg");
+const C = blobUrl("c.jpg");
 
 const push = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -21,7 +32,17 @@ function mockFetchOnce(status: number, body: unknown) {
 beforeEach(() => {
   vi.unstubAllGlobals();
   push.mockClear();
+  upload.mockReset();
+  upload.mockImplementation(async (file) => blobUrl(file.name));
 });
+
+// Picks a file in the given row's picker and waits until its thumbnail shows (the upload finished).
+const photo = (name: string, type = "image/jpeg") => new File(["x"], name, { type });
+async function addImage(n: number, name: string) {
+  await userEvent.upload(screen.getByLabelText(n === 1 ? "대표 이미지 선택" : `이미지 ${n} 선택`), photo(name));
+  await screen.findByAltText(`이미지 ${n} 미리보기`);
+}
+const thumbnails = () => screen.queryAllByRole("img").map((i) => i.getAttribute("src"));
 
 const originalPriceInput = () => screen.getByLabelText("정가 (선택)");
 const hashtagInput = () => screen.getByLabelText("해시태그 (최대 3개, 공백으로 구분)");
@@ -30,13 +51,15 @@ async function fillRequired(price = "8000") {
   await userEvent.type(screen.getByLabelText("상품명"), "린넨 셔츠");
   await userEvent.type(screen.getByLabelText("상품 설명"), "시원한 셔츠");
   await userEvent.type(screen.getByLabelText("가격"), price);
-  await userEvent.type(screen.getByLabelText("이미지 주소 1"), "https://example.com/a.jpg");
+  await addImage(1, "a.jpg");
   await userEvent.type(screen.getByLabelText("재고 수량"), "5");
 }
 
 // The inline messages live in always-mounted status regions; only the non-empty ones count.
-const messages = () =>
-  screen.getAllByRole("status").map((s) => s.textContent).filter(Boolean);
+const statusTexts = (keep: (id: string) => boolean) =>
+  screen.getAllByRole("status").filter((s) => keep(s.id)).map((s) => s.textContent).filter(Boolean);
+const messages = () => statusTexts((id) => !id.startsWith("product-image-"));
+const uploadMessages = () => statusTexts((id) => id.startsWith("product-image-"));
 const form = () => screen.getByRole("button", { name: /등록/ }).closest("form")!;
 const submit = () => userEvent.click(screen.getByRole("button", { name: "등록하기" }));
 const sentBody = () => JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body));
@@ -52,8 +75,8 @@ describe("AdminProductForm 정가/해시태그", () => {
       name: "린넨 셔츠",
       description: "시원한 셔츠",
       price: 8000,
-      imageUrl: "https://example.com/a.jpg",
-      imageUrls: ["https://example.com/a.jpg"],
+      imageUrl: A,
+      imageUrls: [A],
       stock: 5,
       category: "",
     });
@@ -230,103 +253,258 @@ describe("AdminProductForm 정가/해시태그", () => {
   });
 });
 
-describe("AdminProductForm 이미지 여러 장", () => {
+describe("AdminProductForm 이미지 올리기", () => {
   const addButton = () => screen.getByRole("button", { name: "이미지 추가" });
   const addRow = () => userEvent.click(addButton());
-  const rowInput = (n: number) => screen.getByLabelText(`이미지 주소 ${n}`);
+  const picker = (n: number) => screen.getByLabelText(n === 1 ? "대표 이미지 선택" : `이미지 ${n} 선택`);
+  // A pick that stays pending until resolved/rejected, to look at the state while uploading.
+  function pendingUpload() {
+    let resolve: (url: string) => void = () => {};
+    let reject: (e: Error) => void = () => {};
+    upload.mockImplementationOnce(
+      () =>
+        new Promise<string>((res, rej) => {
+          resolve = res;
+          reject = rej;
+        })
+    );
+    return { resolve: (url: string) => act(async () => resolve(url)), reject: (e: Error) => act(async () => reject(e)) };
+  }
+  const fillText = async () => {
+    await userEvent.type(screen.getByLabelText("상품명"), "린넨 셔츠");
+    await userEvent.type(screen.getByLabelText("상품 설명"), "시원한 셔츠");
+    await userEvent.type(screen.getByLabelText("가격"), "8000");
+    await userEvent.type(screen.getByLabelText("재고 수량"), "5");
+  };
+  // user-event drops files that do not match `accept`; the guard must also hold when the browser lets one through.
+  const pickAnyFile = (n: number, file: File) => userEvent.setup({ applyAccept: false }).upload(picker(n), file);
 
-  it("성공: 처음에는 이미지 주소 한 줄만 있고 삭제 버튼은 없다", () => {
+  it("성공: 처음에는 대표 이미지 선택 한 줄만 있고 사진 형식만 고르게 하며 삭제 버튼은 없다", () => {
     render(<AdminProductForm />);
-    expect(rowInput(1)).toBeRequired();
-    expect(screen.queryByLabelText("이미지 주소 2")).not.toBeInTheDocument();
+    expect(picker(1)).toHaveAttribute("type", "file");
+    expect(picker(1)).toHaveAttribute("accept", "image/jpeg,image/png,image/webp");
+    expect(screen.queryByLabelText("이미지 2 선택")).not.toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /삭제/ })).not.toBeInTheDocument();
   });
 
-  it("성공: 추가하면 새 줄에 포커스가 가고, 삭제하면 그 줄이 사라지고 값은 남은 줄에 그대로 있다", async () => {
+  it("성공: 사진을 올리면 로그인 토큰으로 올리고 미리보기가 생기며, 같은 파일을 다시 골라도 올라간다", async () => {
     render(<AdminProductForm />);
-    await userEvent.type(rowInput(1), "https://example.com/a.jpg");
-    await addRow();
-    expect(rowInput(2)).toHaveFocus();
-    await userEvent.type(rowInput(2), "https://example.com/b.jpg");
-    await addRow();
-    await userEvent.type(rowInput(3), "https://example.com/c.jpg");
+    const file = photo("a.jpg");
+    await userEvent.upload(picker(1), file);
+    expect(await screen.findByAltText("이미지 1 미리보기")).toHaveAttribute("src", A);
+    expect(upload).toHaveBeenCalledWith(file, "fake-token", expect.any(AbortSignal));
+    await userEvent.upload(picker(1), file);
+    expect(upload).toHaveBeenCalledTimes(2);
+  });
 
-    await userEvent.click(screen.getByRole("button", { name: "이미지 주소 2 삭제" }));
-    expect(screen.queryByLabelText("이미지 주소 3")).not.toBeInTheDocument();
-    expect(rowInput(1)).toHaveValue("https://example.com/a.jpg");
-    expect(rowInput(2)).toHaveValue("https://example.com/c.jpg");
-    expect(rowInput(1)).toHaveFocus();
+  it("성공: 올리는 동안은 '올리는 중', 끝나면 '사진을 올렸어요.'가 보이고, 줄을 지우면 사라진다", async () => {
+    const pending = pendingUpload();
+    render(<AdminProductForm />);
+    await userEvent.upload(picker(1), photo("a.jpg"));
+    expect(uploadMessages()).toEqual(["올리는 중이에요..."]);
+    await pending.resolve(A);
+    expect(uploadMessages()).toEqual(["사진을 올렸어요."]);
+    expect(thumbnails()).toEqual([A]);
+    // done is not "busy": the submit button is on again
+    expect(screen.getByRole("button", { name: "등록하기" })).toBeEnabled();
+
+    await addRow();
+    await addImage(2, "b.jpg");
+    expect(uploadMessages()).toEqual(["사진을 올렸어요.", "사진을 올렸어요."]);
+    await userEvent.click(screen.getByRole("button", { name: "이미지 2 삭제" }));
+    expect(uploadMessages()).toEqual(["사진을 올렸어요."]);
+  });
+
+  it("성공: 추가하면 새 줄에 포커스가 가고, 삭제하면 그 줄이 사라지고 남은 줄의 사진은 그대로 있다", async () => {
+    render(<AdminProductForm />);
+    await addImage(1, "a.jpg");
+    await addRow();
+    expect(picker(2)).toHaveFocus();
+    await addImage(2, "b.jpg");
+    await addRow();
+    await addImage(3, "c.jpg");
+    expect(thumbnails()).toEqual([A, B, C]);
+
+    await userEvent.click(screen.getByRole("button", { name: "이미지 2 삭제" }));
+    expect(screen.queryByLabelText("이미지 3 선택")).not.toBeInTheDocument();
+    expect(thumbnails()).toEqual([A, C]);
+    expect(picker(1)).toHaveFocus();
   });
 
   it("성공: 10장까지 늘릴 수 있고 그 이후에는 추가 버튼이 막힌다", async () => {
     render(<AdminProductForm />);
     for (let i = 0; i < 9; i++) await addRow();
-    expect(rowInput(10)).toBeInTheDocument();
+    expect(picker(10)).toBeInTheDocument();
     expect(addButton()).toBeDisabled();
     expect(screen.getByText("이미지는 최대 10장까지 등록할 수 있어요.")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "이미지 주소 10 삭제" }));
+    await userEvent.click(screen.getByRole("button", { name: "이미지 10 삭제" }));
     expect(addButton()).toBeEnabled();
   });
 
-  it("성공: imageUrl(첫 번째)과 imageUrls(전부)를 함께 보내고, 앞뒤 공백은 지우고 빈 줄은 뺀다", async () => {
+  it("성공: 올린 사진의 주소를 imageUrl(첫 번째)과 imageUrls(전부)로 함께 보내고 비워 둔 줄은 뺀다", async () => {
     mockFetchOnce(201, {});
     render(<AdminProductForm />);
     await fillRequired();
     await addRow();
     await addRow();
     await addRow();
-    await userEvent.type(rowInput(2), "  https://example.com/b.jpg  ");
-    await userEvent.type(rowInput(4), "https://example.com/c.jpg");
+    await addImage(2, "b.jpg");
+    await addImage(4, "c.jpg");
     await submit();
     await waitFor(() => expect(push).toHaveBeenCalledWith("/admin/products"));
-    expect(sentBody()).toMatchObject({
-      imageUrl: "https://example.com/a.jpg",
-      imageUrls: ["https://example.com/a.jpg", "https://example.com/b.jpg", "https://example.com/c.jpg"],
-    });
+    expect(sentBody()).toMatchObject({ imageUrl: A, imageUrls: [A, B, C] });
   });
 
-  it("성공: 한 장만 올리는 옛 방식도 imageUrl과 한 개짜리 imageUrls로 보낸다", async () => {
+  it("실패: JPG/PNG/WEBP가 아닌 파일은 안내만 보이고 올리지 않는다", async () => {
+    render(<AdminProductForm />);
+    await pickAnyFile(1, photo("note.txt", "text/plain"));
+    expect(uploadMessages()).toEqual(["JPG, PNG, WEBP 사진만 올릴 수 있어요."]);
+    expect(picker(1)).toHaveAccessibleDescription("JPG, PNG, WEBP 사진만 올릴 수 있어요.");
+    expect(upload).not.toHaveBeenCalled();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("실패: 5MB를 넘는 파일은 안내만 보이고 올리지 않으며, 5MB 딱 맞는 파일은 올라간다", async () => {
+    render(<AdminProductForm />);
+    const big = photo("big.jpg");
+    Object.defineProperty(big, "size", { value: 5 * 1024 * 1024 + 1 });
+    await userEvent.upload(picker(1), big);
+    expect(uploadMessages()).toEqual(["사진은 5MB 이하만 올릴 수 있어요."]);
+    expect(upload).not.toHaveBeenCalled();
+
+    const exact = photo("exact.jpg");
+    Object.defineProperty(exact, "size", { value: 5 * 1024 * 1024 });
+    await userEvent.upload(picker(1), exact);
+    expect(await screen.findByAltText("이미지 1 미리보기")).toBeInTheDocument();
+    expect(uploadMessages()).toEqual(["사진을 올렸어요."]);
+  });
+
+  it("실패: 올리기에 실패하면 던진 안내를 보여 주고 줄은 비어 있으며, 다시 올리면 안내가 사라진다", async () => {
+    upload.mockRejectedValueOnce(new Error("사진을 올리지 못했어요. 잠시 뒤 다시 시도해 주세요."));
+    render(<AdminProductForm />);
+    await userEvent.upload(picker(1), photo("a.jpg"));
+    expect(await screen.findByText("사진을 올리지 못했어요. 잠시 뒤 다시 시도해 주세요.")).toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+
+    await userEvent.upload(picker(1), photo("a.jpg"));
+    expect(await screen.findByAltText("이미지 1 미리보기")).toBeInTheDocument();
+    expect(uploadMessages()).toEqual(["사진을 올렸어요."]);
+  });
+
+  it("실패: 로그인 만료로 올리지 못하면 그 안내를 보여 주고 줄은 비어 있다", async () => {
+    upload.mockRejectedValueOnce(new Error(SESSION_EXPIRED));
+    render(<AdminProductForm />);
+    await userEvent.upload(picker(1), photo("a.jpg"));
+    expect(await screen.findByText(SESSION_EXPIRED)).toBeInTheDocument();
+    expect(picker(1)).toHaveAccessibleDescription(SESSION_EXPIRED);
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("성공: 올리는 중에는 등록하기가 꺼져 있고 제출해도 요청하지 않으며, 끝나면 켜진다", async () => {
     mockFetchOnce(201, {});
     render(<AdminProductForm />);
     await fillRequired();
+    await addRow();
+    const pending = pendingUpload();
+    await userEvent.upload(picker(2), photo("b.jpg"));
+    expect(screen.getByRole("button", { name: "등록하기" })).toBeDisabled();
+    fireEvent.submit(form());
+    expect(fetch).not.toHaveBeenCalled();
+
+    await pending.resolve(B);
+    expect(screen.getByRole("button", { name: "등록하기" })).toBeEnabled();
     await submit();
     await waitFor(() => expect(push).toHaveBeenCalled());
-    const body = sentBody();
-    expect(body.imageUrl).toBe("https://example.com/a.jpg");
-    expect(body.imageUrls).toEqual(["https://example.com/a.jpg"]);
+    expect(sentBody().imageUrls).toEqual([A, B]);
   });
 
-  it("실패: 같은 주소를 두 번 넣으면 그 줄에 오류를 보여주고 요청하지 않는다", async () => {
+  it("실패: 올리기가 실패해도 등록하기는 다시 켜진다", async () => {
+    render(<AdminProductForm />);
+    const pending = pendingUpload();
+    await userEvent.upload(picker(1), photo("a.jpg"));
+    expect(screen.getByRole("button", { name: "등록하기" })).toBeDisabled();
+    await pending.reject(new Error("사진을 올리지 못했어요. 잠시 뒤 다시 시도해 주세요."));
+    expect(screen.getByRole("button", { name: "등록하기" })).toBeEnabled();
+  });
+
+  it("실패: 대표 이미지가 없으면 안내와 함께 대표 이미지 선택으로 포커스가 가고 요청하지 않는다", async () => {
     mockFetchOnce(201, {});
     render(<AdminProductForm />);
-    await fillRequired();
-    await addRow();
-    await userEvent.type(rowInput(2), " https://example.com/a.jpg");
-    expect(messages()).toEqual(["이미 입력한 이미지 주소예요."]);
-    expect(rowInput(2)).toHaveAccessibleDescription("이미 입력한 이미지 주소예요.");
-    expect(rowInput(1)).not.toHaveAttribute("aria-invalid");
-    // The native check does not stop this one, so the guard has to.
+    await fillText();
     await submit();
+    expect(await screen.findByRole("alert")).toHaveTextContent("대표 이미지를 올려 주세요.");
+    expect(picker(1)).toHaveFocus();
     expect(fetch).not.toHaveBeenCalled();
-    expect(rowInput(2)).toHaveFocus();
-
-    await userEvent.clear(rowInput(2));
-    await userEvent.type(rowInput(2), "https://example.com/b.jpg");
-    expect(messages()).toEqual([]);
   });
 
-  it("실패: 첫 줄이 비었거나 공백뿐이면 두 번째 줄이 차 있어도 요청하지 않는다", async () => {
+  it("실패: 첫 줄이 비어 있으면 두 번째 줄에 사진이 있어도 요청하지 않는다", async () => {
+    mockFetchOnce(201, {});
+    render(<AdminProductForm />);
+    await fillText();
+    await addRow();
+    await addImage(2, "b.jpg");
+    await submit();
+    expect(await screen.findByRole("alert")).toHaveTextContent("대표 이미지를 올려 주세요.");
+    expect(picker(1)).toHaveFocus();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("성공: 이미 사진이 있는 줄에 다시 올리면 새 사진으로 바뀌고 그 주소를 보낸다", async () => {
     mockFetchOnce(201, {});
     render(<AdminProductForm />);
     await fillRequired();
+    await userEvent.upload(picker(1), photo("new.jpg"));
+    await waitFor(() => expect(thumbnails()).toEqual([blobUrl("new.jpg")]));
+    await submit();
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    expect(sentBody()).toMatchObject({ imageUrl: blobUrl("new.jpg"), imageUrls: [blobUrl("new.jpg")] });
+  });
+
+  it("실패: 교체하려던 사진이 형식 오류이면 기존 사진은 그대로 남는다", async () => {
+    render(<AdminProductForm />);
+    await addImage(1, "a.jpg");
+    await pickAnyFile(1, photo("note.txt", "text/plain"));
+    expect(uploadMessages()).toEqual(["JPG, PNG, WEBP 사진만 올릴 수 있어요. 기존 사진은 그대로예요."]);
+    expect(thumbnails()).toEqual([A]);
+  });
+
+  it("성공: 올리는 중에 그 줄을 지우면 취소되고 등록하기가 다시 켜진다 (늦은 응답 처리는 훅 테스트에서 확인)", async () => {
+    render(<AdminProductForm />);
+    await addImage(1, "a.jpg");
     await addRow();
-    await userEvent.type(rowInput(2), "https://example.com/b.jpg");
-    await userEvent.clear(rowInput(1));
-    await userEvent.type(rowInput(1), "   ");
-    fireEvent.submit(form());
-    expect(await screen.findByRole("alert")).toHaveTextContent("첫 번째 이미지 주소를 입력해 주세요.");
-    expect(rowInput(1)).toHaveFocus();
-    expect(fetch).not.toHaveBeenCalled();
+    const pending = pendingUpload();
+    await userEvent.upload(picker(2), photo("b.jpg"));
+    const signal = upload.mock.calls[1][2]!;
+    expect(screen.getByRole("button", { name: "등록하기" })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "이미지 2 삭제" }));
+    expect(signal.aborted).toBe(true);
+    expect(screen.getByRole("button", { name: "등록하기" })).toBeEnabled();
+    await pending.resolve(B);
+    expect(thumbnails()).toEqual([A]);
+    expect(uploadMessages()).toEqual(["사진을 올렸어요."]);
+  });
+
+  it("성공: 올리는 중에 같은 줄에 다시 고르면 앞선 것은 취소되고 나중 사진만 남는다", async () => {
+    render(<AdminProductForm />);
+    const slow = pendingUpload();
+    await userEvent.upload(picker(1), photo("slow.jpg"));
+    const slowSignal = upload.mock.calls[0][2]!;
+    await userEvent.upload(picker(1), photo("fast.jpg"));
+    expect(slowSignal.aborted).toBe(true);
+    await waitFor(() => expect(thumbnails()).toEqual([blobUrl("fast.jpg")]));
+    await slow.resolve(blobUrl("slow.jpg"));
+    expect(thumbnails()).toEqual([blobUrl("fast.jpg")]);
+  });
+
+  it("성공: 등록 요청을 보내는 동안에는 파일 선택이 꺼져 있다", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+    render(<AdminProductForm />);
+    await fillRequired();
+    expect(picker(1)).toBeEnabled();
+    await submit();
+    expect(picker(1)).toBeDisabled();
   });
 });
 
@@ -385,7 +563,7 @@ describe("AdminProductForm 옵션", () => {
   async function fillBase() {
     await userEvent.type(screen.getByLabelText("상품명"), "린넨 셔츠");
     await userEvent.type(screen.getByLabelText("상품 설명"), "시원한 셔츠");
-    await userEvent.type(screen.getByLabelText("이미지 주소 1"), "https://example.com/a.jpg");
+    await addImage(1, "a.jpg");
   }
   const type = (label: string, value: string) => userEvent.type(screen.getByLabelText(label), value);
   async function fillRow(n: number, v: { color?: string; size?: string; price?: string; original?: string; stock?: string }) {
@@ -433,8 +611,8 @@ describe("AdminProductForm 옵션", () => {
       name: "린넨 셔츠",
       description: "시원한 셔츠",
       price: 23000,
-      imageUrl: "https://example.com/a.jpg",
-      imageUrls: ["https://example.com/a.jpg"],
+      imageUrl: A,
+      imageUrls: [A],
       stock: 13,
       category: "",
       options: [
@@ -487,8 +665,8 @@ describe("AdminProductForm 옵션", () => {
       name: "린넨 셔츠",
       description: "시원한 셔츠",
       price: 8000,
-      imageUrl: "https://example.com/a.jpg",
-      imageUrls: ["https://example.com/a.jpg"],
+      imageUrl: A,
+      imageUrls: [A],
       stock: 5,
       category: "",
     });
@@ -609,14 +787,14 @@ describe("AdminProductForm 옵션", () => {
     render(<AdminProductForm />);
     await fillBase();
     await userEvent.click(screen.getByRole("button", { name: "이미지 추가" }));
-    await type("이미지 주소 2", "https://example.com/b.jpg");
+    await addImage(2, "b.jpg");
     await userEvent.click(optionsToggle());
     await fillRow(1, { color: "화이트", size: "M", price: "1000", stock: "1" });
     await submit();
     await waitFor(() => expect(push).toHaveBeenCalled());
     expect(sentBody()).toMatchObject({
-      imageUrl: "https://example.com/a.jpg",
-      imageUrls: ["https://example.com/a.jpg", "https://example.com/b.jpg"],
+      imageUrl: A,
+      imageUrls: [A, B],
     });
   });
 
