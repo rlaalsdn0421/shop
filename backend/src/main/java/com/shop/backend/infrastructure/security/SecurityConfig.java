@@ -62,6 +62,7 @@ public class SecurityConfig {
                         // /api/payments/webhook (signature) and /api/internal/** (token) authenticate themselves, not by JWT
                         .requestMatchers(HttpMethod.POST, "/api/products/*/reviews").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/api/users/me").authenticated()
+                        .requestMatchers("/api/wishlist", "/api/wishlist/**").authenticated()
                         .anyRequest().permitAll())
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint((request, response, ex) ->

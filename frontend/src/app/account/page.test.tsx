@@ -46,6 +46,13 @@ describe("내 정보 페이지", () => {
     expect(screen.getByLabelText("비밀번호")).toHaveAttribute("autocomplete", "current-password");
   });
 
+  it("성공: 주문내역 옆에 찜한 상품 링크가 /wishlist로 있다", () => {
+    render(<AccountPage />);
+    const wishlist = screen.getByRole("link", { name: "찜한 상품" });
+    expect(wishlist).toHaveAttribute("href", "/wishlist");
+    expect(wishlist.parentElement).toBe(screen.getByRole("link", { name: "주문내역" }).parentElement);
+  });
+
   it("실패: 확인 체크 전에는 탈퇴 버튼이 비활성이고 요청하지 않는다", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { FREE_SHIPPING_THRESHOLD, SHIPPING_FEE } from "@/lib/constants";
+import { WishButton } from "@/components/WishButton";
 import { discountView, formatWon, visibleHashtags } from "@/lib/price";
 
 type Props = {
@@ -15,12 +16,13 @@ type Props = {
   rank?: number;
 };
 
-// The whole card is one link. A heart button (name row, right side) is planned; it will
-// need to sit outside the link, so keep the text block as its own element.
+// The whole card is one link. The heart (WishButton, a client component) sits over the image's
+// top-right corner but OUTSIDE the link, so a button never nests inside the anchor. This stays a server component.
 export function ProductCard({ id, name, price, imageUrl, originalPrice, discountRate, hashtags, priceVaries, rank }: Props) {
   const { rate, original } = discountView({ price, originalPrice, discountRate });
   const tags = visibleHashtags(hashtags);
   return (
+    <div className="relative">
     <Link href={`/products/${id}`} className="group flex flex-col">
       <span className="relative block aspect-[3/4] overflow-hidden bg-neutral-100">
         <Image
@@ -73,5 +75,7 @@ export function ProductCard({ id, name, price, imageUrl, originalPrice, discount
         )}
       </span>
     </Link>
+    <WishButton productId={id} name={name} variant="card" />
+    </div>
   );
 }

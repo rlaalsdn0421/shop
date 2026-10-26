@@ -25,7 +25,7 @@ function renderHeader() {
   );
 }
 
-function saveSession(role: "USER" | "ADMIN") {
+function saveSession(role: "USER" | "SELLER" | "ADMIN") {
   localStorage.setItem(
     "shop-auth",
     JSON.stringify({ token: "t", username: "user01", role, expiresAt: Date.now() + 60_000 })
@@ -86,6 +86,18 @@ describe("Header", () => {
     saveSession("USER");
     renderHeader();
     expect(await screen.findByRole("link", { name: "주문내역" })).toHaveAttribute("href", "/orders");
+  });
+
+  it.each(["USER", "SELLER", "ADMIN"] as const)("성공: %s로 로그인하면 찜 링크가 /wishlist로 연결된다", async (role) => {
+    saveSession(role);
+    renderHeader();
+    expect(await screen.findByRole("link", { name: "찜" })).toHaveAttribute("href", "/wishlist");
+  });
+
+  it("실패: 로그아웃 상태에서는 찜 링크가 없다", () => {
+    renderHeader();
+    expect(screen.queryByRole("link", { name: "찜" })).not.toBeInTheDocument();
+    expect(document.querySelector('a[href="/wishlist"]')).toBeNull();
   });
 
   it("성공: 로그인 상태면 이름과 로그아웃을 보여주고, 로그아웃하면 홈으로 간다", async () => {

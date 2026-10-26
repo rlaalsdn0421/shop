@@ -7,6 +7,7 @@ import com.shop.backend.domain.error.ValidationException;
 import com.shop.backend.domain.error.WithdrawalNotAllowedException;
 import com.shop.backend.infrastructure.repository.ReviewRepository;
 import com.shop.backend.infrastructure.repository.UserRepository;
+import com.shop.backend.infrastructure.repository.WishlistRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -39,7 +40,9 @@ class UserServiceTest {
     private final UserRepository userRepository = mock(UserRepository.class);
     private final ReviewRepository reviewRepository = mock(ReviewRepository.class);
     private final PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
-    private final UserService userService = new UserService(userRepository, reviewRepository, passwordEncoder, CLOCK);
+    private final WishlistRepository wishlistRepository = mock(WishlistRepository.class);
+    private final UserService userService =
+            new UserService(userRepository, reviewRepository, wishlistRepository, passwordEncoder, CLOCK);
 
     private User user(Role role) {
         User user = new User("member01", "member01@example.com", "stored-hash", role, LocalDate.of(2000, 5, 5));
@@ -64,6 +67,43 @@ class UserServiceTest {
         inOrder.verify(userRepository).saveAndFlush(user);
         inOrder.verify(reviewRepository).renameReviewer("user-1", UserService.WITHDRAWN_REVIEWER_NAME);
         assertThat(UserService.WITHDRAWN_REVIEWER_NAME).isEqualTo("탈퇴한 회원");
+    }
+
+    @Test
+    void 성공_탈퇴하면_그_사용자의_찜을_모두_지운다() {
+        user(Role.USER);
+        when(passwordEncoder.matches("pw-1234", "stored-hash")).thenReturn(true);
+
+        userService.withdraw("user-1", "pw-1234");
+
+        InOrder inOrder = inOrder(userRepository, wishlistRepository);
+        inOrder.verify(userRepository).saveAndFlush(org.mockito.ArgumentMatchers.any(User.class));
+        inOrder.verify(wishlistRepository).deleteAllByUser("user-1");
+        verify(wishlistRepository, never()).deleteAllByUser("someone-else");
+    }
+
+    @Test
+    void 실패_탈퇴가_거절되면_찜은_지우지_않는다() {
+        user(Role.USER);
+        when(passwordEncoder.matches("wrong-pw", "stored-hash")).thenReturn(false);
+        assertThatThrownBy(() -> userService.withdraw("user-1", "wrong-pw")).isInstanceOf(InvalidCredentialsException.class);
+
+        when(userRepository.findById("ghost")).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> userService.withdraw("ghost", "pw-1234")).isInstanceOf(InvalidCredentialsException.class);
+
+        assertThatThrownBy(() -> userService.withdraw("user-1", "  ")).isInstanceOf(ValidationException.class);
+
+        verifyNoInteractions(wishlistRepository);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Role.class, names = {"ADMIN", "SELLER"})
+    void 실패_관리자와_판매자의_탈퇴가_거절되면_찜은_지우지_않는다(Role role) {
+        user(role);
+
+        assertThatThrownBy(() -> userService.withdraw("user-1", "pw-1234")).isInstanceOf(WithdrawalNotAllowedException.class);
+
+        verifyNoInteractions(wishlistRepository);
     }
 
     @Test

@@ -7,6 +7,7 @@ import com.shop.backend.domain.error.ValidationException;
 import com.shop.backend.domain.error.WithdrawalNotAllowedException;
 import com.shop.backend.infrastructure.repository.ReviewRepository;
 import com.shop.backend.infrastructure.repository.UserRepository;
+import com.shop.backend.infrastructure.repository.WishlistRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,13 +21,15 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final ReviewRepository reviewRepository;
+    private final WishlistRepository wishlistRepository;
     private final PasswordEncoder passwordEncoder;
     private final Clock clock;
 
     public UserService(UserRepository userRepository, ReviewRepository reviewRepository,
-                       PasswordEncoder passwordEncoder, Clock clock) {
+                       WishlistRepository wishlistRepository, PasswordEncoder passwordEncoder, Clock clock) {
         this.userRepository = userRepository;
         this.reviewRepository = reviewRepository;
+        this.wishlistRepository = wishlistRepository;
         this.passwordEncoder = passwordEncoder;
         this.clock = clock;
     }
@@ -54,5 +57,6 @@ public class UserService {
         user.withdraw(clock.instant());
         userRepository.saveAndFlush(user);
         reviewRepository.renameReviewer(userId, WITHDRAWN_REVIEWER_NAME);
+        wishlistRepository.deleteAllByUser(userId);
     }
 }

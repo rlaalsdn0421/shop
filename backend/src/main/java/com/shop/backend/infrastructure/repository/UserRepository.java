@@ -25,4 +25,12 @@ public interface UserRepository extends JpaRepository<User, String> {
      */
     @Lock(LockModeType.PESSIMISTIC_READ)
     Optional<User> findForShareById(String id);
+
+    /**
+     * FOR NO KEY UPDATE on the user row (Hibernate's PESSIMISTIC_WRITE on Postgres): serializes the caller with a
+     * withdrawal and with other callers of the same user, yet does not conflict with the FOR KEY SHARE that FK inserts
+     * (e.g. orders) take on this row.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<User> findForUpdateById(String id);
 }

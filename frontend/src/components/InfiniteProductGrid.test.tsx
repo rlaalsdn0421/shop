@@ -3,6 +3,9 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { InfiniteProductGrid } from "./InfiniteProductGrid";
 
+// The heart on each card is covered by WishButton.test.tsx; here it would only need auth/router/wishlist fakes.
+vi.mock("@/components/WishButton", () => ({ WishButton: () => null }));
+
 const item = (id: string, name = `상품${id}`) => ({
   id,
   name,
