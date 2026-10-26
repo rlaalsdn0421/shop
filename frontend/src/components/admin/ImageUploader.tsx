@@ -90,14 +90,14 @@ export function ImagePicker({ id, index, url, status, inputRef, describedBy, dis
             unoptimized
           />
         )}
-        <label htmlFor={id} className="sr-only">{index === 1 ? "대표 이미지 선택" : `이미지 ${index} 선택`}</label>
+        {/* The native file input shows no button under the reset styles, so it is hidden and its label is the button. */}
         <input
           id={id}
           ref={inputRef}
           type="file"
           disabled={disabled}
           accept={IMAGE_TYPES.join(",")}
-          className="min-w-0 flex-1 text-sm"
+          className="peer sr-only"
           aria-invalid={failed || describedBy ? true : undefined}
           aria-describedby={[message && `${id}-status`, describedBy].filter(Boolean).join(" ") || undefined}
           onChange={(e) => {
@@ -106,6 +106,12 @@ export function ImagePicker({ id, index, url, status, inputRef, describedBy, dis
             if (file) onFile(file);
           }}
         />
+        <label
+          htmlFor={id}
+          className="flex min-w-0 flex-1 cursor-pointer items-center justify-center rounded border border-dashed px-3 py-4 text-sm hover:bg-gray-50 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-disabled:cursor-not-allowed peer-disabled:opacity-50"
+        >
+          {index === 1 ? "대표 이미지 선택" : `이미지 ${index} 선택`}
+        </label>
       </div>
       {/* Stays mounted (empty) so the announcement is reliable, like the other inline field messages. */}
       <p id={`${id}-status`} role="status" className={failed ? "mt-1 text-sm text-red-600" : "mt-1 text-sm text-gray-600"}>
