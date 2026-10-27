@@ -124,11 +124,17 @@ public class PaymentTransactions {
         return new CancelStart(order.getStatus(), callProvider);
     }
 
-    /** The provider refused the cancel: CANCELING goes back to where it came from (no-op if it is not CANCELING any more). */
+    /**
+     * The provider refused the cancel: CANCELING goes back to where it came from (no-op if it is not CANCELING any more).
+     * Returns the status after that, or null when the order does not exist.
+     */
     @Transactional
-    public void revertCancel(String orderId) {
+    public String revertCancel(String orderId) {
         em.createNativeQuery("SET LOCAL lock_timeout = '3s'").executeUpdate();
-        orderRepository.findByIdForUpdate(orderId).ifPresent(Order::revertCancel);
+        return orderRepository.findByIdForUpdate(orderId).map(order -> {
+            order.revertCancel();
+            return order.getStatus();
+        }).orElse(null);
     }
 
     /**

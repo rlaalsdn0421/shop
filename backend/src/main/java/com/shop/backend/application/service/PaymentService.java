@@ -182,8 +182,7 @@ public class PaymentService {
             throw new PaymentNotConfiguredException();
         }
         PaymentGateway.Payment payment = gateway.find(paymentId).orElse(null);
-        if (payment == null || !CANCELLED.equals(payment.status()) || !paymentId.equals(payment.id())
-                || !storeId.equals(payment.storeId())) {
+        if (!isCancelledAtProvider(paymentId, payment)) {
             logger.warn("Cancel webhook ignored, the provider does not report this order's payment as cancelled: "
                     + "paymentId={} providerStatus={}", paymentId, payment == null ? null : payment.status());
             return;
@@ -197,6 +196,23 @@ public class PaymentService {
             logger.info("Order refunded after the payment was cancelled at the provider; stock not restored: "
                     + "paymentId={}", paymentId);
         }
+    }
+
+    /** True only for a full CANCELLED payment of this store and order id; shared by the cancel webhook and the seller's cancel check. */
+    public boolean isCancelledAtProvider(String paymentId, PaymentGateway.Payment payment) {
+        return payment != null && CANCELLED.equals(payment.status()) && paymentId.equals(payment.id())
+                && storeId != null && !storeId.isBlank() && storeId.equals(payment.storeId());
+    }
+
+    /** True only for a PAID payment of this store and order id (the seller may undo a cancel only then). */
+    public boolean isPaidAtProvider(String orderId, PaymentGateway.Payment payment) {
+        return payment != null && "PAID".equals(payment.status()) && orderId.equals(payment.id())
+                && storeId != null && !storeId.isBlank() && storeId.equals(payment.storeId());
+    }
+
+    /** The same guard as {@link #complete}: payment settings (store id and API secret) are both set. */
+    public boolean isConfigured() {
+        return storeId != null && !storeId.isBlank() && gateway.isConfigured();
     }
 
     /** Expires up to {@link #EXPIRE_BATCH} overdue PENDING_PAYMENT orders, each in its own transaction. Returns how many. */

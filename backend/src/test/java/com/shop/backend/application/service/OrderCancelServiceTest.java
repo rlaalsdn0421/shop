@@ -7,6 +7,7 @@ import com.shop.backend.domain.error.OrderNotCancellableException;
 import com.shop.backend.domain.error.OrderNotFoundException;
 import com.shop.backend.domain.error.PaymentNotConfiguredException;
 import com.shop.backend.domain.error.ValidationException;
+import com.shop.backend.infrastructure.repository.OrderRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
@@ -36,8 +37,13 @@ class OrderCancelServiceTest {
     @Mock
     private PaymentTransactions transactions;
 
+    @Mock
+    private OrderRepository orderRepository;
+    @Mock
+    private PaymentService paymentService;
+
     private OrderCancelService service() {
-        return new OrderCancelService(gateway, transactions);
+        return new OrderCancelService(gateway, transactions, orderRepository, paymentService);
     }
 
     private void configured() {
