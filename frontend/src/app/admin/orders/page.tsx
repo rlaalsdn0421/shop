@@ -5,6 +5,8 @@ import { useAuth, useRequireRole } from "@/auth/AuthContext";
 import {
   AuthError,
   OrderActionError,
+  abandonCancel,
+  checkCancel,
   deliverOrder,
   listAdminOrders,
   refundOrder,
@@ -33,6 +35,15 @@ const RESUME_HINT = "취소 처리를 이어서 진행합니다";
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const LOAD_FAILED = "주문 목록을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.";
 
+// What "취소 상태 확인" tells the seller when the provider has not cancelled the payment (the order stays CANCELING).
+function providerStatusMessage(providerStatus: string | null) {
+  if (providerStatus === "PAID")
+    return "결제사에서는 아직 취소되지 않았어요(결제 완료). 취소를 다시 시도하거나 '취소 포기'로 원래 상태로 돌릴 수 있어요.";
+  if (providerStatus === "NOT_FOUND") return "결제사에 이 주문의 결제 정보가 없어요. PortOne 콘솔에서 이 주문의 결제를 직접 확인해 주세요.";
+  // UNKNOWN: the payment exists but the provider sent no status.
+  return `${providerStatus && providerStatus !== "UNKNOWN" ?`결제사 결제 상태가 ${providerStatus}예요.` : "결제사 결제 상태를 알 수 없어요."} PortOne 콘솔에서 직접 확인해 주세요.`;
+}
+
 export default function AdminOrdersPage() {
   const { session, ready } = useRequireRole(["ADMIN", "SELLER"]);
 
@@ -56,12 +67,16 @@ function AdminOrderList({ token }: { token: string }) {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [rowError, setRowError] = useState<Record<string, string>>({});
   const [refundFor, setRefundFor] = useState<string | null>(null);
+  const [abandonFor, setAbandonFor] = useState<string | null>(null);
+  // Result of "취소 상태 확인" when the order stays CANCELING.
+  const [rowInfo, setRowInfo] = useState<Record<string, string>>({});
   // One reason per order, so finishing a refund on one row never touches what is typed on another.
   const [reasons, setReasons] = useState<Record<string, string>>({});
   // List-level message (e.g. a state conflict that forced a reload) and the polite announcement of finished actions.
   const [notice, setNotice] = useState("");
   const [announce, setAnnounce] = useState("");
   const prevRefundFor = useRef<string | null>(null);
+  const prevAbandonFor = useRef<string | null>(null);
   // Which filter/reload the list currently shows, so a late "more" response for an old one is dropped.
   const listKey = useRef("");
   const moreLock = useRef(false);
@@ -98,6 +113,14 @@ function AdminOrderList({ token }: { token: string }) {
     else if (prev) document.getElementById(`refund-open-${prev}`)?.focus();
   }, [refundFor]);
 
+  // Same for the abandon confirm step.
+  useEffect(() => {
+    const prev = prevAbandonFor.current;
+    prevAbandonFor.current = abandonFor;
+    if (abandonFor) document.getElementById(`abandon-confirm-${abandonFor}`)?.focus();
+    else if (prev) document.getElementById(`abandon-open-${prev}`)?.focus();
+  }, [abandonFor]);
+
   function reload(nextStatus: string) {
     setOrders(null);
     setNextCursor(null);
@@ -109,6 +132,8 @@ function AdminOrderList({ token }: { token: string }) {
     setRowError({});
     setNotice("");
     setRefundFor(null);
+    setAbandonFor(null);
+    setRowInfo({});
     setReasons({});
     setStatus(nextStatus);
     setAttempt((a) => a + 1);
@@ -144,11 +169,13 @@ function AdminOrderList({ token }: { token: string }) {
 
   // Runs one row action; returns true when the server accepted it. The row takes its new status from the response;
   // dates such as shippedAt come with the next load rather than from this device's clock.
-  async function act(o: AdminOrder, call: () => Promise<string>) {
+  // `serverStateMessage`: on a state conflict show the server's own sentence (cancel check/abandon) instead of the generic one.
+  async function act(o: AdminOrder, call: () => Promise<string>, serverStateMessage = false) {
     if (rowLocks.current.has(o.id)) return false;
     rowLocks.current.add(o.id);
     setBusy((b) => ({ ...b, [o.id]: true }));
     setRowError((r) => ({ ...r, [o.id]: "" }));
+    setRowInfo((r) => ({ ...r, [o.id]: "" }));
     try {
       const newStatus = await call();
       setOrders((list) => list?.map((x) => (x.id === o.id ? { ...x, status: newStatus } : x)) ?? list);
@@ -159,7 +186,7 @@ function AdminOrderList({ token }: { token: string }) {
       else if (e instanceof OrderActionError && e.code === "INVALID_ORDER_STATE") {
         // Someone else changed the order; the list is stale, so show the current one.
         reload(status);
-        setNotice("주문 상태가 바뀌어 처리하지 못했어요. 목록을 새로 불러왔어요.");
+        setNotice(serverStateMessage ? e.message : "주문 상태가 바뀌어 처리하지 못했어요. 목록을 새로 불러왔어요.");
       } else {
         const message =
           e instanceof OrderActionError ? e.message : "요청 결과를 확인하지 못했어요. 목록을 새로고침해 확인해 주세요.";
@@ -194,6 +221,34 @@ function AdminOrderList({ token }: { token: string }) {
         delete next[o.id];
         return next;
       });
+    }
+  }
+
+  async function submitCheck(o: AdminOrder) {
+    const result = { status: "", providerStatus: null as string | null };
+    const ok = await act(
+      o,
+      async () => {
+        Object.assign(result, await checkCancel(o.id, token));
+        return result.status;
+      },
+      true
+    );
+    // Anything but a finished cancel leaves the order CANCELING; say why.
+    if (ok && result.status === "CANCELING") {
+      if (result.providerStatus === "CANCELLED") {
+        // The provider says cancelled but the payment does not match this order, so the server changed nothing.
+        setRowError((r) => ({
+          ...r,
+          [o.id]: "결제사 정보가 이 주문과 맞지 않아 자동으로 마무리하지 못했어요. PortOne 콘솔에서 이 주문의 결제를 확인해 주세요.",
+        }));
+      } else setRowInfo((r) => ({ ...r, [o.id]: providerStatusMessage(result.providerStatus) }));
+    }
+  }
+
+  async function submitAbandon(o: AdminOrder) {
+    if (await act(o, async () => (await abandonCancel(o.id, token)).status, true)) {
+      setAbandonFor((cur) => (cur === o.id ? null : cur));
     }
   }
 
@@ -279,6 +334,30 @@ function AdminOrderList({ token }: { token: string }) {
                       {isBusy ? "처리 중..." : "배송 완료"}
                     </button>
                   )}
+                  {resuming && (
+                    <button
+                      onClick={() => submitCheck(o)}
+                      disabled={isBusy}
+                      aria-label={`${isBusy ? "처리 중 " : ""}취소 상태 확인 - 주문 ${short}`}
+                      className="border rounded px-3 py-1 disabled:opacity-50"
+                    >
+                      취소 상태 확인
+                    </button>
+                  )}
+                  {resuming && abandonFor !== o.id && (
+                    <button
+                      id={`abandon-open-${o.id}`}
+                      onClick={() => {
+                        setAbandonFor(o.id);
+                        setRowError((r) => ({ ...r, [o.id]: "" }));
+                      }}
+                      disabled={isBusy}
+                      aria-label={`${isBusy ? "처리 중 " : ""}취소 포기 - 주문 ${short}`}
+                      className="border rounded px-3 py-1 disabled:opacity-50"
+                    >
+                      취소 포기
+                    </button>
+                  )}
                   {canRefund && refundFor !== o.id && (
                     <button
                       id={`refund-open-${o.id}`}
@@ -292,6 +371,37 @@ function AdminOrderList({ token }: { token: string }) {
                   )}
                 </div>
                 {isBusy && <p className="text-gray-500">처리 중...</p>}
+                {resuming && <p className="text-gray-600">결제사 응답 확인이 필요해요</p>}
+                {rowInfo[o.id] && (
+                  <p role="status" className="text-amber-700">
+                    {rowInfo[o.id]}
+                  </p>
+                )}
+
+                {resuming && abandonFor === o.id && (
+                  <div className="flex flex-col gap-2 border-t pt-2">
+                    <p>결제사에서 아직 취소되지 않은 경우에만 주문을 원래 상태로 되돌려요. 계속할까요?</p>
+                    <div className="flex gap-2">
+                      <button
+                        id={`abandon-confirm-${o.id}`}
+                        onClick={() => submitAbandon(o)}
+                        disabled={isBusy}
+                        aria-label={`${isBusy ? "처리 중 " : ""}포기 확정 - 주문 ${short}`}
+                        className="bg-black text-white rounded px-3 py-1 disabled:opacity-50"
+                      >
+                        {isBusy ? "처리 중..." : "포기 확정"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAbandonFor(null)}
+                        disabled={isBusy}
+                        className="border rounded px-3 py-1 disabled:opacity-50"
+                      >
+                        닫기
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {canRefund && refundFor === o.id && (
                   <form noValidate onSubmit={(e) => submitRefund(e, o)} className="flex flex-col gap-2 border-t pt-2">
