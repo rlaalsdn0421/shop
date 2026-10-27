@@ -15,6 +15,8 @@ import {
   shipOrder,
   deliverOrder,
   refundOrder,
+  checkCancel,
+  abandonCancel,
   OrderActionError,
   AuthError,
   PaymentError,
@@ -568,5 +570,145 @@ describe("shipOrder / deliverOrder / refundOrder", () => {
   it("실패: 네트워크 오류는 그대로 전달된다", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("network")));
     await expect(shipOrder("o1", "t")).rejects.toThrow("network");
+  });
+});
+
+describe("checkCancel / abandonCancel", () => {
+  const calls = [
+    ["check", checkCancel],
+    ["abandon", abandonCancel],
+  ] as const;
+
+  it("성공: 인코딩한 주문 id로 /cancel/{동작}에 본문 없이 Bearer와 함께 POST하고 15초 timeout을 건다", async () => {
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    try {
+      for (const [action, call] of calls) {
+        const fetchMock = stubJson(200, { status: "CANCELLED", providerStatus: "CANCELLED" });
+        await call("a/b c", "fake-token");
+        const [url, init] = fetchMock.mock.calls[0];
+        expect(new URL(String(url)).pathname).toBe(`/api/admin/orders/a%2Fb%20c/cancel/${action}`);
+        expect(init.method).toBe("POST");
+        expect(init.body).toBeUndefined();
+        expect(init.headers).toMatchObject({ Authorization: "Bearer fake-token" });
+        expect(init.signal).toBeInstanceOf(AbortSignal);
+      }
+      expect(timeout).toHaveBeenCalledTimes(2);
+      expect(timeout).toHaveBeenNthCalledWith(1, 15_000);
+      expect(timeout).toHaveBeenNthCalledWith(2, 15_000);
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+
+  it("성공: 200이면 status와 providerStatus를 돌려주고, 문자열이 아닌 providerStatus는 null이다", async () => {
+    for (const [, call] of calls) {
+      stubJson(200, { status: "CANCELING", providerStatus: "PAID" });
+      await expect(call("o1", "t")).resolves.toEqual({ status: "CANCELING", providerStatus: "PAID" });
+      for (const providerStatus of [undefined, null, 7, { a: 1 }]) {
+        stubJson(200, { status: "PAID", providerStatus });
+        await expect(call("o1", "t")).resolves.toEqual({ status: "PAID", providerStatus: null });
+      }
+    }
+  });
+
+  it("실패: 200이어도 status가 문자열이 아니면 오류다", async () => {
+    for (const [, call] of calls) {
+      for (const body of [{}, { status: 1, providerStatus: "PAID" }, null]) {
+        stubJson(200, body);
+        await expect(call("o1", "t")).rejects.toBeInstanceOf(OrderActionError);
+      }
+      stubJson(200, undefined);
+      await expect(call("o1", "t")).rejects.toMatchObject({ status: 200 });
+    }
+  });
+
+  it("실패: 401/403은 AuthError다", async () => {
+    for (const [, call] of calls) {
+      for (const status of [401, 403]) {
+        stubJson(status, { error: "x", code: "INVALID_ORDER_STATE" });
+        await expect(call("o1", "t")).rejects.toBeInstanceOf(AuthError);
+      }
+    }
+  });
+
+  it("성공: 409의 세 코드는 서버가 쓴 error 문장을 그대로 담은 OrderActionError다", async () => {
+    for (const [, call] of calls) {
+      for (const code of ["INVALID_ORDER_STATE", "CANCEL_ALREADY_DONE", "CANCEL_PROVIDER_STATE"]) {
+        stubJson(409, { error: `서버 문장 ${code}`, code });
+        const err = await call("o1", "t").catch((e) => e);
+        expect(err).toBeInstanceOf(OrderActionError);
+        expect(err).not.toBeInstanceOf(AuthError);
+        expect(err).toMatchObject({ status: 409, code, message: `서버 문장 ${code}` });
+      }
+    }
+  });
+
+  it("실패: INVALID_ORDER_STATE에 error 문장이 없거나 문자열이 아니면 기본 문구를 쓴다", async () => {
+    const fallback = "주문 상태가 바뀌어 처리할 수 없어요. 목록을 새로고침해 확인해 주세요.";
+    for (const [, call] of calls) {
+      for (const body of [{ code: "INVALID_ORDER_STATE" }, { code: "INVALID_ORDER_STATE", error: 5 }]) {
+        stubJson(409, body);
+        await expect(call("o1", "t")).rejects.toMatchObject({ status: 409, code: "INVALID_ORDER_STATE", message: fallback });
+      }
+    }
+  });
+
+  it("실패: 서버 문장은 409와 취소 풀기 코드일 때만 쓰고, 그 밖에는 코드별 기본 문구나 상태별 문구를 쓴다", async () => {
+    for (const [, call] of calls) {
+      // Same code but another status: the server text is not trusted there.
+      stubJson(500, { error: "서버 문장", code: "CANCEL_ALREADY_DONE" });
+      await expect(call("o1", "t")).rejects.toMatchObject({
+        status: 500,
+        code: "CANCEL_ALREADY_DONE",
+        message: "요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요.",
+      });
+      // 409 with an unrelated code.
+      stubJson(409, { error: "서버 문장", code: "SOMETHING_ELSE" });
+      await expect(call("o1", "t")).rejects.toMatchObject({
+        message: "요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요.",
+      });
+      // 409 without a code.
+      stubJson(409, { error: "서버 문장" });
+      await expect(call("o1", "t")).rejects.toMatchObject({
+        status: 409,
+        code: undefined,
+        message: "요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요.",
+      });
+    }
+  });
+
+  it("실패: 503은 결제사 응답 없음, 404는 주문 없음, 그 밖의 상태는 일반 문구다", async () => {
+    for (const [, call] of calls) {
+      // The code the backend sends when the provider lookup fails (PaymentProviderUnavailableException).
+      stubJson(503, { error: "raw", code: "PAYMENT_PROVIDER_UNAVAILABLE" });
+      await expect(call("o1", "t")).rejects.toMatchObject({
+        status: 503,
+        message: "결제사 응답이 없어요. 잠시 뒤 다시 시도해 주세요.",
+      });
+      // Payment settings switched off: the existing code-based text wins over the status-based one.
+      stubJson(503, { error: "raw", code: "PAYMENT_NOT_CONFIGURED" });
+      await expect(call("o1", "t")).rejects.toMatchObject({
+        status: 503,
+        message: "취소 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요.",
+      });
+      stubJson(503, undefined);
+      await expect(call("o1", "t")).rejects.toMatchObject({ message: "결제사 응답이 없어요. 잠시 뒤 다시 시도해 주세요." });
+      stubJson(404, { error: "x" });
+      await expect(call("o1", "t")).rejects.toMatchObject({ status: 404, message: "주문을 찾을 수 없어요." });
+      for (const status of [400, 500, 502]) {
+        stubJson(status, { error: "x" });
+        await expect(call("o1", "t")).rejects.toMatchObject({
+          status,
+          message: "요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요.",
+        });
+      }
+    }
+  });
+
+  it("실패: 네트워크 오류는 그대로 전달된다", async () => {
+    for (const [, call] of calls) {
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("network")));
+      await expect(call("o1", "t")).rejects.toThrow("network");
+    }
   });
 });

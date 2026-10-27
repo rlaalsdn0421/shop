@@ -75,6 +75,10 @@ public final class OrderDtos {
     public record OrderStatusResponse(String status) {
     }
 
+    /** Answer of the seller's cancel check/abandon; {@code providerStatus} is what the payment provider reported (PAID, CANCELLED, NOT_FOUND, ...). */
+    public record CancelCheckResponse(String status, String providerStatus) {
+    }
+
     /** One row of the seller's order list; carries the buyer's personal data, so the response is never cached. */
     public record AdminOrderView(String id, String status, Integer totalAmount, Integer shippingFee, Instant createdAt,
                                   Instant paidAt, Instant shippedAt, Instant deliveredAt, String customerName,

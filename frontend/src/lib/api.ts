@@ -415,6 +415,40 @@ export const deliverOrder = (id: string, token: string) => postOrderAction(`${ad
 export const refundOrder = (id: string, token: string, reason: string) =>
   postOrderAction(`${adminOrderPath(id)}/refund`, token, { reason });
 
+// Resolving a stuck CANCELING order. `providerStatus` is what the payment provider reported (CANCELLED, PAID, NOT_FOUND, ...).
+export type CancelResolveResult = { status: string; providerStatus: string | null };
+const CANCEL_RESOLVE_CODES = ["INVALID_ORDER_STATE", "CANCEL_ALREADY_DONE", "CANCEL_PROVIDER_STATE"];
+
+async function postCancelResolve(id: string, token: string, action: "check" | "abandon"): Promise<CancelResolveResult> {
+  const res = await apiFetch(`${adminOrderPath(id)}/cancel/${action}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (res.status === 401 || res.status === 403) throw new AuthError();
+  const data = await res.json().catch(() => null);
+  if (res.ok && typeof data?.status === "string") {
+    return { status: data.status, providerStatus: typeof data.providerStatus === "string" ? data.providerStatus : null };
+  }
+  const code = typeof data?.code === "string" ? data.code : undefined;
+  // The server words these 409s itself (already cancelled / check the status in the PortOne console).
+  const serverMessage = res.status === 409 && code && CANCEL_RESOLVE_CODES.includes(code) && typeof data?.error === "string" ? data.error : null;
+  throw new OrderActionError(
+    res.status,
+    serverMessage ||
+      (code && ORDER_ACTION_ERROR_MESSAGES[code]) ||
+      (res.status === 503
+        ? "결제사 응답이 없어요. 잠시 뒤 다시 시도해 주세요."
+        : res.status === 404
+          ? "주문을 찾을 수 없어요."
+          : "요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요."),
+    code
+  );
+}
+
+export const checkCancel = (id: string, token: string) => postCancelResolve(id, token, "check");
+export const abandonCancel = (id: string, token: string) => postCancelResolve(id, token, "abandon");
+
 // Failed wishlist change. `message` is already Korean (the server's own sentence for the 200-item limit).
 export class WishlistError extends Error {
   constructor(

@@ -297,7 +297,7 @@ describe("행별 버튼", () => {
     expect(names(await card("상품2"))).toEqual(["배송 완료", "환불"]);
     expect(names(await card("상품3"))).toEqual(["환불"]);
     for (const n of [4, 5]) expect(names(await card(`상품${n}`))).toEqual([]);
-    expect(names(await card("상품6"))).toEqual(["취소 이어서 처리"]);
+    expect(names(await card("상품6"))).toEqual(["취소 상태 확인", "취소 포기", "취소 이어서 처리"]);
   });
 
   it("성공: 배송 시작은 ship을 POST하고 응답 상태로 행을 바꾸며 배송 완료 버튼이 나타난다", async () => {
@@ -648,6 +648,451 @@ describe("멈춘 취소 이어서 처리", () => {
     render(<AdminOrdersPage />);
     await screen.findByText("상품1");
     expect(screen.queryByRole("button", { name: /이어서 처리/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("멈춘 취소 상태 확인·포기", () => {
+  const ID1 = "00000001-aaaa-bbbb-cccc-ddddeeeeffff";
+  const NEED_CHECK = "결제사 응답 확인이 필요해요";
+  const MSG_PAID = "결제사에서는 아직 취소되지 않았어요(결제 완료). 취소를 다시 시도하거나 '취소 포기'로 원래 상태로 돌릴 수 있어요.";
+  const MSG_NOT_FOUND = "결제사에 이 주문의 결제 정보가 없어요. PortOne 콘솔에서 이 주문의 결제를 직접 확인해 주세요.";
+  const MSG_UNKNOWN = "결제사 결제 상태를 알 수 없어요. PortOne 콘솔에서 직접 확인해 주세요.";
+  const MSG_MISMATCH = "결제사 정보가 이 주문과 맞지 않아 자동으로 마무리하지 못했어요. PortOne 콘솔에서 이 주문의 결제를 확인해 주세요.";
+  const CONFIRM_TEXT = "결제사에서 아직 취소되지 않은 경우에만 주문을 원래 상태로 되돌려요. 계속할까요?";
+  const STATE_FALLBACK = "주문 상태가 바뀌어 처리할 수 없어요. 목록을 새로고침해 확인해 주세요.";
+  const NETWORK = "요청 결과를 확인하지 못했어요. 목록을 새로고침해 확인해 주세요.";
+  const GENERIC_NOTICE = "주문 상태가 바뀌어 처리하지 못했어요. 목록을 새로 불러왔어요.";
+
+  const stuck = (n = 1, extra: object = {}) => order(n, { status: "CANCELING", ...extra });
+  const checkBtn = (c: Awaited<ReturnType<typeof card>>) => c.getByRole("button", { name: /^취소 상태 확인 - / });
+  const abandonBtn = (c: Awaited<ReturnType<typeof card>>) => c.getByRole("button", { name: /^취소 포기 - / });
+  const openAbandon = async (n = 1) => {
+    const c = await card(`상품${n}`);
+    await userEvent.click(abandonBtn(c));
+    return c;
+  };
+  const confirmAbandon = (c: Awaited<ReturnType<typeof card>>) => userEvent.click(c.getByRole("button", { name: /^포기 확정 - / }));
+  // Answers every cancel POST with `res`; anything else (ship/refund) with `other`.
+  const resolveApi = (pages: unknown[], res: unknown, other: unknown = reply(200, { status: "CANCELLED" })) =>
+    mockApi(pages, (url: string) => (url.includes("/cancel/") ? res : other));
+
+  it("성공: 멈춘 취소 행에만 안내 문구와 취소 상태 확인·취소 포기 버튼이 있고 aria-label에 주문번호가 붙는다", async () => {
+    mockApi([
+      page([
+        stuck(1),
+        order(2, { status: "PAID" }),
+        order(3, { status: "SHIPPED" }),
+        order(4, { status: "DELIVERED" }),
+        order(5, { status: "CANCELLED" }),
+        order(6, { status: "REFUNDED" }),
+      ]),
+    ]);
+    render(<AdminOrdersPage />);
+    const c = await card("상품1");
+    expect(c.getByText(NEED_CHECK)).toBeInTheDocument();
+    expect(c.getByRole("button", { name: "취소 상태 확인 - 주문 00000001" })).toHaveTextContent("취소 상태 확인");
+    expect(c.getByRole("button", { name: "취소 포기 - 주문 00000001" })).toHaveTextContent("취소 포기");
+    for (const n of [2, 3, 4, 5, 6]) {
+      const other = await card(`상품${n}`);
+      expect(other.queryByText(NEED_CHECK)).not.toBeInTheDocument();
+      expect(other.queryByRole("button", { name: /취소 상태 확인/ })).not.toBeInTheDocument();
+      expect(other.queryByRole("button", { name: /취소 포기/ })).not.toBeInTheDocument();
+    }
+    expect(postCalls()).toHaveLength(0);
+  });
+
+  describe("취소 상태 확인", () => {
+    it("성공: 누르면 인코딩된 주소로 본문 없이 POST하고, 진행 중에는 그 행의 버튼이 모두 잠기며 두 번 눌러도 요청은 한 번이다", async () => {
+      let finish!: (v: unknown) => void;
+      mockApi([page([stuck(1), stuck(2)])], new Promise((r) => (finish = r)));
+      render(<AdminOrdersPage />);
+      const c = await card("상품1");
+      await clickTwice(checkBtn(c));
+
+      expect(postCalls()).toHaveLength(1);
+      const [url, init] = postCalls()[0];
+      expect(new URL(String(url)).pathname).toBe(`/api/admin/orders/${ID1}/cancel/check`);
+      expect(init?.headers).toMatchObject({ Authorization: "Bearer fake-token" });
+      expect(init?.body).toBeUndefined();
+      expect(await c.findByRole("button", { name: "처리 중 취소 상태 확인 - 주문 00000001" })).toBeDisabled();
+      expect(c.getByRole("button", { name: "처리 중 취소 포기 - 주문 00000001" })).toBeDisabled();
+      expect(c.getByRole("button", { name: /^처리 중 취소 이어서 처리 - / })).toBeDisabled();
+      expect(c.getAllByText("처리 중...").length).toBeGreaterThan(0);
+      const other = await card("상품2");
+      expect(checkBtn(other)).toBeEnabled();
+      expect(abandonBtn(other)).toBeEnabled();
+
+      await act(async () => finish(reply(200, { status: "CANCELING", providerStatus: "PAID" })));
+      expect(postCalls()).toHaveLength(1);
+      expect(checkBtn(c)).toBeEnabled();
+      expect(abandonBtn(c)).toBeEnabled();
+    });
+
+    it("성공: 결제사가 취소했으면(CANCELLED/REFUNDED) 행 상태가 바뀌고 두 버튼과 안내가 사라지며 상태 변화를 role=status로 알린다", async () => {
+      for (const [status, label] of [
+        ["CANCELLED", "주문 취소됨(환불 완료)"],
+        ["REFUNDED", "환불 완료"],
+      ]) {
+        resolveApi([page([stuck()])], reply(200, { status, providerStatus: "CANCELLED" }));
+        const { unmount } = render(<AdminOrdersPage />);
+        const c = await card("상품1");
+        await userEvent.click(checkBtn(c));
+
+        await waitFor(() => expect(c.getByText(label, { selector: "div" })).toBeInTheDocument());
+        expect(c.queryByRole("button")).not.toBeInTheDocument();
+        expect(c.queryByText(NEED_CHECK)).not.toBeInTheDocument();
+        expect(c.queryByRole("alert")).not.toBeInTheDocument();
+        expect(await screen.findByText(`주문 00000001: ${label}`)).toHaveAttribute("role", "status");
+        expect(getCalls()).toHaveLength(1);
+        unmount();
+      }
+    });
+
+    it("성공: 여전히 취소 중이면 상태를 유지한 채 결제사 상태별 안내를 role=status로 그 행에만 보인다", async () => {
+      const cases: [string | null, string][] = [
+        ["PAID", MSG_PAID],
+        ["NOT_FOUND", MSG_NOT_FOUND],
+        ["PARTIAL_CANCELLED", "결제사 결제 상태가 PARTIAL_CANCELLED예요. PortOne 콘솔에서 직접 확인해 주세요."],
+        ["UNKNOWN", MSG_UNKNOWN],
+        [null, MSG_UNKNOWN],
+      ];
+      for (const [providerStatus, text] of cases) {
+        resolveApi([page([stuck(1), stuck(2)])], reply(200, { status: "CANCELING", providerStatus }));
+        const { unmount } = render(<AdminOrdersPage />);
+        const c = await card("상품1");
+        await userEvent.click(checkBtn(c));
+
+        const info = await c.findByText(text);
+        expect(info).toHaveAttribute("role", "status");
+        expect(c.getByText("취소 처리 중", { selector: "div" })).toBeInTheDocument();
+        // Only the PAID answer may point to 취소 포기; NOT_FOUND/UNKNOWN/other states send the seller to the PortOne console.
+        if (providerStatus !== "PAID") expect(info).not.toHaveTextContent("취소 포기");
+        expect(c.queryByRole("alert")).not.toBeInTheDocument();
+        expect(checkBtn(c)).toBeEnabled();
+        expect(abandonBtn(c)).toBeEnabled();
+        expect((await card("상품2")).queryByRole("status")).not.toBeInTheDocument();
+        expect(getCalls()).toHaveLength(1);
+        expect(mocks.logout).not.toHaveBeenCalled();
+        unmount();
+      }
+    });
+
+    it("실패: 결제사는 취소됐다는데 주문은 그대로 취소 중이면 role=alert로 맞지 않는다고 알리고 상태 안내는 보이지 않는다", async () => {
+      resolveApi([page([stuck()])], reply(200, { status: "CANCELING", providerStatus: "CANCELLED" }));
+      render(<AdminOrdersPage />);
+      const c = await card("상품1");
+      await userEvent.click(checkBtn(c));
+
+      const alert = await c.findByRole("alert");
+      expect(alert).toHaveTextContent(MSG_MISMATCH);
+      expect(c.queryByRole("status")).not.toBeInTheDocument();
+      expect(c.queryByText(/결제사 결제 상태가/)).not.toBeInTheDocument();
+      expect(c.getByText("취소 처리 중", { selector: "div" })).toBeInTheDocument();
+      expect(checkBtn(c)).toBeEnabled();
+    });
+
+    it("성공: 안내와 오류는 다음 동작을 시작하는 순간 지워지고, 새로고침해도 지워진다", async () => {
+      let n = 0;
+      let finish!: (v: unknown) => void;
+      mockApi([page([stuck()]), page([stuck()])], () =>
+        n++ === 0 ? reply(200, { status: "CANCELING", providerStatus: "PAID" }) : new Promise((r) => (finish = r))
+      );
+      render(<AdminOrdersPage />);
+      const c = await card("상품1");
+      await userEvent.click(checkBtn(c));
+      expect(await c.findByText(MSG_PAID)).toBeInTheDocument();
+
+      // Second check: the old sentence is gone while the new request is pending.
+      await userEvent.click(checkBtn(c));
+      await waitFor(() => expect(postCalls()).toHaveLength(2));
+      expect(c.queryByText(MSG_PAID)).not.toBeInTheDocument();
+      await act(async () => finish(reply(200, { status: "CANCELING", providerStatus: "PAID" })));
+      expect(await c.findByText(MSG_PAID)).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: "새로고침" }));
+      const reloaded = await card("상품1");
+      expect(reloaded.queryByText(MSG_PAID)).not.toBeInTheDocument();
+      expect(reloaded.queryByRole("status")).not.toBeInTheDocument();
+    });
+
+    it("성공: 앞선 행 오류도 다음 확인을 시작하는 순간 지워진다", async () => {
+      let finish!: (v: unknown) => void;
+      mockApi([page([stuck()])], (url: string) =>
+        url.endsWith("/cancel/abandon")
+          ? reply(409, { error: "이미 취소됐어요", code: "CANCEL_ALREADY_DONE" })
+          : new Promise((r) => (finish = r))
+      );
+      render(<AdminOrdersPage />);
+      const c = await openAbandon();
+      await confirmAbandon(c);
+      expect(await c.findByRole("alert")).toHaveTextContent("이미 취소됐어요");
+
+      await userEvent.click(checkBtn(c));
+      await waitFor(() => expect(postCalls()).toHaveLength(2));
+      expect(c.queryByRole("alert")).not.toBeInTheDocument();
+      await act(async () => finish(reply(200, { status: "CANCELING", providerStatus: "PAID" })));
+    });
+
+    it("실패: 409 INVALID_ORDER_STATE이면 목록을 다시 불러오고 서버 문장을 목록 위 alert로 보인다 (문장이 없으면 기본 문구)", async () => {
+      resolveApi(
+        [page([stuck()]), page([order(1, { status: "REFUNDED" })])],
+        reply(409, { error: "이미 마무리된 주문이에요", code: "INVALID_ORDER_STATE" })
+      );
+      const first = render(<AdminOrdersPage />);
+      await userEvent.click(checkBtn(await card("상품1")));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("이미 마무리된 주문이에요");
+      await waitFor(() => expect(getCalls()).toHaveLength(2));
+      const reloaded = await card("상품1");
+      expect(await reloaded.findByText("환불 완료", { selector: "div" })).toBeInTheDocument();
+      expect(reloaded.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.getAllByRole("alert")).toHaveLength(1);
+      first.unmount();
+
+      resolveApi([page([stuck()]), page([order(1, { status: "PAID" })])], reply(409, { code: "INVALID_ORDER_STATE" }));
+      render(<AdminOrdersPage />);
+      await userEvent.click(checkBtn(await card("상품1")));
+      expect(await screen.findByRole("alert")).toHaveTextContent(STATE_FALLBACK);
+      await waitFor(() => expect(getCalls()).toHaveLength(2));
+    });
+
+    it("실패: 401/403이면 로그아웃하고 오류는 보이지 않는다", async () => {
+      for (const status of [401, 403]) {
+        mocks.logout.mockClear();
+        resolveApi([page([stuck()])], reply(status));
+        const { unmount } = render(<AdminOrdersPage />);
+        await userEvent.click(checkBtn(await card("상품1")));
+        await waitFor(() => expect(mocks.logout).toHaveBeenCalledTimes(1));
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+        unmount();
+      }
+    });
+
+    it("실패: 503은 결제사 응답 없음 문구, 네트워크 오류와 timeout은 확인 못 했다는 문구를 그 행에 보이고 상태는 그대로다", async () => {
+      resolveApi([page([stuck(1), stuck(2)])], reply(503, { code: "PAYMENT_PROVIDER_UNAVAILABLE" }));
+      const first = render(<AdminOrdersPage />);
+      const c = await card("상품1");
+      await userEvent.click(checkBtn(c));
+      expect(await c.findByRole("alert")).toHaveTextContent("결제사 응답이 없어요. 잠시 뒤 다시 시도해 주세요.");
+      expect(c.getByText("취소 처리 중", { selector: "div" })).toBeInTheDocument();
+      expect(checkBtn(c)).toBeEnabled();
+      expect((await card("상품2")).queryByRole("alert")).not.toBeInTheDocument();
+      expect(getCalls()).toHaveLength(1);
+      first.unmount();
+
+      for (const failure of [new TypeError("network"), new DOMException("timed out", "TimeoutError")]) {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async (_u: string, init?: RequestInit) => {
+            if (init?.method === "POST") throw failure;
+            return page([stuck()]);
+          })
+        );
+        const { unmount } = render(<AdminOrdersPage />);
+        const row = await card("상품1");
+        await userEvent.click(checkBtn(row));
+        expect(await row.findByRole("alert")).toHaveTextContent(NETWORK);
+        expect(row.getByText("취소 처리 중", { selector: "div" })).toBeInTheDocument();
+        unmount();
+      }
+    });
+
+    it("성공: 확인 뒤에도 같은 행의 취소 이어서 처리가 그대로 동작하고 안내는 지워진다", async () => {
+      resolveApi(
+        [page([stuck()])],
+        reply(200, { status: "CANCELING", providerStatus: "PAID" }),
+        reply(200, { status: "CANCELLED" })
+      );
+      render(<AdminOrdersPage />);
+      const c = await card("상품1");
+      await userEvent.click(checkBtn(c));
+      expect(await c.findByText(MSG_PAID)).toBeInTheDocument();
+
+      await userEvent.click(c.getByRole("button", { name: /^취소 이어서 처리 - / }));
+      await userEvent.click(c.getByRole("button", { name: /이어서 처리 확정/ }));
+      await waitFor(() => expect(c.getByText("주문 취소됨(환불 완료)", { selector: "div" })).toBeInTheDocument());
+      expect(c.queryByText(MSG_PAID)).not.toBeInTheDocument();
+      const refund = postCalls()[1];
+      expect(new URL(String(refund[0])).pathname).toBe(`/api/admin/orders/${ID1}/refund`);
+      expect(JSON.parse(String(refund[1]?.body))).toEqual({ reason: "취소 처리를 이어서 진행합니다" });
+    });
+  });
+
+  describe("취소 포기", () => {
+    it("성공: 누르면 요청 없이 줄 안 확인 단계(div)가 열리고 취소 포기 버튼은 숨으며 포기 확정에 포커스가 간다", async () => {
+      mockApi([page([stuck()])]);
+      render(<AdminOrdersPage />);
+      const c = await openAbandon();
+
+      const text = c.getByText(CONFIRM_TEXT);
+      expect(text.parentElement?.tagName).toBe("DIV");
+      expect(c.getByRole("button", { name: "포기 확정 - 주문 00000001" })).toHaveFocus();
+      expect(c.getByRole("button", { name: "닫기" })).toBeEnabled();
+      expect(c.queryByRole("button", { name: /^취소 포기 - / })).not.toBeInTheDocument();
+      expect(c.queryByLabelText("환불 사유")).not.toBeInTheDocument();
+      expect(postCalls()).toHaveLength(0);
+    });
+
+    it("성공: 닫기를 누르면 확인 단계가 닫히고 포커스가 취소 포기 버튼으로 돌아오며 요청은 없다", async () => {
+      mockApi([page([stuck()])]);
+      render(<AdminOrdersPage />);
+      const c = await openAbandon();
+      await userEvent.click(c.getByRole("button", { name: "닫기" }));
+
+      expect(c.queryByText(CONFIRM_TEXT)).not.toBeInTheDocument();
+      expect(c.queryByRole("button", { name: /^포기 확정/ })).not.toBeInTheDocument();
+      expect(abandonBtn(c)).toHaveFocus();
+      expect(postCalls()).toHaveLength(0);
+    });
+
+    it("성공: 포기 확정은 abandon을 POST하고 응답 상태(PAID/SHIPPED/DELIVERED)로 행을 바꾸며 확인 단계와 버튼이 사라진다", async () => {
+      for (const [status, label] of [
+        ["PAID", "결제 완료"],
+        ["SHIPPED", "배송 중"],
+        ["DELIVERED", "배송 완료"],
+      ]) {
+        resolveApi([page([stuck()])], reply(200, { status, providerStatus: "PAID" }));
+        const { unmount } = render(<AdminOrdersPage />);
+        const c = await openAbandon();
+        await confirmAbandon(c);
+
+        await waitFor(() => expect(c.getByText(label, { selector: "div" })).toBeInTheDocument());
+        expect(c.queryByText(CONFIRM_TEXT)).not.toBeInTheDocument();
+        expect(c.queryByText(NEED_CHECK)).not.toBeInTheDocument();
+        expect(c.queryByRole("button", { name: /취소 포기|취소 상태 확인|포기 확정/ })).not.toBeInTheDocument();
+        expect(c.queryByRole("alert")).not.toBeInTheDocument();
+        expect(postCalls()).toHaveLength(1);
+        const [url, init] = postCalls()[0];
+        expect(new URL(String(url)).pathname).toBe(`/api/admin/orders/${ID1}/cancel/abandon`);
+        expect(init?.headers).toMatchObject({ Authorization: "Bearer fake-token" });
+        expect(init?.body).toBeUndefined();
+        expect(await screen.findByText(`주문 00000001: ${label}`)).toHaveAttribute("role", "status");
+        unmount();
+      }
+    });
+
+    it("실패: 409 CANCEL_ALREADY_DONE / CANCEL_PROVIDER_STATE는 서버 문장을 그 행 alert로 보이고 행은 취소 중, 확인 단계는 열려 있다", async () => {
+      for (const [code, error] of [
+        ["CANCEL_ALREADY_DONE", "이미 결제사에서 취소됐어요. '취소 상태 확인'을 눌러 주세요."],
+        ["CANCEL_PROVIDER_STATE", "결제사 상태가 PARTIAL_CANCELLED예요. PortOne 콘솔에서 확인해 주세요."],
+        // The backend refuses to abandon when the provider has no payment for the order.
+        ["CANCEL_PROVIDER_STATE", "결제사에 이 주문의 결제 정보가 없어요. PortOne 콘솔에서 확인해 주세요."],
+      ]) {
+        resolveApi([page([stuck(1), stuck(2)])], reply(409, { error, code }));
+        const { unmount } = render(<AdminOrdersPage />);
+        const c = await openAbandon();
+        await confirmAbandon(c);
+
+        expect(await c.findByRole("alert")).toHaveTextContent(error);
+        expect(c.getByText("취소 처리 중", { selector: "div" })).toBeInTheDocument();
+        expect(c.getByText(CONFIRM_TEXT)).toBeInTheDocument();
+        expect(c.getByRole("button", { name: /^포기 확정 - / })).toBeEnabled();
+        expect(screen.getAllByRole("alert")).toHaveLength(1);
+        expect((await card("상품2")).queryByRole("alert")).not.toBeInTheDocument();
+        expect(getCalls()).toHaveLength(1);
+        expect(mocks.logout).not.toHaveBeenCalled();
+        unmount();
+      }
+    });
+
+    it("실패: 409 INVALID_ORDER_STATE이면 목록을 다시 불러오고 확인 단계를 닫으며 서버 문장(없으면 기본 문구)을 목록 위 alert로 보인다", async () => {
+      resolveApi(
+        [page([stuck()]), page([order(1, { status: "CANCELLED" })])],
+        reply(409, { error: "이미 마무리된 주문이에요", code: "INVALID_ORDER_STATE" })
+      );
+      const first = render(<AdminOrdersPage />);
+      await confirmAbandon(await openAbandon());
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("이미 마무리된 주문이에요");
+      await waitFor(() => expect(getCalls()).toHaveLength(2));
+      const reloaded = await card("상품1");
+      expect(await reloaded.findByText("주문 취소됨(환불 완료)", { selector: "div" })).toBeInTheDocument();
+      expect(reloaded.queryByText(CONFIRM_TEXT)).not.toBeInTheDocument();
+      expect(screen.getAllByRole("alert")).toHaveLength(1);
+      first.unmount();
+
+      resolveApi([page([stuck()]), page([stuck()])], reply(409, { code: "INVALID_ORDER_STATE" }));
+      render(<AdminOrdersPage />);
+      await confirmAbandon(await openAbandon());
+      expect(await screen.findByRole("alert")).toHaveTextContent(STATE_FALLBACK);
+      await waitFor(() => expect(getCalls()).toHaveLength(2));
+      expect((await card("상품1")).queryByText(CONFIRM_TEXT)).not.toBeInTheDocument();
+    });
+
+    it("성공: 배송·환불 쪽 409 INVALID_ORDER_STATE는 서버 문장 대신 기존 안내를 그대로 쓴다", async () => {
+      resolveApi(
+        [page([stuck()]), page([stuck()])],
+        reply(200, {}),
+        reply(409, { error: "서버가 쓴 문장", code: "INVALID_ORDER_STATE" })
+      );
+      render(<AdminOrdersPage />);
+      const c = await card("상품1");
+      await userEvent.click(c.getByRole("button", { name: /^취소 이어서 처리 - / }));
+      await userEvent.click(c.getByRole("button", { name: /이어서 처리 확정/ }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(GENERIC_NOTICE);
+      expect(screen.queryByText("서버가 쓴 문장")).not.toBeInTheDocument();
+      await waitFor(() => expect(getCalls()).toHaveLength(2));
+    });
+
+    it("실패: 401/403이면 로그아웃하고 오류는 보이지 않는다", async () => {
+      for (const status of [401, 403]) {
+        mocks.logout.mockClear();
+        resolveApi([page([stuck()])], reply(status));
+        const { unmount } = render(<AdminOrdersPage />);
+        await confirmAbandon(await openAbandon());
+        await waitFor(() => expect(mocks.logout).toHaveBeenCalledTimes(1));
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+        unmount();
+      }
+    });
+
+    it("실패: 503은 결제사 응답 없음 문구, 네트워크 오류와 timeout은 확인 못 했다는 문구를 보이고 확인 단계는 열려 있다", async () => {
+      resolveApi([page([stuck()])], reply(503, { code: "PAYMENT_PROVIDER_UNAVAILABLE" }));
+      const first = render(<AdminOrdersPage />);
+      const c = await openAbandon();
+      await confirmAbandon(c);
+      expect(await c.findByRole("alert")).toHaveTextContent("결제사 응답이 없어요. 잠시 뒤 다시 시도해 주세요.");
+      expect(c.getByText(CONFIRM_TEXT)).toBeInTheDocument();
+      expect(c.getByText("취소 처리 중", { selector: "div" })).toBeInTheDocument();
+      first.unmount();
+
+      for (const failure of [new TypeError("network"), new DOMException("timed out", "TimeoutError")]) {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async (_u: string, init?: RequestInit) => {
+            if (init?.method === "POST") throw failure;
+            return page([stuck()]);
+          })
+        );
+        const { unmount } = render(<AdminOrdersPage />);
+        const row = await openAbandon();
+        await confirmAbandon(row);
+        expect(await row.findByRole("alert")).toHaveTextContent(NETWORK);
+        expect(row.getByText(CONFIRM_TEXT)).toBeInTheDocument();
+        unmount();
+      }
+    });
+
+    it("성공: 진행 중에는 포기 확정이 처리 중 표시로 잠기고 닫기도 잠기며, 두 번 눌러도 요청은 한 번이다", async () => {
+      let finish!: (v: unknown) => void;
+      mockApi([page([stuck(1), stuck(2)])], new Promise((r) => (finish = r)));
+      render(<AdminOrdersPage />);
+      const c = await openAbandon();
+      await clickTwice(c.getByRole("button", { name: /^포기 확정 - / }));
+
+      expect(postCalls()).toHaveLength(1);
+      const busy = await c.findByRole("button", { name: "처리 중 포기 확정 - 주문 00000001" });
+      expect(busy).toBeDisabled();
+      expect(busy).toHaveTextContent("처리 중...");
+      expect(c.getByRole("button", { name: "닫기" })).toBeDisabled();
+      expect(c.getByRole("button", { name: "처리 중 취소 상태 확인 - 주문 00000001" })).toBeDisabled();
+      expect((await card("상품2")).getByRole("button", { name: /^취소 포기 - / })).toBeEnabled();
+
+      await act(async () => finish(reply(200, { status: "PAID", providerStatus: "PAID" })));
+      expect(postCalls()).toHaveLength(1);
+      await waitFor(() => expect(c.getByText("결제 완료", { selector: "div" })).toBeInTheDocument());
+    });
   });
 });
 

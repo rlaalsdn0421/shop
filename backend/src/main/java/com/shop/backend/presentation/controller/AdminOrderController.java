@@ -5,6 +5,7 @@ import com.shop.backend.application.service.OrderService;
 import com.shop.backend.presentation.dto.OrderDtos;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -50,5 +51,23 @@ public class AdminOrderController {
                                                 @RequestBody(required = false) OrderDtos.CancelRequest request) {
         return new OrderDtos.OrderStatusResponse(
                 orderCancelService.refundByAdmin(id, request == null ? null : request.reason()));
+    }
+
+    @PostMapping("/{id}/cancel/check")
+    public ResponseEntity<OrderDtos.CancelCheckResponse> checkCancel(@PathVariable String id,
+                                                                     Authentication authentication) {
+        return cancelResolution(orderCancelService.checkCancelByAdmin(id, authentication.getName()));
+    }
+
+    @PostMapping("/{id}/cancel/abandon")
+    public ResponseEntity<OrderDtos.CancelCheckResponse> abandonCancel(@PathVariable String id,
+                                                                       Authentication authentication) {
+        return cancelResolution(orderCancelService.abandonCancelByAdmin(id, authentication.getName()));
+    }
+
+    private static ResponseEntity<OrderDtos.CancelCheckResponse> cancelResolution(
+            OrderCancelService.CancelResolution resolution) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(new OrderDtos.CancelCheckResponse(resolution.status(), resolution.providerStatus()));
     }
 }
