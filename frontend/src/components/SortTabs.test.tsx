@@ -86,3 +86,89 @@ describe("SortTabs", () => {
     );
   });
 });
+
+describe("SortTabs variant=listing", () => {
+  it("성공: 정렬 nav는 mb-8 mt-4 이고 목록은 줄바꿈되는 flex이며, 링크 8개의 href는 기본 모양과 같다", () => {
+    const { unmount } = render(<SortTabs selected="popular" category="상의" best="weekly" />);
+    const defaultHrefs = screen.getAllByRole("link").map((l) => l.getAttribute("href"));
+    unmount();
+
+    render(<SortTabs variant="listing" selected="popular" category="상의" best="weekly" />);
+    const nav = screen.getByRole("navigation", { name: "정렬" });
+    expect(nav).toHaveClass("mb-8", "mt-4");
+    expect(nav).not.toHaveClass("border-b");
+    expect(nav.querySelector("ul")).toHaveClass("flex", "flex-wrap");
+    const links = screen.getAllByRole("link");
+    expect(links).toHaveLength(8);
+    expect(links.map((l) => l.getAttribute("href"))).toEqual(defaultHrefs);
+    expect(screen.getByRole("link", { name: "높은 가격순" })).toHaveAttribute(
+      "href",
+      `/?category=${encodeURIComponent("상의")}&sort=price_desc&best=weekly#all`
+    );
+  });
+
+  it("성공: 선택한 링크만 aria-current=page, 굵게+진하게, 맨 앞에 숨겨진 ✓가 있고 접근 이름은 라벨뿐이다", () => {
+    render(<SortTabs variant="listing" selected="discount" />);
+    const selected = screen.getByRole("link", { name: "할인율순" });
+    expect(selected).toHaveAttribute("aria-current", "page");
+    expect(selected).toHaveClass("font-bold", "text-neutral-900");
+    expect(selected.textContent).toBe("✓ 할인율순");
+    const mark = selected.firstElementChild as HTMLElement;
+    expect(mark.tagName).toBe("SPAN");
+    expect(mark).toHaveAttribute("aria-hidden", "true");
+    expect(mark.textContent).toBe("✓ ");
+    expect(selected.firstChild).toBe(mark);
+    expect(screen.getAllByRole("link").filter((l) => l.hasAttribute("aria-current"))).toHaveLength(1);
+  });
+
+  it("실패: 선택하지 않은 링크는 text-neutral-500 이고 aria-current와 ✓가 없다", () => {
+    render(<SortTabs variant="listing" selected="discount" />);
+    const others = screen.getAllByRole("link").filter((l) => l.textContent !== "✓ 할인율순");
+    expect(others).toHaveLength(7);
+    for (const link of others) {
+      expect(link).toHaveClass("text-neutral-500");
+      expect(link).not.toHaveClass("font-bold");
+      expect(link).not.toHaveAttribute("aria-current");
+      expect(link.textContent).not.toContain("✓");
+    }
+    expect(document.body.textContent?.match(/✓/g)).toHaveLength(1);
+  });
+
+  it("성공: 모든 항목 li에 세로 구분선 클래스가 있다 (첫 항목은 선 없이 왼쪽 정렬)", () => {
+    render(<SortTabs variant="listing" selected="popular" />);
+    const items = screen.getAllByRole("listitem");
+    expect(items).toHaveLength(8);
+    for (const li of items) {
+      expect(li).toHaveClass("border-l", "border-neutral-300", "px-3", "first:border-l-0", "first:pl-0");
+    }
+  });
+
+  it("성공: 선택이 바뀌면 ✓와 aria-current가 새 링크로 옮겨간다", () => {
+    const { rerender } = render(<SortTabs variant="listing" selected="popular" />);
+    rerender(<SortTabs variant="listing" selected="rating" />);
+    expect(screen.getByRole("link", { name: "평점 높은순" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "인기도순" }).textContent).toBe("인기도순");
+    expect(document.body.textContent?.match(/✓/g)).toHaveLength(1);
+  });
+
+  it("성공: 선택된 링크를 가운데로 스크롤하고, sales 라벨은 누적 판매순 그대로다", () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    render(<SortTabs variant="listing" selected="sales" />);
+    expect(scrollIntoView).toHaveBeenCalledWith({ inline: "center", block: "nearest" });
+    expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole("link", { name: "누적 판매순" }));
+    expect(screen.getByRole("link", { name: "누적 판매순" })).toHaveAttribute("href", "/?sort=sales#all");
+  });
+
+  it("실패: variant가 없으면 예전 모양 그대로다 (aria-current=true, ✓ 없음, 밑줄 nav)", () => {
+    render(<SortTabs selected="discount" />);
+    const nav = screen.getByRole("navigation", { name: "정렬" });
+    expect(nav).toHaveClass("mb-6", "border-b");
+    expect(nav).not.toHaveClass("mt-4");
+    const selected = screen.getByRole("link", { name: "할인율순" });
+    expect(selected).toHaveAttribute("aria-current", "true");
+    expect(selected).toHaveClass("border-b-2", "border-neutral-900");
+    expect(document.body.textContent).not.toContain("✓");
+    expect(screen.getAllByRole("listitem")[0]).toHaveClass("shrink-0");
+  });
+});

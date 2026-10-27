@@ -155,3 +155,86 @@ describe("InfiniteProductGrid", () => {
     expect(pages).toEqual(["1", "1"]);
   });
 });
+
+describe("InfiniteProductGrid variant=listing", () => {
+  const gridOf = (container: HTMLElement) => container.querySelector(".grid") as HTMLElement;
+
+  it("성공: listing이면 모바일 2열, 태블릿 3열, 데스크톱 4열의 넉넉한 간격이다", () => {
+    const { container } = render(
+      <InfiniteProductGrid variant="listing" initialItems={[item("1")]} initialHasMore={false} sort="popular" />
+    );
+    const grid = gridOf(container);
+    expect(grid.className).toBe("grid grid-cols-2 gap-x-4 gap-y-10 md:grid-cols-3 lg:grid-cols-4");
+    expect(grid).not.toHaveClass("lg:grid-cols-5");
+  });
+
+  it("실패: variant가 없으면 예전 5열 격자 그대로다", () => {
+    const { container } = render(
+      <InfiniteProductGrid initialItems={[item("1")]} initialHasMore={false} sort="popular" />
+    );
+    const grid = gridOf(container);
+    expect(grid.className).toBe("grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-5");
+    expect(grid).not.toHaveClass("lg:grid-cols-4");
+  });
+
+  it("성공: listing에서도 끝에 닿으면 다음 페이지를 이어 붙인다", async () => {
+    const fetchMock = mockFetch(200, { items: [item("2")], hasMore: false });
+    render(
+      <InfiniteProductGrid variant="listing" initialItems={[item("1")]} initialHasMore category="상의" sort="newest" />
+    );
+    act(() => intersect());
+    expect(await screen.findByText("상품2")).toBeInTheDocument();
+    expect(screen.getByText("상품1")).toBeInTheDocument();
+    const url = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(url.searchParams.get("category")).toBe("상의");
+    expect(url.searchParams.get("sort")).toBe("newest");
+    expect(url.searchParams.get("page")).toBe("1");
+  });
+
+  it("실패: listing에서도 더 불러올 게 없으면 요청하지 않는다", () => {
+    const fetchMock = mockFetch(200, { items: [], hasMore: false });
+    render(
+      <InfiniteProductGrid variant="listing" initialItems={[item("1")]} initialHasMore={false} sort="popular" />
+    );
+    act(() => intersect());
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("실패: listing에서도 상품이 없으면 안내 문구만 나오고 격자는 없다", () => {
+    const { container } = render(
+      <InfiniteProductGrid variant="listing" initialItems={[]} initialHasMore={false} sort="popular" />
+    );
+    expect(screen.getByText("상품이 없습니다.")).toBeInTheDocument();
+    expect(gridOf(container)).toBeNull();
+  });
+
+  it("실패: listing에서도 요청이 실패하면 안내와 다시 시도가 나오고, 누르면 이어서 불러온다", async () => {
+    autoFire = true;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ items: [item("2")], hasMore: false }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<InfiniteProductGrid variant="listing" initialItems={[item("1")]} initialHasMore sort="popular" />);
+
+    expect(await screen.findByText("더 불러오지 못했어요")).toBeInTheDocument();
+    expect(screen.getByText("상품1")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+    expect(await screen.findByText("상품2")).toBeInTheDocument();
+    expect(screen.queryByText("더 불러오지 못했어요")).not.toBeInTheDocument();
+  });
+
+  it("성공: 불러오는 동안 불러오는 중 문구가 보였다가 끝나면 사라진다 (listing)", async () => {
+    let resolve!: (v: unknown) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise((r) => (resolve = r))));
+    render(<InfiniteProductGrid variant="listing" initialItems={[item("1")]} initialHasMore sort="popular" />);
+    act(() => intersect());
+    expect(await screen.findByText("불러오는 중...")).toBeInTheDocument();
+    await act(async () => resolve({ ok: true, status: 200, json: async () => ({ items: [], hasMore: false }) }));
+    await waitFor(() => expect(screen.queryByText("불러오는 중...")).not.toBeInTheDocument());
+  });
+});

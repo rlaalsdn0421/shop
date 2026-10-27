@@ -107,7 +107,9 @@ describe("Home", () => {
     const calls = mockBackend({ list: okList });
     await renderHome({ category: "상의" });
 
-    expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["상의"]);
+    // The category title is the page's <h1>; the section headings of the home page do not appear.
+    expect(screen.getAllByRole("heading", { level: 1 }).map((h) => h.textContent)).toEqual(["상의"]);
+    expect(screen.queryAllByRole("heading", { level: 2 })).toHaveLength(0);
     expect(screen.getByText("분류-상의")).toBeInTheDocument();
     expect(calls).toHaveLength(1);
     expect(calls[0].searchParams.get("category")).toBe("상의");
@@ -222,5 +224,159 @@ describe("Home", () => {
     mockBackend({ best: () => ({ status: 200, body: { items: [] } }), list: okList });
     await renderHome({ withdrawn: "0" });
     expect(screen.queryByText("탈퇴가 완료되었어요")).not.toBeInTheDocument();
+  });
+});
+
+// 카테고리 목록 페이지(?category=...)의 머리, 정렬 줄, 격자
+const listWith = (items: ReturnType<typeof item>[], total?: number) => (url: URL) => {
+  void url;
+  return { status: 200, body: { items, hasMore: false, ...(total === undefined ? {} : { total }) } };
+};
+
+describe("Home 카테고리 목록 페이지", () => {
+  it("성공: id=all 섹션이 all-title로 이름 붙고, h1에 카테고리 이름이 있으며 h2는 없다", async () => {
+    mockBackend({ list: listWith([item("a", "상품A")], 5) });
+    await renderHome({ category: "상의" });
+
+    const sections = document.querySelectorAll("section");
+    expect(sections).toHaveLength(1);
+    expect(sections[0]).toHaveAttribute("id", "all");
+    expect(sections[0]).toHaveAttribute("aria-labelledby", "all-title");
+    const h1 = screen.getByRole("heading", { level: 1 });
+    expect(h1).toHaveAttribute("id", "all-title");
+    expect(h1).toHaveTextContent(/^상의$/);
+    expect(screen.queryAllByRole("heading", { level: 2 })).toHaveLength(0);
+    expect(screen.getByRole("region", { name: "상의" })).toBe(sections[0]);
+  });
+
+  it("성공: 머리 줄은 제목과 경로를 한 줄에 놓고 굵은 검은 선으로 끝난다", async () => {
+    mockBackend({ list: listWith([item("a", "상품A")], 5) });
+    await renderHome({ category: "상의" });
+
+    const header = screen.getByRole("heading", { level: 1 }).parentElement as HTMLElement;
+    expect(header).toHaveClass("flex", "flex-wrap", "items-end", "justify-between", "border-b-2", "border-black", "pb-4");
+    expect(header).toContainElement(screen.getByRole("navigation", { name: "현재 위치" }));
+  });
+
+  it("성공: 경로는 홈 링크, 숨겨진 ›, '카테고리(총 N개)' 세 항목이고 N은 천 단위 쉼표가 붙는다", async () => {
+    mockBackend({ list: listWith([item("a", "상품A")], 1234) });
+    await renderHome({ category: "상의" });
+
+    const nav = screen.getByRole("navigation", { name: "현재 위치" });
+    const lis = within(nav).getAllByRole("listitem", { hidden: true });
+    expect(nav.querySelectorAll("ol")).toHaveLength(1);
+    expect(lis).toHaveLength(3);
+    expect(within(lis[0]).getByRole("link", { name: "홈" })).toHaveAttribute("href", "/");
+    expect(lis[1]).toHaveAttribute("aria-hidden", "true");
+    expect(lis[1]).toHaveTextContent(/^›$/);
+    expect(lis[2].textContent).toBe("상의(총 1,234개)");
+    expect(within(lis[2]).queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("성공: 총 개수가 999 이하이면 쉼표 없이, 0이면 (총 0개)로 보인다", async () => {
+    mockBackend({ list: listWith([item("a", "상품A")], 999) });
+    await renderHome({ category: "상의" });
+    expect(screen.getByText("상의(총 999개)")).toBeInTheDocument();
+
+    document.body.innerHTML = "";
+    mockBackend({ list: listWith([], 0) });
+    await renderHome({ category: "상의" });
+    expect(screen.getByText("상의(총 0개)")).toBeInTheDocument();
+  });
+
+  it("실패: total이 없는 옛 서버 응답이면 카테고리 이름만 있고 (총 은 없지만 격자는 그려진다", async () => {
+    mockBackend({ list: listWith([item("a", "상품A")]) });
+    await renderHome({ category: "상의" });
+
+    const nav = screen.getByRole("navigation", { name: "현재 위치" });
+    const lis = within(nav).getAllByRole("listitem", { hidden: true });
+    expect(lis[2].textContent).toBe("상의");
+    expect(document.body.textContent).not.toContain("(총");
+    expect(screen.getByText("상품A")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "정렬" })).toBeInTheDocument();
+  });
+
+  it("성공: 상품이 있으면 listing 정렬 줄이 격자보다 앞에 오고 링크가 category, sort, #all을 담는다", async () => {
+    const calls = mockBackend({ list: listWith([item("a", "상품A")], 1) });
+    await renderHome({ category: "상의", sort: "price_asc" });
+
+    const sort = screen.getByRole("navigation", { name: "정렬" });
+    expect(sort).toHaveClass("mb-8", "mt-4"); // listing variant
+    const grid = document.querySelector("section#all .grid") as HTMLElement;
+    expect(grid).toHaveClass("lg:grid-cols-4", "gap-y-10");
+    expect(sort.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const enc = encodeURIComponent("상의");
+    expect(screen.getByRole("link", { name: /최신 등록순/ })).toHaveAttribute("href", `/?category=${enc}&sort=newest#all`);
+    expect(screen.getByRole("link", { name: /낮은 가격순/ })).toHaveAttribute("aria-current", "page");
+    for (const link of within(sort).getAllByRole("link")) {
+      const href = link.getAttribute("href") as string;
+      expect(href.startsWith(`/?category=${enc}&sort=`)).toBe(true);
+      expect(href.endsWith("#all")).toBe(true);
+    }
+    expect(calls).toHaveLength(1);
+    expect(calls[0].searchParams.get("sort")).toBe("price_asc");
+  });
+
+  it("성공: 격자 key는 `${category}|${sort}` 이고 정렬이 바뀌면 달라진다", async () => {
+    mockBackend({ list: listWith([item("a", "상품A")], 1) });
+    const gridKey = async (query: Record<string, string>) => {
+      const tree = (await Home({ searchParams: Promise.resolve(query) })) as ReactElement<{
+        children: [ReactElement, ReactElement<{ children: ReactElement[] }>];
+      }>;
+      // section > [header div, fragment > [SortTabs, InfiniteProductGrid]]
+      return tree.props.children[1].props.children[1].key;
+    };
+    expect(await gridKey({ category: "상의", sort: "newest" })).toBe("상의|newest");
+    expect(await gridKey({ category: "상의" })).toBe("상의|popular");
+    expect(await gridKey({ category: "신발" })).not.toBe(await gridKey({ category: "상의" }));
+  });
+
+  it("실패: 상품이 없는 카테고리는 머리는 남기고 안내 문구만 보이며 정렬 줄과 격자는 없다", async () => {
+    mockBackend({ list: listWith([], 0) });
+    await renderHome({ category: "상의" });
+
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("상의");
+    expect(screen.getByRole("navigation", { name: "현재 위치" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("이 카테고리에는 아직 상품이 없어요");
+    expect(screen.queryByRole("navigation", { name: "정렬" })).not.toBeInTheDocument();
+    expect(document.querySelector(".grid")).toBeNull();
+    expect(screen.queryByText("상품이 없습니다.")).not.toBeInTheDocument();
+  });
+
+  it("실패: 상품이 있으면 빈 카테고리 안내는 나오지 않는다", async () => {
+    mockBackend({ list: listWith([item("a", "상품A")], 1) });
+    await renderHome({ category: "상의" });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByText("이 카테고리에는 아직 상품이 없어요")).not.toBeInTheDocument();
+  });
+
+  it("실패: 목록에 없는 category는 홈 화면으로 돌아가고 목록 페이지 머리가 없다", async () => {
+    mockBackend({ best: () => ({ status: 200, body: { items: [] } }), list: listWith([item("a", "상품A")], 9) });
+    await renderHome({ category: "없는분류" });
+    expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "현재 위치" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
+      "베스트 상품",
+      "신상품",
+      "전체상품",
+    ]);
+  });
+
+  it("성공: 홈 화면의 전체상품은 예전 정렬 줄과 5열 격자 그대로이고 경로 머리가 없다", async () => {
+    mockBackend({ best: () => ({ status: 200, body: { items: [] } }), list: listWith([item("a", "상품A")], 9) });
+    await renderHome({ sort: "price_asc" });
+
+    expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "현재 위치" })).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("(총");
+    const all = within(document.querySelector("section#all") as HTMLElement);
+    const link = all.getByRole("link", { name: "낮은 가격순" });
+    expect(link).toHaveAttribute("aria-current", "true");
+    expect(all.queryByText("✓", { exact: false })).not.toBeInTheDocument();
+    expect(all.getByRole("navigation", { name: "정렬" })).toHaveClass("border-b");
+    const grid = document.querySelector("section#all .grid") as HTMLElement;
+    expect(grid).toHaveClass("sm:grid-cols-3", "lg:grid-cols-5", "gap-y-8");
+    expect(grid).not.toHaveClass("lg:grid-cols-4");
   });
 });

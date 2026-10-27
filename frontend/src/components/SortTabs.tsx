@@ -9,10 +9,12 @@ export function SortTabs({
   selected,
   category,
   best,
+  variant,
 }: {
   selected: ProductSort;
   category?: string;
   best?: BestPeriod;
+  variant?: "listing";
 }) {
   const listRef = useRef<HTMLUListElement>(null);
 
@@ -24,6 +26,31 @@ export function SortTabs({
       ?.querySelector("[aria-current]")
       ?.scrollIntoView?.({ inline: "center", block: "nearest" });
   }, [selected]);
+
+  if (variant === "listing") {
+    return (
+      <nav aria-label="정렬" className="mb-8 mt-4">
+        <ul ref={listRef} className="flex flex-wrap gap-y-2 text-sm">
+          {SORT_OPTIONS.map((option) => {
+            const isSelected = option.value === selected;
+            return (
+              <li key={option.value} className="border-l border-neutral-300 px-3 first:border-l-0 first:pl-0">
+                <Link
+                  href={sortHref(option.value, { category, best })}
+                  scroll={false}
+                  aria-current={isSelected ? "page" : undefined}
+                  className={isSelected ? "font-bold text-neutral-900" : "text-neutral-500 hover:text-neutral-800"}
+                >
+                  {isSelected && <span aria-hidden="true">✓ </span>}
+                  {option.label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+    );
+  }
 
   return (
     <nav aria-label="정렬" className="mb-6 border-b border-neutral-200">
