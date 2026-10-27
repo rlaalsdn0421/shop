@@ -30,9 +30,10 @@ public final class ProductDtos {
         }
     }
 
-    public record ProductPage(List<ProductListItem> items, boolean hasMore) {
+    /** {@code total}: number of products matching the filter (all pages), from the Page's count query. */
+    public record ProductPage(List<ProductListItem> items, boolean hasMore, long total) {
         public static ProductPage from(Page<Product> page) {
-            return new ProductPage(ProductListItem.from(page.getContent()), page.hasNext());
+            return new ProductPage(ProductListItem.from(page.getContent()), page.hasNext(), page.getTotalElements());
         }
     }
 
