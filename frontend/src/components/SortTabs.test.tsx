@@ -172,3 +172,59 @@ describe("SortTabs variant=listing", () => {
     expect(screen.getAllByRole("listitem")[0]).toHaveClass("shrink-0");
   });
 });
+
+describe("SortTabs basePath (자기 페이지 목록)", () => {
+  it.each([["listing" as const], [undefined]])(
+    "성공: variant=%s 이어도 basePath 를 주면 링크 8개가 /products?sort=<값> 이고 # 앵커가 없다",
+    (variant) => {
+      render(<SortTabs variant={variant} selected="popular" basePath="/products" />);
+      const links = screen.getAllByRole("link");
+      expect(links).toHaveLength(8);
+      expect(links.map((l) => l.getAttribute("href"))).toEqual([
+        "/products?sort=popular",
+        "/products?sort=newest",
+        "/products?sort=price_asc",
+        "/products?sort=price_desc",
+        "/products?sort=discount",
+        "/products?sort=sales",
+        "/products?sort=reviews",
+        "/products?sort=rating",
+      ]);
+      for (const l of links) expect(l.getAttribute("href")).not.toContain("#");
+    }
+  );
+
+  it("성공: basePath 와 category / best 를 함께 주면 모두 쿼리에 들어간다", () => {
+    render(<SortTabs variant="listing" selected="popular" basePath="/products" category="상의" best="weekly" />);
+    const href = screen.getByRole("link", { name: "높은 가격순" }).getAttribute("href") as string;
+    const [path, query] = href.split("?");
+    expect(path).toBe("/products");
+    expect(Object.fromEntries(new URLSearchParams(query))).toEqual({
+      category: "상의",
+      sort: "price_desc",
+      best: "weekly",
+    });
+    expect(href).not.toContain("#");
+  });
+
+  it("실패: basePath 가 없으면 예전 /?...#all 링크 그대로다 (listing 도 기본도)", () => {
+    for (const variant of ["listing" as const, undefined]) {
+      const { unmount } = render(<SortTabs variant={variant} selected="popular" />);
+      for (const l of screen.getAllByRole("link")) {
+        const href = l.getAttribute("href") as string;
+        expect(href.startsWith("/?sort=")).toBe(true);
+        expect(href.endsWith("#all")).toBe(true);
+      }
+      expect(screen.getByRole("link", { name: /최신 등록순/ })).toHaveAttribute("href", "/?sort=newest#all");
+      unmount();
+    }
+  });
+
+  it("성공: basePath 를 줘도 선택 표시는 그대로다 (listing 은 page, 기본은 true)", () => {
+    const { unmount } = render(<SortTabs variant="listing" selected="rating" basePath="/products" />);
+    expect(screen.getByRole("link", { name: "평점 높은순" })).toHaveAttribute("aria-current", "page");
+    unmount();
+    render(<SortTabs selected="rating" basePath="/products" />);
+    expect(screen.getByRole("link", { name: "평점 높은순" })).toHaveAttribute("aria-current", "true");
+  });
+});

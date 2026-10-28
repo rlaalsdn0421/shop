@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   SORT_OPTIONS,
   bestHref,
+  listingHref,
   parseBestPeriod,
   parseCategory,
   parseSort,
@@ -71,5 +72,29 @@ describe("href 만들기", () => {
     expect(parseCategory("상의")).toBe("상의");
     expect(parseCategory("<script>alert(1)</script>")).toBeUndefined();
     expect(parseCategory(["없는분류", "상의"])).toBeUndefined();
+  });
+});
+
+describe("listingHref (자기 페이지 목록 링크)", () => {
+  it("성공: `${기준 경로}?${쿼리}` 이고 # 앵커가 없다", () => {
+    expect(listingHref("/products", { sort: "newest" })).toBe("/products?sort=newest");
+    expect(listingHref("/best", { best: "weekly" })).toBe("/best?best=weekly");
+    expect(listingHref("/best", { sort: "price_asc", best: "monthly" })).toBe("/best?sort=price_asc&best=monthly");
+    expect(listingHref("/products", { sort: "newest" })).not.toContain("#");
+  });
+
+  it("실패: undefined 와 빈 문자열 값은 쿼리에서 빠진다", () => {
+    expect(listingHref("/products", { category: undefined, best: undefined, sort: "newest" })).toBe(
+      "/products?sort=newest"
+    );
+    expect(listingHref("/products", { category: "", sort: "newest" })).toBe("/products?sort=newest");
+    expect(listingHref("/best", { sort: undefined, best: undefined })).toBe("/best?");
+  });
+
+  it("성공: 값은 URL 인코딩되고 키 순서는 넘긴 순서 그대로다", () => {
+    expect(listingHref("/products", { category: "원피스/스커트", sort: "newest" })).toBe(
+      `/products?category=${encodeURIComponent("원피스/스커트")}&sort=newest`
+    );
+    expect(listingHref("/products", { sort: "a&b=c d" })).toBe("/products?sort=a%26b%3Dc+d");
   });
 });

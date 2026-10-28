@@ -21,6 +21,13 @@ function resizeTo(width: number) {
   act(() => observerCallbacks.forEach((cb) => cb()));
 }
 
+// Labels of the visible menu links that carry aria-current, whatever its value.
+const currentLinks = () =>
+  screen
+    .getAllByRole("link")
+    .filter((l) => l.hasAttribute("aria-current"))
+    .map((l) => l.textContent);
+
 const LAST = MENU_ITEMS[MENU_ITEMS.length - 1].label;
 
 beforeEach(() => {
@@ -129,15 +136,52 @@ describe("MainMenu", () => {
     expect(screen.queryByRole("link", { name: LAST })).not.toBeInTheDocument();
   });
 
-  it("성공: 카테고리는 aria-current=page, 섹션 이동 링크는 location 이다", () => {
+  it("성공: 카테고리 항목은 aria-current=page 이다", () => {
     boxWidth = 5000;
+    pathname = "/";
     query = "category=" + encodeURIComponent("상의");
-    const { unmount } = render(<MainMenu />);
-    expect(screen.getByRole("link", { name: "상의" })).toHaveAttribute("aria-current", "page");
-    unmount();
-
-    query = "best=weekly";
     render(<MainMenu />);
-    expect(screen.getByRole("link", { name: "베스트" })).toHaveAttribute("aria-current", "location");
+    expect(screen.getByRole("link", { name: "상의" })).toHaveAttribute("aria-current", "page");
+    expect(currentLinks()).toEqual(["상의"]);
+  });
+
+  it.each([
+    ["/best", "", "베스트"],
+    ["/products", "", "전체상품"],
+    ["/new", "", "신상품"],
+    ["/best", "best=weekly", "베스트"],
+    ["/products", "sort=price_asc", "전체상품"],
+  ])("성공: 주소가 %s (쿼리 '%s') 이면 %s 항목만 aria-current=page 이다 (location 이 아니다)", (path, search, label) => {
+    boxWidth = 5000;
+    pathname = path;
+    query = search;
+    render(<MainMenu />);
+    expect(screen.getByRole("link", { name: label })).toHaveAttribute("aria-current", "page");
+    expect(currentLinks()).toEqual([label]);
+    expect(document.querySelector('[aria-current="location"]')).toBeNull();
+  });
+
+  it.each([
+    ["/", "", "메인 페이지"],
+    ["/", "best=weekly", "메인 페이지의 베스트 기간 탭"],
+    ["/", "sort=newest", "메인 페이지의 정렬 탭"],
+    ["/", "category=" + encodeURIComponent("없는분류"), "알 수 없는 카테고리"],
+    ["/products/123", "", "상품 상세"],
+    ["/products/new", "", "상품 등록 같은 하위 경로"],
+    ["/cart", "", "다른 페이지"],
+  ])("실패: %s (쿼리 '%s') 이면 어떤 메뉴 항목도 aria-current 가 없다 (%s)", (path, search) => {
+    boxWidth = 5000;
+    pathname = path;
+    query = search;
+    render(<MainMenu />);
+    expect(currentLinks()).toEqual([]);
+  });
+
+  it("성공: 메뉴 링크는 각자의 페이지로 간다", () => {
+    boxWidth = 5000;
+    render(<MainMenu />);
+    expect(screen.getByRole("link", { name: "베스트" })).toHaveAttribute("href", "/best");
+    expect(screen.getByRole("link", { name: "전체상품" })).toHaveAttribute("href", "/products");
+    expect(screen.getByRole("link", { name: "신상품" })).toHaveAttribute("href", "/new");
   });
 });

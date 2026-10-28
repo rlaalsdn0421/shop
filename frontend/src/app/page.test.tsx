@@ -75,10 +75,14 @@ describe("Home", () => {
     const best = within(document.querySelector("section#best") as HTMLElement);
     expect(best.getByText("베스트4")).toBeInTheDocument();
     expect(best.getByText("4")).toBeInTheDocument(); // rank badge
-    expect(best.getByRole("link", { name: "전체보기 →" })).toHaveAttribute("href", "/?sort=popular#all");
+    expect(best.getByRole("link", { name: "전체보기 →" })).toHaveAttribute("href", "/best");
     expect(
       within(document.querySelector("section#new") as HTMLElement).getByRole("link", { name: "전체보기 →" })
-    ).toHaveAttribute("href", "/?sort=newest#all");
+    ).toHaveAttribute("href", "/new");
+    // 전체상품 섹션에는 전체보기 링크가 없다.
+    expect(
+      within(document.querySelector("section#all") as HTMLElement).queryByRole("link", { name: "전체보기 →" })
+    ).not.toBeInTheDocument();
   });
 
   it("성공: 기본값은 실시간 베스트 4개, 신상품 최신순 10개, 전체상품 인기순이다", async () => {
@@ -378,5 +382,72 @@ describe("Home 카테고리 목록 페이지", () => {
     const grid = document.querySelector("section#all .grid") as HTMLElement;
     expect(grid).toHaveClass("sm:grid-cols-3", "lg:grid-cols-5", "gap-y-8");
     expect(grid).not.toHaveClass("lg:grid-cols-4");
+  });
+});
+
+// 메인 페이지의 베스트·신상품 "전체보기" 링크는 각자의 목록 페이지로 가고, 메인 페이지의 탭은 그대로다
+describe("Home 전체보기 링크와 섹션 탭", () => {
+  const viewAll = (section: string) =>
+    within(document.querySelector(`section#${section}`) as HTMLElement).getByRole("link", { name: "전체보기 →" });
+
+  it("성공: 베스트 전체보기는 /best, 신상품 전체보기는 /new 이고 예전 /?sort=...#all 이 아니다", async () => {
+    mockBackend({ best: () => ({ status: 200, body: { items: [] } }), list: okList });
+    await renderHome();
+    expect(viewAll("best")).toHaveAttribute("href", "/best");
+    expect(viewAll("new")).toHaveAttribute("href", "/new");
+    expect(viewAll("best").getAttribute("href")).not.toContain("#");
+    expect(viewAll("new").getAttribute("href")).not.toContain("#");
+  });
+
+  it.each([["weekly"], ["monthly"], ["realtime"]])(
+    "성공: URL 에 ?best=%s 가 있으면 베스트 전체보기가 그 기간을 /best?best=%s 로 이어간다",
+    async (best) => {
+      mockBackend({ best: () => ({ status: 200, body: { items: [] } }), list: okList });
+      await renderHome({ best });
+      expect(viewAll("best")).toHaveAttribute("href", `/best?best=${best}`);
+      expect(viewAll("new")).toHaveAttribute("href", "/new");
+    }
+  );
+
+  it("실패: 정렬 선택(?sort=)은 전체보기 링크에 섞이지 않는다", async () => {
+    mockBackend({ best: () => ({ status: 200, body: { items: [] } }), list: okList });
+    await renderHome({ sort: "price_asc" });
+    expect(viewAll("best")).toHaveAttribute("href", "/best");
+    expect(viewAll("new")).toHaveAttribute("href", "/new");
+  });
+
+  it("실패: 목록에 없는 best 값은 URL 에서 온 글자가 링크에 그대로 실리지 않는다", async () => {
+    mockBackend({ best: () => ({ status: 200, body: { items: [] } }), list: okList });
+    await renderHome({ best: "<b>x</b>" });
+    expect(viewAll("best").getAttribute("href")).not.toContain("<b>");
+    expect(viewAll("best").getAttribute("href")).toMatch(/^\/best(\?best=realtime)?$/);
+  });
+
+  it("성공: 메인 페이지의 베스트 탭과 정렬 탭은 예전 앵커 링크 그대로이다 (자기 페이지로 가지 않는다)", async () => {
+    mockBackend({ best: () => ({ status: 200, body: { items: [] } }), list: okList });
+    await renderHome({ best: "weekly", sort: "price_asc" });
+    const bestNav = screen.getByRole("navigation", { name: "베스트 기간" });
+    expect(bestNav).not.toHaveClass("mt-4"); // 예전 모양
+    expect(within(bestNav).getByRole("link", { name: "월간" })).toHaveAttribute(
+      "href",
+      "/?sort=price_asc&best=monthly#best"
+    );
+    const sortNav = screen.getByRole("navigation", { name: "정렬" });
+    expect(sortNav).toHaveClass("mb-6", "border-b"); // 예전 모양
+    expect(within(sortNav).getByRole("link", { name: "높은 가격순" })).toHaveAttribute(
+      "href",
+      "/?sort=price_desc&best=weekly#all"
+    );
+    for (const link of [...within(bestNav).getAllByRole("link"), ...within(sortNav).getAllByRole("link")]) {
+      const href = link.getAttribute("href") as string;
+      expect(href.startsWith("/?")).toBe(true);
+      expect(href).toContain("#");
+    }
+  });
+
+  it("성공: 카테고리 페이지에는 베스트·신상품 전체보기 링크가 없다", async () => {
+    mockBackend({ list: okList });
+    await renderHome({ category: "상의" });
+    expect(screen.queryByRole("link", { name: "전체보기 →" })).not.toBeInTheDocument();
   });
 });
