@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { listBestProducts, listProducts } from "@/lib/api";
 import { PRODUCT_PAGE_SIZE } from "@/lib/constants";
 import { parseBestPeriod, parseCategory, parseSort } from "@/lib/storefront";
@@ -34,6 +35,48 @@ export default async function Home({ searchParams }: { searchParams: SearchParam
   ]);
   if (all.status === "rejected") throw all.reason;
 
+  if (category) {
+    const { items, hasMore, total } = all.value;
+    return (
+      <section id="all" aria-labelledby="all-title" className="scroll-mt-14 pt-2">
+        <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 border-b-2 border-black pb-4">
+          <h1 id="all-title" className="text-2xl font-bold tracking-tight text-neutral-900 md:text-3xl">
+            {category}
+          </h1>
+          <nav aria-label="현재 위치" className="text-xs text-neutral-500">
+            <ol className="flex items-center gap-1.5">
+              <li>
+                <Link href="/" className="hover:text-neutral-900">
+                  홈
+                </Link>
+              </li>
+              <li aria-hidden="true">›</li>
+              <li>
+                {category}
+                {total !== undefined && `(총 ${total.toLocaleString("ko-KR")}개)`}
+              </li>
+            </ol>
+          </nav>
+        </div>
+        {items.length === 0 ? (
+          <SectionNote>이 카테고리에는 아직 상품이 없어요</SectionNote>
+        ) : (
+          <>
+            <SortTabs variant="listing" selected={sort} category={category} />
+            <InfiniteProductGrid
+              variant="listing"
+              key={`${category}|${sort}`}
+              initialItems={items}
+              initialHasMore={hasMore}
+              category={category}
+              sort={sort}
+            />
+          </>
+        )}
+      </section>
+    );
+  }
+
   const allSection = (
     <ProductSection id="all" title={category ?? "전체상품"}>
       <SortTabs selected={sort} category={category} best={category ? undefined : chosenBest} />
@@ -46,8 +89,6 @@ export default async function Home({ searchParams }: { searchParams: SearchParam
       />
     </ProductSection>
   );
-
-  if (category) return allSection;
 
   return (
     <>

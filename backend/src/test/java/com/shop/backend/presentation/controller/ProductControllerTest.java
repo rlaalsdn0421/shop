@@ -327,6 +327,60 @@ class ProductControllerTest {
         verifyNoInteractions(productService);
     }
 
+    // ---- total (category list page "총 N개") ----
+
+    @Test
+    void 성공_total은_현재_페이지_개수가_아니라_Page의_전체_건수다() throws Exception {
+        Product p1 = new Product("티셔츠", "설명1", 10000, "http://img/1", 5);
+        Product p2 = new Product("바지", "설명2", 20000, "http://img/2", 3);
+        when(productService.listProducts(eq("바지"), any(ProductSort.class), anyInt(), anyInt()))
+                .thenReturn(new PageImpl<>(List.of(p1, p2), PageRequest.of(0, 2), 21));
+
+        mockMvc.perform(get("/api/products").param("category", "바지").param("size", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(21))
+                .andExpect(jsonPath("$.total").isNumber())
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[0].name").value("티셔츠"))
+                .andExpect(jsonPath("$.hasMore").value(true));
+    }
+
+    @Test
+    void 성공_마지막_페이지에서도_total은_전체_건수고_hasMore는_false다() throws Exception {
+        Product p1 = new Product("티셔츠", "설명1", 10000, "http://img/1", 5);
+        when(productService.listProducts(isNull(), any(ProductSort.class), eq(2), eq(2)))
+                .thenReturn(new PageImpl<>(List.of(p1), PageRequest.of(2, 2), 5));
+
+        mockMvc.perform(get("/api/products").param("page", "2").param("size", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(5))
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.hasMore").value(false));
+    }
+
+    @Test
+    void 성공_상품이_하나도_없으면_total은_0이다() throws Exception {
+        when(productService.listProducts(eq("없는카테고리"), any(ProductSort.class), anyInt(), anyInt()))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 8), 0));
+
+        mockMvc.perform(get("/api/products").param("category", "없는카테고리"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0))
+                .andExpect(jsonPath("$.total").isNumber())
+                .andExpect(jsonPath("$.items.length()").value(0))
+                .andExpect(jsonPath("$.hasMore").value(false));
+    }
+
+    @Test
+    void 성공_total은_int_범위를_넘어도_숫자_그대로_내려간다() throws Exception {
+        when(productService.listProducts(isNull(), any(ProductSort.class), anyInt(), anyInt()))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 8), 5_000_000_000L));
+
+        mockMvc.perform(get("/api/products"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(5_000_000_000L));
+    }
+
     // ---- bounds / malformed numbers ----
 
     @Test

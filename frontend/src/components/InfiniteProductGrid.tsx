@@ -10,11 +10,12 @@ type Props = {
   initialHasMore: boolean;
   category?: string;
   sort: ProductSort;
+  variant?: "listing";
 };
 
 // Remounted via a `key` (category + sort) from the caller when either changes, so
 // `initialItems`/`initialHasMore` only ever need to seed state once per mount.
-export function InfiniteProductGrid({ initialItems, initialHasMore, category, sort }: Props) {
+export function InfiniteProductGrid({ initialItems, initialHasMore, category, sort, variant }: Props) {
   const [items, setItems] = useState(initialItems);
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [loading, setLoading] = useState(false);
@@ -64,7 +65,13 @@ export function InfiniteProductGrid({ initialItems, initialHasMore, category, so
 
   return (
     <>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-5">
+      <div
+        className={
+          variant === "listing"
+            ? "grid grid-cols-2 gap-x-4 gap-y-10 md:grid-cols-3 lg:grid-cols-4"
+            : "grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-5"
+        }
+      >
         {items.map((p) => (
           <ProductCard key={p.id} {...p} />
         ))}

@@ -71,6 +71,8 @@ export type Product = {
 export type ProductPage = {
   items: Product[];
   hasMore: boolean;
+  // Products in the category; older backends do not send it.
+  total?: number;
 };
 
 export type ProductOption = {
