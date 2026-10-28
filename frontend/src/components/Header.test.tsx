@@ -48,9 +48,9 @@ describe("Header", () => {
   it("성공: 메뉴에 베스트/전체상품/신상품과 모든 카테고리가 올바른 href로 있다", () => {
     renderHeader();
     const menu = screen.getByRole("navigation", { name: "주요 메뉴" });
-    expect(within(menu).getByRole("link", { name: "베스트" })).toHaveAttribute("href", "/#best");
-    expect(within(menu).getByRole("link", { name: "전체상품" })).toHaveAttribute("href", "/#all");
-    expect(within(menu).getByRole("link", { name: "신상품" })).toHaveAttribute("href", "/#new");
+    expect(within(menu).getByRole("link", { name: "베스트" })).toHaveAttribute("href", "/best");
+    expect(within(menu).getByRole("link", { name: "전체상품" })).toHaveAttribute("href", "/products");
+    expect(within(menu).getByRole("link", { name: "신상품" })).toHaveAttribute("href", "/new");
     for (const name of CATEGORIES) {
       expect(within(menu).getByRole("link", { name })).toHaveAttribute(
         "href",

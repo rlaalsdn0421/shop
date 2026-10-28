@@ -66,3 +66,10 @@ export function sortHref(sort: ProductSort, keep: Pick<Selection, "category" | "
 export function bestHref(best: BestPeriod, keep: Pick<Selection, "category" | "sort"> = {}) {
   return homeHref({ ...keep, best }, "best");
 }
+
+// Own-page listing links (/products?sort=..., /best?best=...): no hash, unset values left out.
+export function listingHref(basePath: string, params: Record<string, string | undefined>) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) if (value) query.set(key, value);
+  return `${basePath}?${query}`;
+}

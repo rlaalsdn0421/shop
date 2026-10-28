@@ -8,11 +8,9 @@ import { MENU_ITEMS, activeMenuKey, fitCount } from "@/lib/menu";
 const GAP = 28; // px, matches gap-x-7 below
 const DESKTOP_MIN_WIDTH = 768; // Tailwind md
 
-// Category links are real page-level destinations; 베스트/전체상품/신상품 only jump to a
-// section of the home page, which is a "location" rather than a "page".
+// Every menu item is a real page-level destination (베스트/전체상품/신상품 have their own pages now).
 function currentFor(key: string, active: string | undefined) {
-  if (key !== active) return undefined;
-  return key.startsWith("category:") ? "page" : "location";
+  return key === active ? "page" : undefined;
 }
 
 export function MainMenu() {

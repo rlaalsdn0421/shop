@@ -3,20 +3,24 @@
 import { useEffect, useRef } from "react";
 import Link from "next/link";
 import type { BestPeriod, ProductSort } from "@/lib/api";
-import { SORT_OPTIONS, sortHref } from "@/lib/storefront";
+import { SORT_OPTIONS, listingHref, sortHref } from "@/lib/storefront";
 
 export function SortTabs({
   selected,
   category,
   best,
   variant,
+  basePath,
 }: {
   selected: ProductSort;
   category?: string;
   best?: BestPeriod;
   variant?: "listing";
+  basePath?: string;
 }) {
   const listRef = useRef<HTMLUListElement>(null);
+  const hrefFor = (sort: ProductSort) =>
+    basePath ? listingHref(basePath, { category, best, sort }) : sortHref(sort, { category, best });
 
   // On mobile the strip scrolls sideways; bring the selected tab into view. block "nearest"
   // keeps the page from scrolling vertically (the links use scroll={false}); scrollIntoView
@@ -36,7 +40,7 @@ export function SortTabs({
             return (
               <li key={option.value} className="border-l border-neutral-300 px-3 first:border-l-0 first:pl-0">
                 <Link
-                  href={sortHref(option.value, { category, best })}
+                  href={hrefFor(option.value)}
                   scroll={false}
                   aria-current={isSelected ? "page" : undefined}
                   className={isSelected ? "font-bold text-neutral-900" : "text-neutral-500 hover:text-neutral-800"}
@@ -58,7 +62,7 @@ export function SortTabs({
         {SORT_OPTIONS.map((option) => (
           <li key={option.value} className="shrink-0">
             <Link
-              href={sortHref(option.value, { category, best })}
+              href={hrefFor(option.value)}
               scroll={false}
               aria-current={option.value === selected ? "true" : undefined}
               className={`block border-b-2 pb-2.5 ${
