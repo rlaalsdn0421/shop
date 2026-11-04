@@ -4,6 +4,7 @@ import { parseBestPeriod, parseCategory, parseSort } from "@/lib/storefront";
 import { BestTabs } from "@/components/BestTabs";
 import { InfiniteProductGrid } from "@/components/InfiniteProductGrid";
 import { ListingHeader } from "@/components/ListingHeader";
+import { ListingSortBar } from "@/components/ListingSortBar";
 import { ProductCard } from "@/components/ProductCard";
 import { ProductSection, SectionNote } from "@/components/ProductSection";
 import { SortTabs } from "@/components/SortTabs";
@@ -39,12 +40,12 @@ export default async function Home({ searchParams }: { searchParams: SearchParam
     const { items, hasMore, total } = all.value;
     return (
       <section id="all" aria-labelledby="all-title" className="scroll-mt-14 pt-2">
-        <ListingHeader title={category} total={total} />
+        <ListingHeader title={category} />
         {items.length === 0 ? (
           <SectionNote>이 카테고리에는 아직 상품이 없어요</SectionNote>
         ) : (
           <>
-            <SortTabs variant="listing" selected={sort} category={category} />
+            <ListingSortBar total={total} selected={sort} category={category} basePath="/" />
             <InfiniteProductGrid
               variant="listing"
               key={`${category}|${sort}`}

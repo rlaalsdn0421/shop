@@ -1,7 +1,7 @@
 import { listBestProducts } from "@/lib/api";
 import { parseBestPeriod } from "@/lib/storefront";
-import { BestTabs } from "@/components/BestTabs";
 import { ListingHeader } from "@/components/ListingHeader";
+import { ListingSortBar } from "@/components/ListingSortBar";
 import { ProductCard } from "@/components/ProductCard";
 import { SectionNote } from "@/components/ProductSection";
 
@@ -19,8 +19,14 @@ export default async function BestPage({ searchParams }: { searchParams: SearchP
 
   return (
     <section aria-labelledby="all-title" className="pt-2">
-      <ListingHeader title="베스트" total={best?.items.length} />
-      <BestTabs variant="listing" selected={period} basePath="/best" />
+      <ListingHeader title="베스트" />
+      {/* The period select stays in every state so a failed/empty period can be switched; the count only shows with items. */}
+      <ListingSortBar
+        kind="best"
+        total={best && best.items.length > 0 ? best.items.length : undefined}
+        selected={period}
+        basePath="/best"
+      />
       {!best ? (
         <SectionNote>상품을 불러오지 못했어요</SectionNote>
       ) : best.items.length === 0 ? (

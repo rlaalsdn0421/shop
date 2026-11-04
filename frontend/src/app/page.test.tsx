@@ -5,6 +5,8 @@ import Home from "./page";
 
 // The heart on each card is covered by WishButton.test.tsx; here it would only need auth/router/wishlist fakes.
 vi.mock("@/components/WishButton", () => ({ WishButton: () => null }));
+// The category page renders ListingSortBar, which needs the router; navigation itself is covered by ListingSortBar.test.tsx.
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 const item = (id: string, name: string) => ({
   id,
@@ -118,10 +120,7 @@ describe("Home", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].searchParams.get("category")).toBe("상의");
     expect(calls[0].searchParams.get("sort")).toBe("popular");
-    expect(screen.getByRole("link", { name: "최신 등록순" })).toHaveAttribute(
-      "href",
-      `/?category=${encodeURIComponent("상의")}&sort=newest#all`
-    );
+    expect((screen.getByRole("combobox", { name: "정렬" }) as HTMLSelectElement).value).toBe("popular");
   });
 
   it("실패: 베스트 API가 실패해도 나머지 섹션은 그대로 나온다", async () => {
@@ -253,16 +252,20 @@ describe("Home 카테고리 목록 페이지", () => {
     expect(screen.getByRole("region", { name: "상의" })).toBe(sections[0]);
   });
 
-  it("성공: 머리 줄은 제목과 경로를 한 줄에 놓고 굵은 검은 선으로 끝난다", async () => {
+  it("성공: 머리는 제목(h1)을 가운데에 두고 굵은 검은 선이 없으며 경로 nav 가 h1 보다 앞에 온다", async () => {
     mockBackend({ list: listWith([item("a", "상품A")], 5) });
     await renderHome({ category: "상의" });
 
-    const header = screen.getByRole("heading", { level: 1 }).parentElement as HTMLElement;
-    expect(header).toHaveClass("flex", "flex-wrap", "items-end", "justify-between", "border-b-2", "border-black", "pb-4");
-    expect(header).toContainElement(screen.getByRole("navigation", { name: "현재 위치" }));
+    const h1 = screen.getByRole("heading", { level: 1 });
+    const header = h1.parentElement as HTMLElement;
+    expect(h1).toHaveClass("text-center");
+    expect(header.className).not.toContain("border-b-2");
+    const nav = screen.getByRole("navigation", { name: "현재 위치" });
+    expect(header).toContainElement(nav);
+    expect(nav.compareDocumentPosition(h1) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("성공: 경로는 홈 링크, 숨겨진 ›, '카테고리(총 N개)' 세 항목이고 N은 천 단위 쉼표가 붙는다", async () => {
+  it("성공: 경로는 홈 링크, 숨겨진 ›, 카테고리 이름 세 항목이고 총 개수는 경로에 없다", async () => {
     mockBackend({ list: listWith([item("a", "상품A")], 1234) });
     await renderHome({ category: "상의" });
 
@@ -273,53 +276,51 @@ describe("Home 카테고리 목록 페이지", () => {
     expect(within(lis[0]).getByRole("link", { name: "홈" })).toHaveAttribute("href", "/");
     expect(lis[1]).toHaveAttribute("aria-hidden", "true");
     expect(lis[1]).toHaveTextContent(/^›$/);
-    expect(lis[2].textContent).toBe("상의(총 1,234개)");
+    expect(lis[2].textContent).toBe("상의");
     expect(within(lis[2]).queryByRole("link")).not.toBeInTheDocument();
   });
 
-  it("성공: 총 개수가 999 이하이면 쉼표 없이, 0이면 (총 0개)로 보인다", async () => {
-    mockBackend({ list: listWith([item("a", "상품A")], 999) });
+  it("성공: 정렬 줄에 '총 N개'가 보이고 N은 천 단위 쉼표가 붙으며, 999 이하는 쉼표 없이 보인다", async () => {
+    mockBackend({ list: listWith([item("a", "상품A")], 1234) });
     await renderHome({ category: "상의" });
-    expect(screen.getByText("상의(총 999개)")).toBeInTheDocument();
+    expect(document.body.textContent).toContain("총 1,234개");
 
     document.body.innerHTML = "";
-    mockBackend({ list: listWith([], 0) });
+    mockBackend({ list: listWith([item("a", "상품A")], 999) });
     await renderHome({ category: "상의" });
-    expect(screen.getByText("상의(총 0개)")).toBeInTheDocument();
+    expect(document.body.textContent).toContain("총 999개");
   });
 
-  it("실패: total이 없는 옛 서버 응답이면 카테고리 이름만 있고 (총 은 없지만 격자는 그려진다", async () => {
+  it("실패: total이 없는 옛 서버 응답이면 '총'은 없지만 격자와 정렬 선택은 그려진다", async () => {
     mockBackend({ list: listWith([item("a", "상품A")]) });
     await renderHome({ category: "상의" });
 
-    const nav = screen.getByRole("navigation", { name: "현재 위치" });
-    const lis = within(nav).getAllByRole("listitem", { hidden: true });
-    expect(lis[2].textContent).toBe("상의");
-    expect(document.body.textContent).not.toContain("(총");
+    expect(document.body.textContent).not.toContain("총 ");
     expect(screen.getByText("상품A")).toBeInTheDocument();
-    expect(screen.getByRole("navigation", { name: "정렬" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "정렬" })).toBeInTheDocument();
   });
 
-  it("성공: 상품이 있으면 listing 정렬 줄이 격자보다 앞에 오고 링크가 category, sort, #all을 담는다", async () => {
+  it("성공: 상품이 있으면 정렬 select 가 격자보다 앞에 오고 고른 정렬이 선택돼 있으며 요청에도 쓰인다", async () => {
     const calls = mockBackend({ list: listWith([item("a", "상품A")], 1) });
     await renderHome({ category: "상의", sort: "price_asc" });
 
-    const sort = screen.getByRole("navigation", { name: "정렬" });
-    expect(sort).toHaveClass("mb-8", "mt-4"); // listing variant
+    const select = screen.getByRole("combobox", { name: "정렬" }) as HTMLSelectElement;
+    expect(select.value).toBe("price_asc");
+    expect(select.options).toHaveLength(7);
+    expect(screen.queryByRole("navigation", { name: "정렬" })).not.toBeInTheDocument();
     const grid = document.querySelector("section#all .grid") as HTMLElement;
     expect(grid).toHaveClass("lg:grid-cols-4", "gap-y-10");
-    expect(sort.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-
-    const enc = encodeURIComponent("상의");
-    expect(screen.getByRole("link", { name: /최신 등록순/ })).toHaveAttribute("href", `/?category=${enc}&sort=newest#all`);
-    expect(screen.getByRole("link", { name: /낮은 가격순/ })).toHaveAttribute("aria-current", "page");
-    for (const link of within(sort).getAllByRole("link")) {
-      const href = link.getAttribute("href") as string;
-      expect(href.startsWith(`/?category=${enc}&sort=`)).toBe(true);
-      expect(href.endsWith("#all")).toBe(true);
-    }
+    expect(select.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(calls).toHaveLength(1);
     expect(calls[0].searchParams.get("sort")).toBe("price_asc");
+  });
+
+  it("실패: 옛 링크의 ?sort=discount 는 인기도순으로 돌아가고 요청에도 discount 가 새지 않는다", async () => {
+    const calls = mockBackend({ list: listWith([item("a", "상품A")], 1) });
+    await renderHome({ category: "상의", sort: "discount" });
+
+    expect((screen.getByRole("combobox", { name: "정렬" }) as HTMLSelectElement).value).toBe("popular");
+    expect(calls[0].searchParams.get("sort")).toBe("popular");
   });
 
   it("성공: 격자 key는 `${category}|${sort}` 이고 정렬이 바뀌면 달라진다", async () => {
@@ -328,7 +329,7 @@ describe("Home 카테고리 목록 페이지", () => {
       const tree = (await Home({ searchParams: Promise.resolve(query) })) as ReactElement<{
         children: [ReactElement, ReactElement<{ children: ReactElement[] }>];
       }>;
-      // section > [header div, fragment > [SortTabs, InfiniteProductGrid]]
+      // section > [header div, fragment > [ListingSortBar, InfiniteProductGrid]]
       return tree.props.children[1].props.children[1].key;
     };
     expect(await gridKey({ category: "상의", sort: "newest" })).toBe("상의|newest");
@@ -343,7 +344,7 @@ describe("Home 카테고리 목록 페이지", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("상의");
     expect(screen.getByRole("navigation", { name: "현재 위치" })).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("이 카테고리에는 아직 상품이 없어요");
-    expect(screen.queryByRole("navigation", { name: "정렬" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "정렬" })).not.toBeInTheDocument();
     expect(document.querySelector(".grid")).toBeNull();
     expect(screen.queryByText("상품이 없습니다.")).not.toBeInTheDocument();
   });

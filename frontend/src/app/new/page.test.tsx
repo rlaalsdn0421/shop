@@ -72,36 +72,37 @@ describe("/new 신상품 페이지", () => {
     expect(screen.getByRole("region", { name: "신상품" })).toBe(section);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/^신상품$/);
     const lis = within(screen.getByRole("navigation", { name: "현재 위치" })).getAllByRole("listitem", { hidden: true });
-    expect(lis[2].textContent).toBe("신상품(총 1,234개)");
+    expect(lis[2].textContent).toBe("신상품");
+    expect(document.body.textContent).toContain("총 1,234개");
   });
 
-  it("실패: 서버 응답에 total 이 없으면 '(총' 만 빠지고 격자는 그려진다", async () => {
+  it("실패: 서버 응답에 total 이 없으면 '총' 만 빠지고 격자는 그려진다", async () => {
     mockList(page([item("a", "신상품A")]));
     await renderPage();
-    expect(document.body.textContent).not.toContain("(총");
+    expect(document.body.textContent).not.toContain("총 ");
     expect(screen.getByText("신상품A")).toBeInTheDocument();
   });
 
-  it("실패: 정렬 줄이 없다 (최신 등록순 고정)", async () => {
+  it("실패: 정렬 선택이 없다 (최신 등록순 고정)", async () => {
     mockList(page([item("a", "신상품A")], 1));
     await renderPage();
+    expect(screen.queryByRole("combobox", { name: "정렬" })).not.toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "정렬" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /인기도순|낮은 가격순/ })).not.toBeInTheDocument();
   });
 
-  it("성공: 격자는 div.mt-8 안의 listing 격자이고 정렬은 newest 로 고정된다", async () => {
+  it("성공: 총 개수 줄 아래에 listing 격자가 있고 정렬은 newest 로 고정된다", async () => {
     mockList(page([item("a", "신상품A")], 1, true));
     await renderPage();
-    const wrap = document.querySelector("section > div.mt-8") as HTMLElement;
+    const wrap = document.querySelector("section > div:not(:first-child)") as HTMLElement;
     expect(wrap).toBeInTheDocument();
     expect(wrap.querySelector(".grid")).toHaveClass("lg:grid-cols-4", "gap-y-10");
 
-    // section > [ListingHeader, div.mt-8 > InfiniteProductGrid]
+    // section > [ListingHeader, div > [div > ListingCount, InfiniteProductGrid]]
     const tree = (await NewProductsPage()) as ReactElement<{
-      children: [ReactElement, ReactElement<{ className: string; children: ReactElement<Record<string, unknown>> }>];
+      children: [ReactElement, ReactElement<{ children: [ReactElement, ReactElement<Record<string, unknown>>] }>];
     }>;
-    const grid = tree.props.children[1].props.children;
-    expect(tree.props.children[1].props.className).toBe("mt-8");
+    const grid = tree.props.children[1].props.children[1];
     expect(grid.props.sort).toBe("newest");
     expect(grid.props.variant).toBe("listing");
     expect(grid.props.initialHasMore).toBe(true);
@@ -114,7 +115,7 @@ describe("/new 신상품 페이지", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("신상품");
     expect(screen.getByRole("status")).toHaveTextContent(/^아직 신상품이 없어요$/);
     expect(document.querySelector(".grid")).toBeNull();
-    expect(document.querySelector("div.mt-8")).toBeNull();
+    expect(document.body.textContent).not.toContain("총 ");
   });
 
   it("실패: 상품이 있으면 빈 목록 안내는 나오지 않는다", async () => {

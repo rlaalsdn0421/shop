@@ -4,6 +4,8 @@ import BestPage from "./page";
 
 // The heart on each card is covered by WishButton.test.tsx.
 vi.mock("@/components/WishButton", () => ({ WishButton: () => null }));
+// ListingSortBar needs the router; navigation itself is covered by ListingSortBar.test.tsx.
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 const item = (id: string, name: string) => ({
   id,
@@ -38,7 +40,9 @@ async function renderPage(query: Query = {}) {
   render(await getPage(query));
 }
 
-const totalText = () =>
+const periodSelect = () => screen.getByRole("combobox", { name: "베스트 기간" }) as HTMLSelectElement;
+
+const crumbText = () =>
   within(screen.getByRole("navigation", { name: "현재 위치" })).getAllByRole("listitem", { hidden: true })[2].textContent;
 
 beforeEach(() => {
@@ -65,7 +69,7 @@ describe("/best 베스트 페이지", () => {
     const calls = mockBest(ok(items(1)));
     await renderPage({ best: "yearly" });
     expect(calls[0].searchParams.get("period")).toBe("realtime");
-    expect(screen.getByRole("link", { name: "실시간" })).toHaveAttribute("aria-current", "page");
+    expect(periodSelect().value).toBe("realtime");
   });
 
   it("성공: best 가 여러 번 오면 첫 값만 쓴다", async () => {
@@ -88,22 +92,22 @@ describe("/best 베스트 페이지", () => {
   it.each([[1], [3], [20]])("성공: 총 개수는 보이는 상품 수와 같다 (%i개)", async (n) => {
     mockBest(ok(items(n)));
     await renderPage();
-    expect(totalText()).toBe(`베스트(총 ${n}개)`);
+    expect(crumbText()).toBe("베스트");
+    expect(screen.getByText(/^총/).textContent).toBe(`총 ${n}개`);
     expect(document.querySelectorAll("section .grid > div")).toHaveLength(n);
   });
 
-  it("성공: 기간 탭 링크는 /best?best=<값> 이고 고른 기간만 aria-current=page 이다", async () => {
+  it("성공: 기간은 '베스트 기간' select 하나(옵션 3개)이고 고른 기간이 선택돼 있으며 옛 탭 링크와 '정렬' select 는 없다", async () => {
     mockBest(ok(items(1)));
     await renderPage({ best: "weekly" });
-    const nav = screen.getByRole("navigation", { name: "베스트 기간" });
-    expect(nav).toHaveClass("mb-8", "mt-4");
-    expect(within(nav).getAllByRole("link").map((l) => l.getAttribute("href"))).toEqual([
-      "/best?best=realtime",
-      "/best?best=weekly",
-      "/best?best=monthly",
-    ]);
-    expect(screen.getByRole("link", { name: "주간" })).toHaveAttribute("aria-current", "page");
-    expect(within(nav).getAllByRole("link").filter((l) => l.hasAttribute("aria-current"))).toHaveLength(1);
+    expect(screen.getAllByRole("combobox")).toHaveLength(1);
+    const select = screen.getByRole("combobox", { name: "베스트 기간" }) as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(["realtime", "weekly", "monthly"]);
+    expect(select.value).toBe("weekly");
+    expect(screen.queryByRole("navigation", { name: "베스트 기간" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "정렬" })).not.toBeInTheDocument();
+    const grid = document.querySelector("section .grid") as HTMLElement;
+    expect(select.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("성공: 격자 클래스와 카드 순위는 1부터 순서대로이다", async () => {
@@ -123,12 +127,13 @@ describe("/best 베스트 페이지", () => {
     });
   });
 
-  it("실패: 베스트가 비어 있으면 머리(총 0개)와 탭은 남고 '아직 베스트 상품이 없어요' 안내만 보인다", async () => {
+  it("실패: 베스트가 비어 있으면 머리와 탭은 남고 '아직 베스트 상품이 없어요' 안내만 보인다", async () => {
     mockBest(ok([]));
     await renderPage();
     expect(screen.getByRole("status")).toHaveTextContent(/^아직 베스트 상품이 없어요$/);
-    expect(totalText()).toBe("베스트(총 0개)");
-    expect(screen.getByRole("navigation", { name: "베스트 기간" })).toBeInTheDocument();
+    expect(crumbText()).toBe("베스트");
+    expect(document.body.textContent).not.toContain("총 ");
+    expect(periodSelect()).toBeInTheDocument(); // 비어도 기간은 바꿀 수 있다
     expect(document.querySelector(".grid")).toBeNull();
   });
 
@@ -145,17 +150,17 @@ describe("/best 베스트 페이지", () => {
     expect(screen.getByRole("status")).toHaveTextContent(/^상품을 불러오지 못했어요$/);
     expect(document.querySelector(".grid")).toBeNull();
     expect(screen.queryByText("아직 베스트 상품이 없어요")).not.toBeInTheDocument();
-    expect(document.body.textContent).not.toContain("(총");
+    expect(document.body.textContent).not.toContain("총 ");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("베스트");
-    expect(screen.getByRole("navigation", { name: "베스트 기간" })).toBeInTheDocument();
-    expect(totalText()).toBe("베스트");
+    expect(periodSelect()).toBeInTheDocument(); // 실패해도 다른 기간으로 바꿔 볼 수 있다
+    expect(crumbText()).toBe("베스트");
   });
 
   it("실패: 네트워크 오류여도 던지지 않고 오류 안내와 탭이 보인다", async () => {
     mockBest(() => Promise.reject(new TypeError("network")));
     await renderPage({ best: "monthly" });
     expect(screen.getByText("상품을 불러오지 못했어요")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "월간" })).toHaveAttribute("aria-current", "page");
+    expect(periodSelect().value).toBe("monthly");
   });
 
   it("실패: 응답 모양이 잘못돼도(items 없음) 던지지 않고 오류 안내가 보인다", async () => {

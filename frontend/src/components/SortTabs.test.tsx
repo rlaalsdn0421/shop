@@ -11,10 +11,10 @@ describe("SortTabs", () => {
   it("성공: 선택된 탭을 가로 스크롤 영역 가운데로 가져온다 (세로 스크롤은 건드리지 않는다)", () => {
     const scrollIntoView = vi.fn();
     Element.prototype.scrollIntoView = scrollIntoView;
-    render(<SortTabs selected="discount" />);
+    render(<SortTabs selected="sales" />);
     expect(scrollIntoView).toHaveBeenCalledTimes(1);
     expect(scrollIntoView).toHaveBeenCalledWith({ inline: "center", block: "nearest" });
-    expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole("link", { name: "할인율순" }));
+    expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole("link", { name: "누적 판매순" }));
   });
 
   it("성공: 선택이 바뀌면 새로 선택된 탭으로 다시 스크롤한다", () => {
@@ -27,22 +27,21 @@ describe("SortTabs", () => {
   });
 
   it("실패: scrollIntoView가 없는 환경에서도 깨지지 않는다", () => {
-    expect(() => render(<SortTabs selected="discount" />)).not.toThrow();
+    expect(() => render(<SortTabs selected="sales" />)).not.toThrow();
   });
 
-  it("성공: 8개 정렬 링크가 ?sort=... 이고 순서가 기준 쇼핑몰과 같다", () => {
+  it("성공: 7개 정렬 링크가 ?sort=... 이고 할인율순은 없다", () => {
     render(<SortTabs selected="popular" />);
     expect(screen.getAllByRole("link").map((l) => l.textContent)).toEqual([
       "인기도순",
       "최신 등록순",
       "낮은 가격순",
       "높은 가격순",
-      "할인율순",
       "누적 판매순",
       "리뷰 많은순",
       "평점 높은순",
     ]);
-    expect(screen.getByRole("link", { name: "할인율순" })).toHaveAttribute("href", "/?sort=discount#all");
+    expect(screen.queryByRole("link", { name: "할인율순" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "인기도순" })).toHaveAttribute("href", "/?sort=popular#all");
     expect(screen.getByRole("link", { name: "최신 등록순" })).toHaveAttribute("href", "/?sort=newest#all");
     expect(screen.getByRole("link", { name: "낮은 가격순" })).toHaveAttribute("href", "/?sort=price_asc#all");
@@ -52,16 +51,21 @@ describe("SortTabs", () => {
     expect(screen.getByRole("link", { name: "누적 판매순" })).toHaveAttribute("href", "/?sort=sales#all");
   });
 
-  it("성공: 할인율순을 고르면 그 탭만 aria-current를 가진다", () => {
-    render(<SortTabs selected="discount" />);
-    expect(screen.getByRole("link", { name: "할인율순" })).toHaveAttribute("aria-current", "true");
-    expect(screen.getAllByRole("link").filter((l) => l.hasAttribute("aria-current"))).toHaveLength(1);
-  });
-
   it("성공: 선택된 정렬만 aria-current를 가진다", () => {
     render(<SortTabs selected="rating" />);
     expect(screen.getByRole("link", { name: "평점 높은순" })).toHaveAttribute("aria-current", "true");
     expect(screen.getByRole("link", { name: "인기도순" })).not.toHaveAttribute("aria-current");
+    expect(screen.getAllByRole("link").filter((l) => l.hasAttribute("aria-current"))).toHaveLength(1);
+  });
+
+  it("성공: 밑줄 nav 모양이고 선택 탭은 ✓ 없이 굵은 밑줄로 표시된다", () => {
+    render(<SortTabs selected="sales" />);
+    const nav = screen.getByRole("navigation", { name: "정렬" });
+    expect(nav).toHaveClass("mb-6", "border-b");
+    const selected = screen.getByRole("link", { name: "누적 판매순" });
+    expect(selected).toHaveClass("border-b-2", "border-neutral-900");
+    expect(document.body.textContent).not.toContain("✓");
+    expect(screen.getAllByRole("listitem")[0]).toHaveClass("shrink-0");
   });
 
   it("성공: category가 있으면 모든 링크가 category를 유지한다", () => {
@@ -85,146 +89,10 @@ describe("SortTabs", () => {
       "/?sort=price_asc&best=weekly#all"
     );
   });
-});
 
-describe("SortTabs variant=listing", () => {
-  it("성공: 정렬 nav는 mb-8 mt-4 이고 목록은 줄바꿈되는 flex이며, 링크 8개의 href는 기본 모양과 같다", () => {
-    const { unmount } = render(<SortTabs selected="popular" category="상의" best="weekly" />);
-    const defaultHrefs = screen.getAllByRole("link").map((l) => l.getAttribute("href"));
-    unmount();
-
-    render(<SortTabs variant="listing" selected="popular" category="상의" best="weekly" />);
-    const nav = screen.getByRole("navigation", { name: "정렬" });
-    expect(nav).toHaveClass("mb-8", "mt-4");
-    expect(nav).not.toHaveClass("border-b");
-    expect(nav.querySelector("ul")).toHaveClass("flex", "flex-wrap");
-    const links = screen.getAllByRole("link");
-    expect(links).toHaveLength(8);
-    expect(links.map((l) => l.getAttribute("href"))).toEqual(defaultHrefs);
-    expect(screen.getByRole("link", { name: "높은 가격순" })).toHaveAttribute(
-      "href",
-      `/?category=${encodeURIComponent("상의")}&sort=price_desc&best=weekly#all`
-    );
-  });
-
-  it("성공: 선택한 링크만 aria-current=page, 굵게+진하게, 맨 앞에 숨겨진 ✓가 있고 접근 이름은 라벨뿐이다", () => {
-    render(<SortTabs variant="listing" selected="discount" />);
-    const selected = screen.getByRole("link", { name: "할인율순" });
-    expect(selected).toHaveAttribute("aria-current", "page");
-    expect(selected).toHaveClass("font-bold", "text-neutral-900");
-    expect(selected.textContent).toBe("✓ 할인율순");
-    const mark = selected.firstElementChild as HTMLElement;
-    expect(mark.tagName).toBe("SPAN");
-    expect(mark).toHaveAttribute("aria-hidden", "true");
-    expect(mark.textContent).toBe("✓ ");
-    expect(selected.firstChild).toBe(mark);
-    expect(screen.getAllByRole("link").filter((l) => l.hasAttribute("aria-current"))).toHaveLength(1);
-  });
-
-  it("실패: 선택하지 않은 링크는 text-neutral-500 이고 aria-current와 ✓가 없다", () => {
-    render(<SortTabs variant="listing" selected="discount" />);
-    const others = screen.getAllByRole("link").filter((l) => l.textContent !== "✓ 할인율순");
-    expect(others).toHaveLength(7);
-    for (const link of others) {
-      expect(link).toHaveClass("text-neutral-500");
-      expect(link).not.toHaveClass("font-bold");
-      expect(link).not.toHaveAttribute("aria-current");
-      expect(link.textContent).not.toContain("✓");
-    }
-    expect(document.body.textContent?.match(/✓/g)).toHaveLength(1);
-  });
-
-  it("성공: 모든 항목 li에 세로 구분선 클래스가 있다 (첫 항목은 선 없이 왼쪽 정렬)", () => {
-    render(<SortTabs variant="listing" selected="popular" />);
-    const items = screen.getAllByRole("listitem");
-    expect(items).toHaveLength(8);
-    for (const li of items) {
-      expect(li).toHaveClass("border-l", "border-neutral-300", "px-3", "first:border-l-0", "first:pl-0");
-    }
-  });
-
-  it("성공: 선택이 바뀌면 ✓와 aria-current가 새 링크로 옮겨간다", () => {
-    const { rerender } = render(<SortTabs variant="listing" selected="popular" />);
-    rerender(<SortTabs variant="listing" selected="rating" />);
-    expect(screen.getByRole("link", { name: "평점 높은순" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "인기도순" }).textContent).toBe("인기도순");
-    expect(document.body.textContent?.match(/✓/g)).toHaveLength(1);
-  });
-
-  it("성공: 선택된 링크를 가운데로 스크롤하고, sales 라벨은 누적 판매순 그대로다", () => {
-    const scrollIntoView = vi.fn();
-    Element.prototype.scrollIntoView = scrollIntoView;
-    render(<SortTabs variant="listing" selected="sales" />);
-    expect(scrollIntoView).toHaveBeenCalledWith({ inline: "center", block: "nearest" });
-    expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole("link", { name: "누적 판매순" }));
-    expect(screen.getByRole("link", { name: "누적 판매순" })).toHaveAttribute("href", "/?sort=sales#all");
-  });
-
-  it("실패: variant가 없으면 예전 모양 그대로다 (aria-current=true, ✓ 없음, 밑줄 nav)", () => {
+  it("실패: 옵션에 없는 값(옛 discount)이 선택으로 와도 깨지지 않고 선택 표시만 없다", () => {
     render(<SortTabs selected="discount" />);
-    const nav = screen.getByRole("navigation", { name: "정렬" });
-    expect(nav).toHaveClass("mb-6", "border-b");
-    expect(nav).not.toHaveClass("mt-4");
-    const selected = screen.getByRole("link", { name: "할인율순" });
-    expect(selected).toHaveAttribute("aria-current", "true");
-    expect(selected).toHaveClass("border-b-2", "border-neutral-900");
-    expect(document.body.textContent).not.toContain("✓");
-    expect(screen.getAllByRole("listitem")[0]).toHaveClass("shrink-0");
-  });
-});
-
-describe("SortTabs basePath (자기 페이지 목록)", () => {
-  it.each([["listing" as const], [undefined]])(
-    "성공: variant=%s 이어도 basePath 를 주면 링크 8개가 /products?sort=<값> 이고 # 앵커가 없다",
-    (variant) => {
-      render(<SortTabs variant={variant} selected="popular" basePath="/products" />);
-      const links = screen.getAllByRole("link");
-      expect(links).toHaveLength(8);
-      expect(links.map((l) => l.getAttribute("href"))).toEqual([
-        "/products?sort=popular",
-        "/products?sort=newest",
-        "/products?sort=price_asc",
-        "/products?sort=price_desc",
-        "/products?sort=discount",
-        "/products?sort=sales",
-        "/products?sort=reviews",
-        "/products?sort=rating",
-      ]);
-      for (const l of links) expect(l.getAttribute("href")).not.toContain("#");
-    }
-  );
-
-  it("성공: basePath 와 category / best 를 함께 주면 모두 쿼리에 들어간다", () => {
-    render(<SortTabs variant="listing" selected="popular" basePath="/products" category="상의" best="weekly" />);
-    const href = screen.getByRole("link", { name: "높은 가격순" }).getAttribute("href") as string;
-    const [path, query] = href.split("?");
-    expect(path).toBe("/products");
-    expect(Object.fromEntries(new URLSearchParams(query))).toEqual({
-      category: "상의",
-      sort: "price_desc",
-      best: "weekly",
-    });
-    expect(href).not.toContain("#");
-  });
-
-  it("실패: basePath 가 없으면 예전 /?...#all 링크 그대로다 (listing 도 기본도)", () => {
-    for (const variant of ["listing" as const, undefined]) {
-      const { unmount } = render(<SortTabs variant={variant} selected="popular" />);
-      for (const l of screen.getAllByRole("link")) {
-        const href = l.getAttribute("href") as string;
-        expect(href.startsWith("/?sort=")).toBe(true);
-        expect(href.endsWith("#all")).toBe(true);
-      }
-      expect(screen.getByRole("link", { name: /최신 등록순/ })).toHaveAttribute("href", "/?sort=newest#all");
-      unmount();
-    }
-  });
-
-  it("성공: basePath 를 줘도 선택 표시는 그대로다 (listing 은 page, 기본은 true)", () => {
-    const { unmount } = render(<SortTabs variant="listing" selected="rating" basePath="/products" />);
-    expect(screen.getByRole("link", { name: "평점 높은순" })).toHaveAttribute("aria-current", "page");
-    unmount();
-    render(<SortTabs selected="rating" basePath="/products" />);
-    expect(screen.getByRole("link", { name: "평점 높은순" })).toHaveAttribute("aria-current", "true");
+    expect(screen.getAllByRole("link")).toHaveLength(7);
+    expect(screen.getAllByRole("link").filter((l) => l.hasAttribute("aria-current"))).toHaveLength(0);
   });
 });
