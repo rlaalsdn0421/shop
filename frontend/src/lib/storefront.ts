@@ -1,6 +1,5 @@
 import {
   BEST_PERIODS,
-  PRODUCT_SORTS,
   type BestPeriod,
   type ProductSort,
 } from "@/lib/api";
@@ -14,7 +13,6 @@ export const SORT_OPTIONS: { value: ProductSort; label: string }[] = [
   { value: "newest", label: "최신 등록순" },
   { value: "price_asc", label: "낮은 가격순" },
   { value: "price_desc", label: "높은 가격순" },
-  { value: "discount", label: "할인율순" },
   { value: "sales", label: "누적 판매순" },
   { value: "reviews", label: "리뷰 많은순" },
   { value: "rating", label: "평점 높은순" },
@@ -31,9 +29,11 @@ function first(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+// Only sorts the UI offers count: an old ?sort=discount link falls back to the default, so the
+// select never gets a value without an option (the backend still accepts "discount").
 export function parseSort(value: string | string[] | undefined): ProductSort {
   const v = first(value);
-  return PRODUCT_SORTS.find((s) => s === v) ?? DEFAULT_SORT;
+  return SORT_OPTIONS.find((o) => o.value === v)?.value ?? DEFAULT_SORT;
 }
 
 export function parseBestPeriod(value: string | string[] | undefined): BestPeriod {

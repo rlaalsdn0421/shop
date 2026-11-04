@@ -2,6 +2,7 @@ import { listProducts } from "@/lib/api";
 import { PRODUCT_PAGE_SIZE } from "@/lib/constants";
 import { InfiniteProductGrid } from "@/components/InfiniteProductGrid";
 import { ListingHeader } from "@/components/ListingHeader";
+import { ListingCount } from "@/components/ListingSortBar";
 import { SectionNote } from "@/components/ProductSection";
 
 export default async function NewProductsPage() {
@@ -10,11 +11,14 @@ export default async function NewProductsPage() {
 
   return (
     <section aria-labelledby="all-title" className="pt-2">
-      <ListingHeader title="신상품" total={total} />
+      <ListingHeader title="신상품" />
       {items.length === 0 ? (
         <SectionNote>아직 신상품이 없어요</SectionNote>
       ) : (
-        <div className="mt-8">
+        <div>
+          <div className="mb-6">
+            <ListingCount total={total} />
+          </div>
           <InfiniteProductGrid
             variant="listing"
             initialItems={items}
