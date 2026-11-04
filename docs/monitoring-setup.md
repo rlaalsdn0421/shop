@@ -8,7 +8,7 @@
 |---|---|---|
 | 서버 오류(5xx) 급증 | 5분 동안 5xx가 3건 이상 | Cloud Run 지표(`request_count`) |
 | 응답 느려짐 | 응답 시간 95번째 백분위수가 5초를 10분 넘게 | Cloud Run 지표(`request_latencies`) |
-| 서버 다운 | 접속 확인(1분마다 주소를 열어 봄)이 실패 | 업타임 체크 |
+| 서버 다운 | 접속 확인(5분마다 주소를 열어 봄)이 실패 | 업타임 체크 |
 | 주문 만료 스케줄러 중단 | 5분마다 도는 만료 작업의 성공 기록이 20분 동안 없음 | 로그 기반 지표(`expire_pending_ok`) |
 | 결제·취소 중요 오류 | 아래 문구의 오류 로그가 5분에 1건이라도 | 로그 기반 지표(`payment_errors`) |
 
@@ -151,7 +151,7 @@ gcloud alpha monitoring policies create --policy-from-file=/tmp/p-pay.json
 gcloud monitoring uptime create "shop-backend 접속 확인" \
   --resource-type=uptime-url \
   --resource-labels=host=shop-backend-mklbqo55qa-as.a.run.app,project_id=$PROJECT \
-  --protocol=https --path="/api/products?size=1" --period=1
+  --protocol=https --path="/api/products?size=1" --period=5
 CHECK_ID=$(gcloud monitoring uptime list-configs --filter='displayName="shop-backend 접속 확인"' --format='value(name)' | sed 's#.*/##')
 echo "CHECK_ID=$CHECK_ID"
 ```
@@ -200,7 +200,11 @@ cloudshell download ~/grafana-reader.json
 4. 올린 뒤 키 파일을 지운다: `shred -u ~/grafana-reader.json`, 내 컴퓨터에 내려받은 파일도 지운다.
 5. 데이터 소스의 **Dashboards** 탭에서 Cloud Run 대시보드를 가져오거나, 새 대시보드에 `Cloud Run 요청 수(응답 코드 그룹별)`, `요청 응답 시간(p95)`, `인스턴스 수`, `메모리·CPU`, 로그 기반 지표 두 개를 넣는다.
 
-(키를 만들 수 없게 막혀 있으면 조직 정책 때문이다. 그때는 이 단계를 건너뛰고 알림만 쓴다.)
+키를 만들 수 없게 막혀 있으면(`iam.disableServiceAccountKeyCreation` 정책, 이 프로젝트가 그렇다) 이 단계를 건너뛰고 알림과 구글 기본 대시보드를 쓴다. 정책을 끄지 않는다.
+
+- 구글 기본 대시보드: 콘솔 Monitoring > Dashboards > **Cloud Run Monitoring**(`?project=<프로젝트 ID>`로 연다). 서비스를 `shop-backend`로 고르면 요청 수, 응답 시간, 오류율이 보인다.
+- 키 없이 그라파나에 붙이는 방법으로 워크로드 아이덴티티 페더레이션(WIF)이 있다(그라파나 클라우드 한정). 단, 그라파나 안의 알림·예약 보고서·공개 대시보드는 안 되고 풀·공급자 설정이 복잡해서 지금은 쓰지 않는다.
+- 그라파나는 나중에 서버 지표를 서버가 직접 보낼 때 쓴다(구글 키가 필요 없다).
 
 ## 8. 확인
 
@@ -212,6 +216,7 @@ cloudshell download ~/grafana-reader.json
 ## 9. 알고 두는 한계
 
 - 알림은 지표가 모인 뒤에 울린다(보통 1~5분 지연). 서버가 아예 안 열리는 경우는 업타임 체크가 가장 빠르다.
+- 업타임 체크는 5분 주기로 둔다. 1분으로 하면 여러 지역에서 5분에 60건쯤 들어와 서버와 DB(Neon)가 쉬지 못한다(주소가 DB까지 닿는다). 다운을 알아채는 데 몇 분 더 걸리는 것을 감수한 선택이고, 주기는 `gcloud monitoring uptime update <체크 ID> --period=<분>`으로 바꾼다.
 - 응답 느려짐은 서버가 막 떠서 느린 첫 요청(콜드 스타트)이 섞여 가끔 울릴 수 있다(5초·10분 기준으로 완화했다). 너무 시끄러우면 기준을 올린다.
 - 결제·취소 오류는 PortOne이 일시적으로 느릴 때도 로그가 남아 울릴 수 있다. 그래도 한 번씩 확인할 가치가 있는 신호로 본다.
 - 무료 한도는 구글·그라파나의 요금표 기준이며 바뀔 수 있다. 가입·설정 화면에서 한도와 요금 안내를 한 번 확인한다.
