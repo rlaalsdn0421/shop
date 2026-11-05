@@ -45,7 +45,7 @@ export function ListingSortBar({
           aria-label={isBest ? "베스트 기간" : "정렬"}
           value={selected}
           onChange={(e) => router.push(hrefFor(e.target.value), { scroll: false })}
-          className="cursor-pointer appearance-none bg-transparent py-1 pl-2 pr-6 text-right text-sm text-neutral-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-900"
+          className="cursor-pointer appearance-none bg-transparent py-1 pl-2 pr-6 text-left text-sm text-neutral-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-900"
         >
           {options.map((option) => (
             <option key={option.value} value={option.value}>
