@@ -1,5 +1,6 @@
 package com.shop.backend.presentation.controller;
 
+import com.shop.backend.application.service.OrderCancelService;
 import com.shop.backend.application.service.PaymentService;
 import com.shop.backend.infrastructure.repository.UserRepository;
 import com.shop.backend.infrastructure.security.JwtService;
@@ -28,12 +29,14 @@ class InternalOrderControllerShortTokenTest {
     private UserRepository userRepository;
     @MockBean
     private PaymentService paymentService;
+    @MockBean
+    private OrderCancelService orderCancelService;
 
     @Test
     void 실패_32자_미만_토큰은_맞게_보내도_404이다() throws Exception {
         mockMvc.perform(post("/api/internal/orders/expire-pending").header("X-Internal-Token", "0123456789012345678901234567890"))
                 .andExpect(status().isNotFound());
 
-        verifyNoInteractions(paymentService);
+        verifyNoInteractions(paymentService, orderCancelService);
     }
 }

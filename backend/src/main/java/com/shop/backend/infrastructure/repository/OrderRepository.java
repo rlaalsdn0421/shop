@@ -62,6 +62,11 @@ public interface OrderRepository extends JpaRepository<Order, String> {
             + "' AND o.expiresAt < :now ORDER BY o.expiresAt")
     List<String> findExpiredPendingIds(@Param("now") Instant now, Pageable pageable);
 
+    // Stuck-cancel candidates for the scheduler, newest first: recent cancels are the likely ones to be resolved, and
+    // old provider-refused orders must not block the front.
+    @Query("SELECT o.id FROM Order o WHERE o.status = '" + Order.STATUS_CANCELING + "' ORDER BY o.createdAt DESC")
+    List<String> findCancelingIds(Pageable pageable);
+
     /**
      * Blocks until no other open transaction holds the same user+key lock; released at commit/rollback. A repository
      * method (not em.createNativeQuery) so a lock_timeout failure is translated to PessimisticLockingFailureException
