@@ -8,9 +8,11 @@ import com.shop.backend.domain.error.CancelProviderUnavailableException;
 import com.shop.backend.domain.error.InvalidOrderStateException;
 import com.shop.backend.domain.error.OrderNotFoundException;
 import com.shop.backend.domain.error.PaymentNotConfiguredException;
+import com.shop.backend.domain.error.PaymentProviderUnavailableException;
 import com.shop.backend.infrastructure.repository.OrderRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 /**
@@ -23,6 +25,10 @@ public class OrderCancelService {
 
     private static final Logger logger = LoggerFactory.getLogger(OrderCancelService.class);
     private static final String DEFAULT_CUSTOMER_REASON = "고객 요청 취소";
+
+    // One provider lookup is at most ~7s (connect 2s + read 5s); 5 x 7s stays under the scheduler's 60s attempt-deadline.
+    // shortcut: 최근 5건만, 영구히 멈춘 건이 최근 5건을 채우면 더 오래된 주문은 자동 대상에서 빠짐(판매자 버튼은 가능), 그때 순번 돌리기 또는 별도 표시 컬럼
+    static final int CANCEL_RESOLVE_BATCH = 5;
 
     private static final String PROVIDER_CANCELLED = "CANCELLED";
     private static final String PROVIDER_NOT_FOUND = "NOT_FOUND";
@@ -92,6 +98,31 @@ public class OrderCancelService {
             throw new CancelAlreadyDoneException();
         }
         return logged(orderId, "abandon", providerStatus, restored, actor);
+    }
+
+    /**
+     * Scheduler: checks up to {@link #CANCEL_RESOLVE_BATCH} stuck CANCELING orders (newest first) and finishes only those
+     * the provider reports as CANCELLED. Never abandons a cancel (money decisions stay with the seller). Returns how many
+     * it finished. A provider outage stops the loop; any other failure skips that order.
+     */
+    public int resolveStuckCancels() {
+        if (!paymentService.isConfigured()) {
+            return 0;
+        }
+        int resolved = 0;
+        for (String id : orderRepository.findCancelingIds(PageRequest.of(0, CANCEL_RESOLVE_BATCH))) {
+            try {
+                CancelResolution r = checkCancelByAdmin(id, "scheduler");
+                if (PROVIDER_CANCELLED.equals(r.providerStatus()) && isFinal(r.status())) {
+                    resolved++;
+                }
+            } catch (PaymentProviderUnavailableException e) {
+                break; // the remaining orders would fail the same way
+            } catch (RuntimeException e) {
+                logger.warn("Could not resolve canceling order {}: {}", id, e.getClass().getSimpleName());
+            }
+        }
+        return resolved;
     }
 
     private String loadStatus(String orderId) {

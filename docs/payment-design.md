@@ -45,7 +45,7 @@
 | `GET /api/orders`, `GET /api/orders/{id}` | 로그인(주문자만) | 응답에 `status`, `expiresAt`, `paidAt`이 들어간다(`status`는 이미 있으면 유지) |
 | `POST /api/orders/{id}/payment/complete` | 로그인(주문자만) | 위 확정 로직. 200 `{ status }`. 다른 사람·없는 주문은 404. 포트원이 아직 결제 완료가 아니면 409 `PAYMENT_NOT_CONFIRMED`, 금액 불일치 409 `PAYMENT_AMOUNT_MISMATCH`, 테스트 채널 결제 409 `PAYMENT_CHANNEL_NOT_ALLOWED`, 정리 후 재고 없음 409 `PAYMENT_NEEDS_REVIEW`, 포트원 장애·타임아웃 503 `PAYMENT_PROVIDER_UNAVAILABLE`(메시지 "결제 확인이 지연되고 있어요. 잠시 뒤 다시 확인해 주세요."), 결제 설정이 비어 있으면 503 `PAYMENT_NOT_CONFIGURED` |
 | `POST /api/payments/webhook` | 없음(서명 검증) | 본문은 **원문 문자열 그대로** 받아 서명 검증 후 파싱. 서명·타임스탬프 오류 400. `type == "Transaction.Paid"`만 처리(그 외 타입은 200으로 무시). 알 수 없는 paymentId(우리 주문이 아님)는 200으로 무시하고 INFO 로그. 포트원 조회 장애는 5xx로 돌려 포트원이 재시도하게 한다 |
-| `POST /api/internal/orders/expire-pending` | 헤더 `X-Internal-Token` | 만료된 `PENDING_PAYMENT` 주문을 최대 100건 정리하고 `{ expired: n }`을 돌려준다. `INTERNAL_TOKEN`이 비어 있으면 404. 토큰 비교는 상수 시간(`MessageDigest.isEqual`) |
+| `POST /api/internal/orders/expire-pending` | 헤더 `X-Internal-Token` | 만료된 `PENDING_PAYMENT` 주문을 최대 100건 정리한다. 이어서 멈춘 `CANCELING` 주문을 최대 5건 확인해 결제사가 취소 완료로 답한 것만 마무리하고 `{ expired: n, cancelsResolved: m }`을 돌려준다(취소 정리가 실패해도 200). `INTERNAL_TOKEN`이 비어 있으면 404. 토큰 비교는 상수 시간(`MessageDigest.isEqual`) |
 
 웹훅 서명 검증(Standard Webhooks, 포트원 JVM SDK `WebhookVerifier`와 같은 방식. 외부 SDK는 0.x라 쓰지 않고 표준 라이브러리로 구현):
 - 헤더 `webhook-id`, `webhook-timestamp`(초), `webhook-signature`(공백으로 구분된 `v1,<base64>` 여러 개).

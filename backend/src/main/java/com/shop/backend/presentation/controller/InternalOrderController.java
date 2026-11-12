@@ -1,5 +1,6 @@
 package com.shop.backend.presentation.controller;
 
+import com.shop.backend.application.service.OrderCancelService;
 import com.shop.backend.application.service.PaymentService;
 import com.shop.backend.presentation.dto.ErrorResponse;
 import org.slf4j.Logger;
@@ -23,10 +24,13 @@ public class InternalOrderController {
     private static final Logger logger = LoggerFactory.getLogger(InternalOrderController.class);
 
     private final PaymentService paymentService;
+    private final OrderCancelService orderCancelService;
     private final String token;
 
-    public InternalOrderController(PaymentService paymentService, @Value("${internal.token:}") String token) {
+    public InternalOrderController(PaymentService paymentService, OrderCancelService orderCancelService,
+                                   @Value("${internal.token:}") String token) {
         this.paymentService = paymentService;
+        this.orderCancelService = orderCancelService;
         boolean set = token != null && !token.isBlank();
         if (set && token.length() < MIN_TOKEN_LENGTH) {
             // never print the token itself
@@ -44,6 +48,14 @@ public class InternalOrderController {
                 provided.getBytes(StandardCharsets.UTF_8))) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ErrorResponse("인증이 필요합니다."));
         }
-        return ResponseEntity.ok(Map.of("expired", paymentService.expirePending()));
+        int expired = paymentService.expirePending();
+        int cancelsResolved = 0;
+        try {
+            cancelsResolved = orderCancelService.resolveStuckCancels();
+        } catch (RuntimeException e) {
+            // a cancel cleanup failure must not break the expiry result or the 200 the monitoring relies on
+            logger.warn("Could not resolve stuck cancels: {}", e.getClass().getSimpleName());
+        }
+        return ResponseEntity.ok(Map.of("expired", expired, "cancelsResolved", cancelsResolved));
     }
 }
